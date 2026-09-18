@@ -7,11 +7,11 @@
   "engines": {
     "node": ">=24.0.0 <25.0.0"
   },
-  "scripts": {
-    "dev": "",
-    "start": "",
-    "test": ""
-  },
+ "scripts": {
+  "dev": "nodemon --env-file=.env src/server.js",
+  "start": "node --env-file=.env src/server.js",
+  "test": "node --test"
+},
   "dependencies": {
     "express": "^5.2.1"
   },
