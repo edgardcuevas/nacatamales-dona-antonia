@@ -13,12 +13,17 @@
     "test": "node --test"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "express": "5.2.1",
     "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.4"
   },
   "devDependencies": {
     "knex": "^3.3.0",
     "nodemon": "3.1.14"
+  },
+  "allowScripts": {
+    "bcrypt@6.0.0": true
   }
 }
