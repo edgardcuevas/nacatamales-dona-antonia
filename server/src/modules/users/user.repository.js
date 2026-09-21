@@ -68,8 +68,31 @@ async function updatePasswordHashById(
   return result.affectedRows === 1;
 }
 
+async function findUserById(userId) {
+  const [rows] = await pool.execute(
+    `
+      SELECT
+        id,
+        email,
+        role,
+        is_active,
+        last_login_at,
+        password_changed_at,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  return rows[0] ?? null;
+}
+
 module.exports = {
   findUserByEmail,
   createUser,
-    updatePasswordHashById,
+  updatePasswordHashById,
+  findUserById,
 };

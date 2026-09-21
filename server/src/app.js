@@ -1,5 +1,6 @@
 const express = require("express");
 const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
 
 
 const authRoutes = require("./modules/auth/auth.routes");
@@ -18,6 +19,7 @@ app.use(helmet());
 
 
 app.use(express.json({ limit: "100kb" }));
+app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
 
