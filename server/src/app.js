@@ -2,6 +2,8 @@ const express = require("express");
 const helmet = require("helmet");
 
 
+const authRoutes = require("./modules/auth/auth.routes");
+
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
 
@@ -16,6 +18,8 @@ app.use(helmet());
 
 
 app.use(express.json({ limit: "100kb" }));
+
+app.use("/api/auth", authRoutes);
 
 app.get("/api/health", (request, response) => {
   return successResponse(
