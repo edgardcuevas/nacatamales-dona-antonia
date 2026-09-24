@@ -1,5 +1,9 @@
 const pool = require("../../database/pool");
 
+const AUTH_SESSION_RETENTION_DAYS = 30;
+const MILLISECONDS_PER_DAY =
+  24 * 60 * 60 * 1000;
+
 async function withTransaction(work) {
   const connection = await pool.getConnection();
 
@@ -137,6 +141,49 @@ async function rotateSession({
   }
 }
 
+function getAuthSessionRetentionCutoff(now) {
+  if (
+    !(now instanceof Date) ||
+    Number.isNaN(now.getTime())
+  ) {
+    throw new Error(
+      "A valid date is required for session cleanup"
+    );
+  }
+
+  return new Date(
+    now.getTime() -
+      AUTH_SESSION_RETENTION_DAYS *
+        MILLISECONDS_PER_DAY
+  );
+}
+
+async function deleteStaleAuthSessions({
+  now = new Date(),
+} = {}) {
+  const retentionCutoff =
+    getAuthSessionRetentionCutoff(now);
+
+  const [result] = await pool.execute(
+    `
+      DELETE FROM auth_sessions
+      WHERE
+        (
+          expires_at < ?
+          AND revoked_at IS NULL
+        )
+        OR
+        (
+          revoked_at IS NOT NULL
+          AND revoked_at < ?
+        )
+    `,
+    [retentionCutoff, retentionCutoff]
+  );
+
+  return result.affectedRows;
+}
+
 async function revokeAllActiveSessionsByUserId(
   userId
 ) {
@@ -175,10 +222,12 @@ async function revokeSessionByRefreshTokenHash(
 }
 
 module.exports = {
+  AUTH_SESSION_RETENTION_DAYS,
   withTransaction,
   createSession,
   findSessionByRefreshTokenHash,
   rotateSession,
+  deleteStaleAuthSessions,
   revokeAllActiveSessionsByUserId,
   revokeSessionByRefreshTokenHash,
 };

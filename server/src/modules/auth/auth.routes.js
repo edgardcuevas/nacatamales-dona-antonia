@@ -14,11 +14,23 @@ const authenticate = require(
 const requireActiveUser = require(
   "../../middlewares/require-active-user.middleware"
 );
+const {
+  loginRateLimiter,
+  refreshRateLimiter,
+} = require("../../middlewares/rate-limit.middleware");
 
 const router = express.Router();
 
-router.post("/login", loginController);
-router.post("/refresh", refreshController);
+router.post(
+  "/login",
+  loginRateLimiter,
+  loginController
+);
+router.post(
+  "/refresh",
+  refreshRateLimiter,
+  refreshController
+);
 router.post("/logout", logoutController);
 router.post(
   "/logout-all",
