@@ -15,6 +15,7 @@ const {
 
 const {
   renewAuthSession,
+  revokeAllAuthSessions,
   revokeAuthSession,
 } = require("./auth-session.service");
 
@@ -133,8 +134,47 @@ async function logoutController(request, response) {
   );
 }
 
+async function logoutAllController(request, response) {
+  // Logout-all revokes refresh sessions; issued access tokens remain valid until exp.
+  await revokeAllAuthSessions(
+    request.currentUser.id
+  );
+
+  clearRefreshTokenCookie(response);
+
+  return successResponse(
+    response,
+    200,
+    null,
+    "All sessions closed successfully"
+  );
+}
+
+function meController(request, response) {
+  const {
+    id,
+    email,
+    role,
+  } = request.currentUser;
+
+  return successResponse(
+    response,
+    200,
+    {
+      user: {
+        id,
+        email,
+        role,
+      },
+    },
+    "Authenticated user retrieved successfully"
+  );
+}
+
 module.exports = {
   loginController,
   refreshController,
   logoutController,
+  logoutAllController,
+  meController,
 };

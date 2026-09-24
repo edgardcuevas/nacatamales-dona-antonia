@@ -1,11 +1,29 @@
 const pool = require("../../database/pool");
 
+async function withTransaction(work) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const result = await work(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function createSession({
   userId,
   refreshTokenHash,
   expiresAt,
+  connection,
 }) {
-  const [result] = await pool.execute(
+  const executor = connection ?? pool;
+  const [result] = await executor.execute(
     `
       INSERT INTO auth_sessions (
         user_id,
@@ -119,6 +137,25 @@ async function rotateSession({
   }
 }
 
+async function revokeAllActiveSessionsByUserId(
+  userId
+) {
+  const [result] = await pool.execute(
+    `
+      UPDATE auth_sessions
+      SET
+        revoked_at = CURRENT_TIMESTAMP,
+        last_used_at = CURRENT_TIMESTAMP
+      WHERE user_id = ?
+        AND revoked_at IS NULL
+        AND expires_at > CURRENT_TIMESTAMP
+    `,
+    [userId]
+  );
+
+  return result.affectedRows;
+}
+
 async function revokeSessionByRefreshTokenHash(
   refreshTokenHash
 ) {
@@ -138,8 +175,10 @@ async function revokeSessionByRefreshTokenHash(
 }
 
 module.exports = {
+  withTransaction,
   createSession,
   findSessionByRefreshTokenHash,
   rotateSession,
+  revokeAllActiveSessionsByUserId,
   revokeSessionByRefreshTokenHash,
 };

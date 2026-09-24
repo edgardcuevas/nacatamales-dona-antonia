@@ -90,9 +90,49 @@ async function findUserById(userId) {
   return rows[0] ?? null;
 }
 
+async function updateLastLoginAtById({
+  userId,
+  connection,
+}) {
+  if (!connection) {
+    throw new Error(
+      "A database connection is required to update last login"
+    );
+  }
+
+  const [rows] = await connection.execute(
+    `
+      SELECT id
+      FROM users
+      WHERE id = ?
+        AND is_active = 1
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [userId]
+  );
+
+  if (rows.length === 0) {
+    return false;
+  }
+
+  await connection.execute(
+    `
+      UPDATE users
+      SET
+        last_login_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    [userId]
+  );
+
+  return true;
+}
+
 module.exports = {
   findUserByEmail,
   createUser,
   updatePasswordHashById,
   findUserById,
+  updateLastLoginAtById,
 };

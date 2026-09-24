@@ -27,6 +27,14 @@ function createInvalidRefreshTokenError() {
   );
 }
 
+function createInactiveUserError() {
+  return new AppError(
+    403,
+    "USER_INACTIVE",
+    "This user account is inactive"
+  );
+}
+
 async function createAuthSession(user) {
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);
@@ -41,11 +49,26 @@ async function createAuthSession(user) {
     refreshTokenPayload.exp * 1000
   );
 
-  await authSessionRepository.createSession({
-    userId: user.id,
-    refreshTokenHash,
-    expiresAt,
-  });
+  await authSessionRepository.withTransaction(
+    async (connection) => {
+      await authSessionRepository.createSession({
+        userId: user.id,
+        refreshTokenHash,
+        expiresAt,
+        connection,
+      });
+
+      const lastLoginAtUpdated =
+        await userRepository.updateLastLoginAtById({
+          userId: user.id,
+          connection,
+        });
+
+      if (!lastLoginAtUpdated) {
+        throw createInactiveUserError();
+      }
+    }
+  );
 
   return {
     accessToken,
@@ -146,6 +169,18 @@ async function renewAuthSession(refreshToken) {
   };
 }
 
+async function revokeAllAuthSessions(userId) {
+  if (
+    !Number.isSafeInteger(userId) ||
+    userId < 1
+  ) {
+    return 0;
+  }
+
+  return authSessionRepository
+    .revokeAllActiveSessionsByUserId(userId);
+}
+
 async function revokeAuthSession(refreshToken) {
   if (
     typeof refreshToken !== "string" ||
@@ -166,5 +201,6 @@ async function revokeAuthSession(refreshToken) {
 module.exports = {
   createAuthSession,
   renewAuthSession,
+  revokeAllAuthSessions,
   revokeAuthSession,
 };
