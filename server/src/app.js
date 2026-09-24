@@ -4,6 +4,7 @@ const cookieParser = require("cookie-parser");
 
 
 const authRoutes = require("./modules/auth/auth.routes");
+const userRoutes = require("./modules/users/user.routes");
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -22,6 +23,7 @@ app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin/users", userRoutes);
 
 app.get("/api/health", (request, response) => {
   return successResponse(

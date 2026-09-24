@@ -185,9 +185,11 @@ async function deleteStaleAuthSessions({
 }
 
 async function revokeAllActiveSessionsByUserId(
-  userId
+  userId,
+  connection
 ) {
-  const [result] = await pool.execute(
+  const executor = connection ?? pool;
+  const [result] = await executor.execute(
     `
       UPDATE auth_sessions
       SET
