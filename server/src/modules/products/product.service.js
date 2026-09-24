@@ -3,6 +3,9 @@ const AppError = require("../../errors/app-error");
 const categoryRepository = require(
   "../categories/category.repository"
 );
+const mediaRepository = require(
+  "../media/media.repository"
+);
 const productRepository = require(
   "./product.repository"
 );
@@ -44,6 +47,30 @@ function createProductSlugDuplicateError() {
     409,
     "PRODUCT_SLUG_ALREADY_EXISTS",
     "A product with this slug already exists"
+  );
+}
+
+function createMediaNotFoundError() {
+  return new AppError(
+    404,
+    "MEDIA_NOT_FOUND",
+    "The requested media does not exist"
+  );
+}
+
+function createMediaInactiveError() {
+  return new AppError(
+    409,
+    "MEDIA_INACTIVE",
+    "The selected media is inactive"
+  );
+}
+
+function createInvalidMediaResourceTypeError() {
+  return new AppError(
+    400,
+    "INVALID_MEDIA_RESOURCE_TYPE",
+    "The selected media must be an image"
   );
 }
 
@@ -116,6 +143,47 @@ function normalizePrice(price) {
   return price;
 }
 
+function toOptionalDimension(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const dimension = Number(value);
+  if (
+    !Number.isSafeInteger(dimension) ||
+    dimension < 0
+  ) {
+    throw new Error("Invalid media dimension record");
+  }
+
+  return dimension;
+}
+
+function toImage(product) {
+  if (
+    product.image_id === null ||
+    product.image_id === undefined
+  ) {
+    return null;
+  }
+
+  const id = Number(product.image_id);
+  if (
+    !Number.isSafeInteger(id) ||
+    id < 1
+  ) {
+    throw new Error("Invalid product image record");
+  }
+
+  return {
+    id,
+    url: product.image_url,
+    altText: product.image_alt_text ?? null,
+    width: toOptionalDimension(product.image_width),
+    height: toOptionalDimension(product.image_height),
+  };
+}
+
 function getCategoryDto(product) {
   return {
     id: Number(product.category_id),
@@ -148,11 +216,26 @@ function toPublicProduct(product) {
     price: normalizePrice(product.price),
     isAvailable: isActiveRecord(product.is_available),
     sortOrder,
+    image: toImage(product),
     category: getCategoryDto(product),
   };
 }
 
 function toAdminProduct(product) {
+  const imageMediaId =
+    product.image_media_id === null ||
+    product.image_media_id === undefined
+      ? null
+      : Number(product.image_media_id);
+
+  if (
+    imageMediaId !== null &&
+    (!Number.isSafeInteger(imageMediaId) ||
+      imageMediaId < 1)
+  ) {
+    throw new Error("Invalid product image reference");
+  }
+
   return {
     id: Number(product.id),
     categoryId: Number(product.category_id),
@@ -163,6 +246,8 @@ function toAdminProduct(product) {
     isAvailable: isActiveRecord(product.is_available),
     isActive: isActiveRecord(product.is_active),
     sortOrder: Number(product.sort_order),
+    imageMediaId,
+    image: toImage(product),
     category: getCategoryDto(product),
     createdAt: product.created_at ?? null,
     updatedAt: product.updated_at ?? null,
@@ -217,6 +302,30 @@ async function ensureActiveCategory(categoryId) {
   }
 }
 
+async function validateImageReference(imageMediaId) {
+  if (
+    imageMediaId === null ||
+    imageMediaId === undefined
+  ) {
+    return;
+  }
+
+  const media =
+    await mediaRepository.findMediaById(imageMediaId);
+
+  if (!media) {
+    throw createMediaNotFoundError();
+  }
+
+  if (!isActiveRecord(media.is_active)) {
+    throw createMediaInactiveError();
+  }
+
+  if (media.resource_type !== "IMAGE") {
+    throw createInvalidMediaResourceTypeError();
+  }
+}
+
 async function listAdministrativeProducts(filters) {
   const { products, totalItems } =
     await productRepository.listProducts(filters);
@@ -251,6 +360,7 @@ async function getProductById(productId) {
 
 async function createProduct(input) {
   await ensureActiveCategory(input.categoryId);
+  await validateImageReference(input.imageMediaId);
 
   let created;
   try {
@@ -282,6 +392,10 @@ async function updateProduct({
     Object.hasOwn(updates, "categoryId")
   ) {
     await ensureActiveCategory(updates.categoryId);
+  }
+
+  if (Object.hasOwn(updates, "imageMediaId")) {
+    await validateImageReference(updates.imageMediaId);
   }
 
   let updated;

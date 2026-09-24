@@ -202,7 +202,7 @@ test("category repository uses a whitelist and parameterized admin filters", asy
   });
 
   assert.equal(result.totalItems, 1);
-  assert.match(queries[0].sql, /ORDER BY name ASC/);
+  assert.match(queries[0].sql, /ORDER BY c\.name ASC/);
   assert.match(queries[0].sql, /is_active = \?/);
   assert.match(queries[0].sql, /name LIKE \?/);
   assert.deepEqual(queries[0].parameters, [

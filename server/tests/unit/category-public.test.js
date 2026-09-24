@@ -100,10 +100,10 @@ test("public category repository filters active rows and orders deterministicall
     await categoryRepository.listPublicCategories();
 
   assert.equal(result.length, 1);
-  assert.match(capturedSql, /WHERE is_active = 1/);
+  assert.match(capturedSql, /WHERE c\.is_active = 1/);
   assert.match(
     capturedSql,
-    /ORDER BY sort_order ASC, name ASC, id ASC/
+    /ORDER BY c\.sort_order ASC, c\.name ASC, c\.id ASC/
   );
   assert.doesNotMatch(capturedSql, /SELECT \*/);
 });
@@ -124,7 +124,7 @@ test("public category list returns only the approved DTO fields", async () => {
   );
   assert.deepEqual(
     Object.keys(result.body.data.categories[0]).sort(),
-    ["description", "id", "name", "slug", "sortOrder"]
+    ["description", "id", "image", "name", "slug", "sortOrder"]
   );
   assert.equal(
     Object.hasOwn(

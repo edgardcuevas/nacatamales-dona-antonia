@@ -151,6 +151,7 @@ test("product creation and update validators reject unknown fields and missing v
     price: "5.50",
     isAvailable: true,
     sortOrder: 0,
+    imageMediaId: null,
   });
 
   assert.throws(
@@ -219,7 +220,7 @@ test("product admin repository uses a safe order map and parameterized filters",
   });
 
   assert.equal(result.totalItems, 1);
-  assert.match(queries[0].sql, /ORDER BY price DESC/);
+  assert.match(queries[0].sql, /ORDER BY p\.price DESC/);
   assert.match(queries[0].sql, /p\.category_id = \?/);
   assert.match(queries[0].sql, /p\.is_available = \?/);
   assert.doesNotMatch(queries[0].sql, /SELECT \*/);

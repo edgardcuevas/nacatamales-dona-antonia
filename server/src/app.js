@@ -17,6 +17,21 @@ const productRoutes = require(
 const productAdminRoutes = require(
   "./modules/products/product.admin.routes"
 );
+const announcementRoutes = require(
+  "./modules/announcements/announcement.routes"
+);
+const announcementAdminRoutes = require(
+  "./modules/announcements/announcement.admin.routes"
+);
+const videoRoutes = require(
+  "./modules/videos/video.routes"
+);
+const videoAdminRoutes = require(
+  "./modules/videos/video.admin.routes"
+);
+const mediaAdminRoutes = require(
+  "./modules/media/media.admin.routes"
+);
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -45,6 +60,23 @@ app.use("/api/products", productRoutes);
 app.use(
   "/api/admin/products",
   productAdminRoutes
+);
+app.use(
+  "/api/announcements",
+  announcementRoutes
+);
+app.use(
+  "/api/admin/announcements",
+  announcementAdminRoutes
+);
+app.use("/api/videos", videoRoutes);
+app.use(
+  "/api/admin/videos",
+  videoAdminRoutes
+);
+app.use(
+  "/api/admin/media",
+  mediaAdminRoutes
 );
 
 app.get("/api/health", (request, response) => {

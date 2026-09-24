@@ -144,6 +144,24 @@ function parseCategorySortOrder(value) {
   return value;
 }
 
+function parseImageMediaId(value) {
+  if (value === null) {
+    return null;
+  }
+
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1
+  ) {
+    throw createValidationError(
+      "INVALID_MEDIA_ID",
+      "A valid media ID is required"
+    );
+  }
+
+  return value;
+}
+
 function parsePositiveIntegerQuery(
   value,
   defaultValue,
@@ -263,6 +281,7 @@ function parseCreateCategoryBody(body) {
     "slug",
     "description",
     "sortOrder",
+    "imageMediaId",
   ]);
 
   if (
@@ -286,6 +305,10 @@ function parseCreateCategoryBody(body) {
       body.sortOrder === undefined
         ? 0
         : parseCategorySortOrder(body.sortOrder),
+    imageMediaId:
+      body.imageMediaId === undefined
+        ? null
+        : parseImageMediaId(body.imageMediaId),
   };
 }
 
@@ -296,6 +319,7 @@ function parseUpdateCategoryBody(body) {
     "slug",
     "description",
     "sortOrder",
+    "imageMediaId",
   ]);
 
   if (Object.keys(body).length === 0) {
@@ -319,6 +343,10 @@ function parseUpdateCategoryBody(body) {
   if (Object.hasOwn(body, "sortOrder")) {
     updates.sortOrder =
       parseCategorySortOrder(body.sortOrder);
+  }
+  if (Object.hasOwn(body, "imageMediaId")) {
+    updates.imageMediaId =
+      parseImageMediaId(body.imageMediaId);
   }
 
   return updates;
@@ -447,6 +475,7 @@ module.exports = {
   parseCategoryId,
   parseCategorySlug,
   parseCategoryName,
+  parseImageMediaId,
   parseCategoryListQuery,
   parseCreateCategoryBody,
   parseUpdateCategoryBody,

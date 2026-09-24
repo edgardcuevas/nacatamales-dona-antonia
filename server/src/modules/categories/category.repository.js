@@ -8,17 +8,17 @@ const {
 function buildCategoryListWhere({
   isActive,
   name,
-}) {
+} = {}) {
   const conditions = [];
   const parameters = [];
 
   if (isActive !== undefined) {
-    conditions.push("is_active = ?");
+    conditions.push("c.is_active = ?");
     parameters.push(isActive ? 1 : 0);
   }
 
   if (name !== undefined) {
-    conditions.push("name LIKE ?");
+    conditions.push("c.name LIKE ?");
     parameters.push(`%${name}%`);
   }
 
@@ -42,21 +42,60 @@ function getCategoryListOrder({
     throw new Error("Invalid category sort configuration");
   }
 
-  return `${CATEGORY_SORT_FIELDS[sortBy]} ${CATEGORY_SORT_ORDERS[sortOrder]}`;
+  const column = CATEGORY_SORT_FIELDS[sortBy];
+  const qualifiedColumn = column.includes(".")
+    ? column
+    : `c.${column}`;
+
+  return `${qualifiedColumn} ${CATEGORY_SORT_ORDERS[sortOrder]}`;
+}
+
+function getCategoryColumns() {
+  return `
+    c.id,
+    c.name,
+    c.slug,
+    c.description,
+    c.sort_order,
+    c.is_active,
+    c.image_media_id,
+    c.created_at,
+    c.updated_at,
+    m.id AS image_id,
+    m.secure_url AS image_url,
+    m.alt_text AS image_alt_text,
+    m.width AS image_width,
+    m.height AS image_height
+  `;
+}
+
+function getCategoryJoin() {
+  return `
+    FROM categories c
+    LEFT JOIN media m
+      ON m.id = c.image_media_id
+      AND m.is_active = 1
+      AND m.resource_type = 'IMAGE'
+  `;
 }
 
 async function listPublicCategories() {
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
-        name,
-        slug,
-        description,
-        sort_order
-      FROM categories
-      WHERE is_active = 1
-      ORDER BY sort_order ASC, name ASC, id ASC
+        c.id,
+        c.name,
+        c.slug,
+        c.description,
+        c.sort_order,
+        m.id AS image_id,
+        m.secure_url AS image_url,
+        m.alt_text AS image_alt_text,
+        m.width AS image_width,
+        m.height AS image_height
+      ${getCategoryJoin()}
+      WHERE c.is_active = 1
+      ORDER BY c.sort_order ASC, c.name ASC, c.id ASC
     `
   );
 
@@ -67,14 +106,19 @@ async function findPublicCategoryBySlug(slug) {
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
-        name,
-        slug,
-        description,
-        sort_order
-      FROM categories
-      WHERE slug = ?
-        AND is_active = 1
+        c.id,
+        c.name,
+        c.slug,
+        c.description,
+        c.sort_order,
+        m.id AS image_id,
+        m.secure_url AS image_url,
+        m.alt_text AS image_alt_text,
+        m.width AS image_width,
+        m.height AS image_height
+      ${getCategoryJoin()}
+      WHERE c.slug = ?
+        AND c.is_active = 1
       LIMIT 1
     `,
     [slug]
@@ -88,18 +132,12 @@ async function listCategories(filters) {
     buildCategoryListWhere(filters);
   const orderSql = getCategoryListOrder(filters);
   const offset = (filters.page - 1) * filters.limit;
+
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
-        name,
-        slug,
-        description,
-        sort_order,
-        is_active,
-        created_at,
-        updated_at
-      FROM categories
+        ${getCategoryColumns()}
+      ${getCategoryJoin()}
       ${whereSql}
       ORDER BY ${orderSql}
       LIMIT ? OFFSET ?
@@ -113,7 +151,7 @@ async function listCategories(filters) {
   const [countRows] = await pool.execute(
     `
       SELECT COUNT(*) AS total_items
-      FROM categories
+      FROM categories c
       ${whereSql}
     `,
     parameters
@@ -129,16 +167,9 @@ async function findCategoryById(categoryId) {
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
-        name,
-        slug,
-        description,
-        sort_order,
-        is_active,
-        created_at,
-        updated_at
-      FROM categories
-      WHERE id = ?
+        ${getCategoryColumns()}
+      ${getCategoryJoin()}
+      WHERE c.id = ?
       LIMIT 1
     `,
     [categoryId]
@@ -152,6 +183,7 @@ async function createCategory({
   slug,
   description,
   sortOrder,
+  imageMediaId,
 }) {
   const [result] = await pool.execute(
     `
@@ -159,11 +191,18 @@ async function createCategory({
         name,
         slug,
         description,
-        sort_order
+        sort_order,
+        image_media_id
       )
-      VALUES (?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?)
     `,
-    [name, slug, description, sortOrder]
+    [
+      name,
+      slug,
+      description,
+      sortOrder,
+      imageMediaId,
+    ]
   );
 
   return { id: result.insertId };
@@ -178,6 +217,7 @@ async function updateCategoryById({
     slug: "slug",
     description: "description",
     sortOrder: "sort_order",
+    imageMediaId: "image_media_id",
   };
   const updateEntries = Object.entries(updates);
 

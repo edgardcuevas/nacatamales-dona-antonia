@@ -8,7 +8,7 @@ const {
 function buildPublicProductWhere({
   categorySlug,
   available,
-}) {
+} = {}) {
   const conditions = [
     "p.is_active = 1",
     "c.is_active = 1",
@@ -36,7 +36,7 @@ function buildAdminProductWhere({
   categoryId,
   isActive,
   isAvailable,
-}) {
+} = {}) {
   const conditions = [];
   const parameters = [];
 
@@ -80,10 +80,45 @@ function getProductAdminColumns() {
     p.is_available,
     p.is_active,
     p.sort_order,
+    p.image_media_id,
     p.created_at,
     p.updated_at,
     c.name AS category_name,
-    c.slug AS category_slug
+    c.slug AS category_slug,
+    m.id AS image_id,
+    m.secure_url AS image_url,
+    m.alt_text AS image_alt_text,
+    m.width AS image_width,
+    m.height AS image_height
+  `;
+}
+
+function getProductPublicColumns() {
+  return `
+    p.id,
+    p.name,
+    p.slug,
+    p.description,
+    p.price,
+    p.is_available,
+    p.sort_order,
+    c.id AS category_id,
+    c.name AS category_name,
+    c.slug AS category_slug,
+    m.id AS image_id,
+    m.secure_url AS image_url,
+    m.alt_text AS image_alt_text,
+    m.width AS image_width,
+    m.height AS image_height
+  `;
+}
+
+function getProductImageJoin() {
+  return `
+    LEFT JOIN media m
+      ON m.id = p.image_media_id
+      AND m.is_active = 1
+      AND m.resource_type = 'IMAGE'
   `;
 }
 
@@ -98,7 +133,12 @@ function getProductListOrder({
     throw new Error("Invalid product sort configuration");
   }
 
-  return `${PRODUCT_SORT_FIELDS[sortBy]} ${PRODUCT_SORT_ORDERS[sortOrder]}`;
+  const column = PRODUCT_SORT_FIELDS[sortBy];
+  const qualifiedColumn = column.includes(".")
+    ? column
+    : `p.${column}`;
+
+  return `${qualifiedColumn} ${PRODUCT_SORT_ORDERS[sortOrder]}`;
 }
 
 async function listPublicProducts({
@@ -106,7 +146,7 @@ async function listPublicProducts({
   limit = 20,
   categorySlug,
   available,
-}) {
+} = {}) {
   if (
     !Number.isSafeInteger(page) ||
     page < 1 ||
@@ -125,19 +165,11 @@ async function listPublicProducts({
   const [rows] = await pool.execute(
     `
       SELECT
-        p.id,
-        p.name,
-        p.slug,
-        p.description,
-        p.price,
-        p.is_available,
-        p.sort_order,
-        c.id AS category_id,
-        c.name AS category_name,
-        c.slug AS category_slug
+        ${getProductPublicColumns()}
       FROM products p
       INNER JOIN categories c
         ON c.id = p.category_id
+      ${getProductImageJoin()}
       ${whereSql}
       ORDER BY p.sort_order ASC, p.name ASC, p.id ASC
       LIMIT ? OFFSET ?
@@ -169,19 +201,11 @@ async function findPublicProductBySlug(slug) {
   const [rows] = await pool.execute(
     `
       SELECT
-        p.id,
-        p.name,
-        p.slug,
-        p.description,
-        p.price,
-        p.is_available,
-        p.sort_order,
-        c.id AS category_id,
-        c.name AS category_name,
-        c.slug AS category_slug
+        ${getProductPublicColumns()}
       FROM products p
       INNER JOIN categories c
         ON c.id = p.category_id
+      ${getProductImageJoin()}
       WHERE p.slug = ?
         AND p.is_active = 1
         AND c.is_active = 1
@@ -205,6 +229,7 @@ async function listProducts(filters) {
       FROM products p
       INNER JOIN categories c
         ON c.id = p.category_id
+      ${getProductImageJoin()}
       ${whereSql}
       ORDER BY ${orderSql}
       LIMIT ? OFFSET ?
@@ -240,6 +265,7 @@ async function findProductById(productId) {
       FROM products p
       INNER JOIN categories c
         ON c.id = p.category_id
+      ${getProductImageJoin()}
       WHERE p.id = ?
       LIMIT 1
     `,
@@ -257,6 +283,7 @@ async function createProduct({
   price,
   isAvailable,
   sortOrder,
+  imageMediaId,
 }) {
   const [result] = await pool.execute(
     `
@@ -267,9 +294,10 @@ async function createProduct({
         description,
         price,
         is_available,
-        sort_order
+        sort_order,
+        image_media_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       categoryId,
@@ -279,6 +307,7 @@ async function createProduct({
       price,
       isAvailable ? 1 : 0,
       sortOrder,
+      imageMediaId,
     ]
   );
 
@@ -296,6 +325,7 @@ async function updateProductById({
     description: "description",
     price: "price",
     sortOrder: "sort_order",
+    imageMediaId: "image_media_id",
   };
   const updateEntries = Object.entries(updates);
 

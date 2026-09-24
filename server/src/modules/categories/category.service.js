@@ -1,5 +1,8 @@
 const AppError = require("../../errors/app-error");
 
+const mediaRepository = require(
+  "../media/media.repository"
+);
 const categoryRepository = require(
   "./category.repository"
 );
@@ -25,6 +28,30 @@ function createCategorySlugDuplicateError() {
     409,
     "CATEGORY_SLUG_ALREADY_EXISTS",
     "A category with this slug already exists"
+  );
+}
+
+function createMediaNotFoundError() {
+  return new AppError(
+    404,
+    "MEDIA_NOT_FOUND",
+    "The requested media does not exist"
+  );
+}
+
+function createMediaInactiveError() {
+  return new AppError(
+    409,
+    "MEDIA_INACTIVE",
+    "The selected media is inactive"
+  );
+}
+
+function createInvalidMediaResourceTypeError() {
+  return new AppError(
+    400,
+    "INVALID_MEDIA_RESOURCE_TYPE",
+    "The selected media must be an image"
   );
 }
 
@@ -65,6 +92,51 @@ function rethrowCategoryWriteError(error) {
   throw error;
 }
 
+function isActiveRecord(value) {
+  return value === true || value === 1;
+}
+
+function toOptionalDimension(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const dimension = Number(value);
+  if (
+    !Number.isSafeInteger(dimension) ||
+    dimension < 0
+  ) {
+    throw new Error("Invalid media dimension record");
+  }
+
+  return dimension;
+}
+
+function toImage(category) {
+  if (
+    category.image_id === null ||
+    category.image_id === undefined
+  ) {
+    return null;
+  }
+
+  const id = Number(category.image_id);
+  if (
+    !Number.isSafeInteger(id) ||
+    id < 1
+  ) {
+    throw new Error("Invalid category image record");
+  }
+
+  return {
+    id,
+    url: category.image_url,
+    altText: category.image_alt_text ?? null,
+    width: toOptionalDimension(category.image_width),
+    height: toOptionalDimension(category.image_height),
+  };
+}
+
 function toPublicCategory(category) {
   const id = Number(category.id);
   const sortOrder = Number(category.sort_order);
@@ -84,22 +156,67 @@ function toPublicCategory(category) {
     slug: category.slug,
     description: category.description ?? null,
     sortOrder,
+    image: toImage(category),
   };
 }
 
 function toAdminCategory(category) {
+  const id = Number(category.id);
+  const sortOrder = Number(category.sort_order);
+  const imageMediaId =
+    category.image_media_id === null ||
+    category.image_media_id === undefined
+      ? null
+      : Number(category.image_media_id);
+
+  if (
+    !Number.isSafeInteger(id) ||
+    id < 1 ||
+    !Number.isSafeInteger(sortOrder) ||
+    sortOrder < 0 ||
+    (imageMediaId !== null &&
+      (!Number.isSafeInteger(imageMediaId) ||
+        imageMediaId < 1))
+  ) {
+    throw new Error("Invalid administrative category record");
+  }
+
   return {
-    id: Number(category.id),
+    id,
     name: category.name,
     slug: category.slug,
     description: category.description ?? null,
-    sortOrder: Number(category.sort_order),
-    isActive:
-      category.is_active === true ||
-      category.is_active === 1,
+    sortOrder,
+    imageMediaId,
+    image: toImage(category),
+    isActive: isActiveRecord(category.is_active),
     createdAt: category.created_at ?? null,
     updatedAt: category.updated_at ?? null,
   };
+}
+
+async function validateImageReference(imageMediaId) {
+  if (
+    imageMediaId === null ||
+    imageMediaId === undefined
+  ) {
+    return;
+  }
+
+  const media =
+    await mediaRepository.findMediaById(imageMediaId);
+
+  if (!media) {
+    throw createMediaNotFoundError();
+  }
+
+  if (!isActiveRecord(media.is_active)) {
+    throw createMediaInactiveError();
+  }
+
+  if (media.resource_type !== "IMAGE") {
+    throw createInvalidMediaResourceTypeError();
+  }
 }
 
 async function listPublicCategories() {
@@ -154,8 +271,9 @@ async function getCategoryById(categoryId) {
 }
 
 async function createCategory(input) {
-  let created;
+  await validateImageReference(input.imageMediaId);
 
+  let created;
   try {
     created = await categoryRepository.createCategory(
       input
@@ -171,6 +289,10 @@ async function updateCategory({
   categoryId,
   updates,
 }) {
+  if (Object.hasOwn(updates, "imageMediaId")) {
+    await validateImageReference(updates.imageMediaId);
+  }
+
   const updated =
     await categoryRepository.updateCategoryById({
       categoryId,
@@ -205,8 +327,7 @@ async function changeCategoryStatus({
   }
 
   const currentIsActive =
-    category.is_active === true ||
-    category.is_active === 1;
+    isActiveRecord(category.is_active);
 
   if (currentIsActive !== isActive) {
     const updated =

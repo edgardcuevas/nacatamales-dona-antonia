@@ -146,6 +146,24 @@ function parseSortOrder(value) {
   return value;
 }
 
+function parseImageMediaId(value) {
+  if (value === null) {
+    return null;
+  }
+
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1
+  ) {
+    throw createValidationError(
+      "INVALID_MEDIA_ID",
+      "A valid media ID is required"
+    );
+  }
+
+  return value;
+}
+
 function parsePrice(value) {
   if (value === null) {
     return null;
@@ -371,6 +389,7 @@ function parseCreateProductBody(body) {
     "price",
     "isAvailable",
     "sortOrder",
+    "imageMediaId",
   ]);
 
   if (
@@ -419,6 +438,10 @@ function parseCreateProductBody(body) {
       body.sortOrder === undefined
         ? 0
         : parseSortOrder(body.sortOrder),
+    imageMediaId:
+      body.imageMediaId === undefined
+        ? null
+        : parseImageMediaId(body.imageMediaId),
   };
 }
 
@@ -431,6 +454,7 @@ function parseUpdateProductBody(body) {
     "description",
     "price",
     "sortOrder",
+    "imageMediaId",
   ]);
 
   if (Object.keys(body).length === 0) {
@@ -468,6 +492,10 @@ function parseUpdateProductBody(body) {
   }
   if (Object.hasOwn(body, "sortOrder")) {
     updates.sortOrder = parseSortOrder(body.sortOrder);
+  }
+  if (Object.hasOwn(body, "imageMediaId")) {
+    updates.imageMediaId =
+      parseImageMediaId(body.imageMediaId);
   }
 
   return updates;
@@ -646,6 +674,7 @@ module.exports = {
   parseProductId,
   parseProductSlug,
   parseProductName,
+  parseImageMediaId,
   parsePrice,
   parsePublicProductListQuery,
   parseAdminProductListQuery,
