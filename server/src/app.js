@@ -5,6 +5,18 @@ const cookieParser = require("cookie-parser");
 
 const authRoutes = require("./modules/auth/auth.routes");
 const userRoutes = require("./modules/users/user.routes");
+const categoryRoutes = require(
+  "./modules/categories/category.routes"
+);
+const categoryAdminRoutes = require(
+  "./modules/categories/category.admin.routes"
+);
+const productRoutes = require(
+  "./modules/products/product.routes"
+);
+const productAdminRoutes = require(
+  "./modules/products/product.admin.routes"
+);
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -24,6 +36,16 @@ app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin/users", userRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use(
+  "/api/admin/categories",
+  categoryAdminRoutes
+);
+app.use("/api/products", productRoutes);
+app.use(
+  "/api/admin/products",
+  productAdminRoutes
+);
 
 app.get("/api/health", (request, response) => {
   return successResponse(
