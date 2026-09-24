@@ -5,6 +5,9 @@ const VALID_NODE_ENVIRONMENTS = new Set([
 ]);
 
 const JWT_TTL_PATTERN = /^\d+[smhd]$/;
+const IMAGEKIT_HOST = "ik.imagekit.io";
+const IMAGEKIT_FOLDER_PATTERN =
+  /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/;
 
 function parsePort(value, variableName) {
   const port = Number(value);
@@ -48,6 +51,66 @@ function validateJwtTtl(value, variableName) {
   }
 
   return value;
+}
+
+function validateImageKitUrlEndpoint(value) {
+  let url;
+
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      "Environment variable IMAGEKIT_URL_ENDPOINT must be a valid HTTPS ImageKit URL."
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== IMAGEKIT_HOST ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "Environment variable IMAGEKIT_URL_ENDPOINT must be a valid HTTPS ImageKit URL."
+    );
+  }
+
+  const pathSegments = url.pathname
+    .split("/")
+    .filter(Boolean);
+
+  if (
+    pathSegments.length !== 1 ||
+    !/^[A-Za-z0-9_-]+$/.test(pathSegments[0])
+  ) {
+    throw new Error(
+      "Environment variable IMAGEKIT_URL_ENDPOINT must be a valid HTTPS ImageKit URL."
+    );
+  }
+
+  return `https://${IMAGEKIT_HOST}/${pathSegments[0]}`;
+}
+
+function validateImageKitFolder(value) {
+  const normalizedFolder = value
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+
+  if (
+    normalizedFolder.length === 0 ||
+    normalizedFolder.length > 255 ||
+    !IMAGEKIT_FOLDER_PATTERN.test(normalizedFolder) ||
+    normalizedFolder.includes("..")
+  ) {
+    throw new Error(
+      "Environment variable IMAGEKIT_FOLDER must be a safe ImageKit folder path."
+    );
+  }
+
+  return normalizedFolder;
 }
 
 function loadEnvironment() {
@@ -107,6 +170,23 @@ function loadEnvironment() {
     ),
   });
 
+  const imagekit = Object.freeze({
+    publicKey: requireEnvironmentVariable(
+      "IMAGEKIT_PUBLIC_KEY"
+    ),
+    privateKey: requireEnvironmentVariable(
+      "IMAGEKIT_PRIVATE_KEY"
+    ),
+    urlEndpoint: validateImageKitUrlEndpoint(
+      requireEnvironmentVariable(
+        "IMAGEKIT_URL_ENDPOINT"
+      )
+    ),
+    folder: validateImageKitFolder(
+      requireEnvironmentVariable("IMAGEKIT_FOLDER")
+    ),
+  });
+
   if (
     jwt.accessTokenSecret ===
     jwt.refreshTokenSecret
@@ -121,6 +201,7 @@ function loadEnvironment() {
     port,
     database,
     jwt,
+    imagekit,
     isDevelopment: nodeEnv === "development",
     isTest: nodeEnv === "test",
     isProduction: nodeEnv === "production",

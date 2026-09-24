@@ -1,9 +1,15 @@
 const pool = require("../../database/pool");
 
 const {
+  MEDIA_PROVIDER,
+  MEDIA_RESOURCE_TYPE,
   MEDIA_SORT_FIELDS,
   MEDIA_SORT_ORDERS,
 } = require("./media.constants");
+
+function getExecutor(connection) {
+  return connection ?? pool;
+}
 
 function getMediaListOrder({
   sortBy,
@@ -23,7 +29,7 @@ function buildMediaListWhere({
   isActive,
   resourceType,
   publicId,
-}) {
+} = {}) {
   const conditions = [];
   const parameters = [];
 
@@ -51,6 +57,40 @@ function buildMediaListWhere({
   };
 }
 
+function getMediaColumns() {
+  return `
+    id,
+    provider,
+    public_id,
+    secure_url,
+    resource_type,
+    format,
+    bytes,
+    width,
+    height,
+    alt_text,
+    is_active,
+    created_at,
+    updated_at
+  `;
+}
+
+async function withTransaction(work) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const result = await work(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function listMedia(filters) {
   const { whereSql, parameters } =
     buildMediaListWhere(filters);
@@ -60,19 +100,7 @@ async function listMedia(filters) {
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
-        provider,
-        public_id,
-        secure_url,
-        resource_type,
-        format,
-        bytes,
-        width,
-        height,
-        alt_text,
-        is_active,
-        created_at,
-        updated_at
+        ${getMediaColumns()}
       FROM media
       ${whereSql}
       ORDER BY ${orderSql}
@@ -99,11 +127,84 @@ async function listMedia(filters) {
   };
 }
 
-async function findMediaById(mediaId) {
+async function findMediaById(
+  mediaId,
+  connection = null,
+  forUpdate = false
+) {
+  const executor = getExecutor(connection);
+  const lockSql = forUpdate ? " FOR UPDATE" : "";
+  const [rows] = await executor.execute(
+    `
+      SELECT
+        ${getMediaColumns()}
+      FROM media
+      WHERE id = ?
+      LIMIT 1${lockSql}
+    `,
+    [mediaId]
+  );
+
+  return rows[0] ?? null;
+}
+
+async function findMediaByPublicId(publicId) {
   const [rows] = await pool.execute(
     `
       SELECT
-        id,
+        ${getMediaColumns()}
+      FROM media
+      WHERE provider = ?
+        AND public_id = ?
+      LIMIT 1
+    `,
+    [MEDIA_PROVIDER, publicId]
+  );
+
+  return rows[0] ?? null;
+}
+
+async function countMediaReferences(
+  mediaId,
+  connection = null
+) {
+  const executor = getExecutor(connection);
+  const [rows] = await executor.execute(
+    `
+      SELECT
+        (SELECT COUNT(*)
+           FROM categories
+          WHERE image_media_id = ?) AS category_count,
+        (SELECT COUNT(*)
+           FROM products
+          WHERE image_media_id = ?) AS product_count,
+        (SELECT COUNT(*)
+           FROM announcements
+          WHERE image_media_id = ?) AS announcement_count
+    `,
+    [mediaId, mediaId, mediaId]
+  );
+
+  const row = rows[0] ?? {};
+  return (
+    Number(row.category_count ?? 0) +
+    Number(row.product_count ?? 0) +
+    Number(row.announcement_count ?? 0)
+  );
+}
+
+async function createMedia({
+  publicId,
+  secureUrl,
+  format,
+  bytes,
+  width,
+  height,
+  altText,
+}) {
+  const [result] = await pool.execute(
+    `
+      INSERT INTO media (
         provider,
         public_id,
         secure_url,
@@ -113,17 +214,24 @@ async function findMediaById(mediaId) {
         width,
         height,
         alt_text,
-        is_active,
-        created_at,
-        updated_at
-      FROM media
-      WHERE id = ?
-      LIMIT 1
+        is_active
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `,
-    [mediaId]
+    [
+      MEDIA_PROVIDER,
+      publicId,
+      secureUrl,
+      MEDIA_RESOURCE_TYPE,
+      format,
+      bytes,
+      width,
+      height,
+      altText,
+    ]
   );
 
-  return rows[0] ?? null;
+  return { id: result.insertId };
 }
 
 async function updateMediaAltTextById({
@@ -147,8 +255,10 @@ async function updateMediaAltTextById({
 async function updateMediaStatusById({
   mediaId,
   isActive,
+  connection = null,
 }) {
-  const [result] = await pool.execute(
+  const executor = getExecutor(connection);
+  const [result] = await executor.execute(
     `
       UPDATE media
       SET
@@ -162,9 +272,30 @@ async function updateMediaStatusById({
   return result.affectedRows === 1;
 }
 
+async function deleteMediaById(
+  mediaId,
+  connection = null
+) {
+  const executor = getExecutor(connection);
+  const [result] = await executor.execute(
+    `
+      DELETE FROM media
+      WHERE id = ?
+    `,
+    [mediaId]
+  );
+
+  return result.affectedRows === 1;
+}
+
 module.exports = {
+  withTransaction,
   listMedia,
   findMediaById,
+  findMediaByPublicId,
+  countMediaReferences,
+  createMedia,
   updateMediaAltTextById,
   updateMediaStatusById,
+  deleteMediaById,
 };

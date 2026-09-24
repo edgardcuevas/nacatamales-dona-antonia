@@ -19,6 +19,10 @@ const TEST_ENVIRONMENT = Object.freeze({
   JWT_REFRESH_TOKEN_SECRET:
     "test-refresh-secret-with-at-least-32-characters",
   JWT_REFRESH_TOKEN_TTL: "30d",
+  IMAGEKIT_PUBLIC_KEY: "test_public_key",
+  IMAGEKIT_PRIVATE_KEY: "test_private_key",
+  IMAGEKIT_URL_ENDPOINT: "https://ik.imagekit.io/test-imagekit-id",
+  IMAGEKIT_FOLDER: "test-folder",
 });
 
 for (const [name, value] of Object.entries(
@@ -37,9 +41,14 @@ const {
   parseMediaListQuery,
   parseUpdateMediaBody,
   parseMediaStatusBody,
+  parseUploadAuthBody,
+  parseConfirmMediaBody,
 } = require("../../src/modules/media/media.validator");
 const mediaRepository = require(
   "../../src/modules/media/media.repository"
+);
+const imagekitAdapter = require(
+  "../../src/config/imagekit"
 );
 const mediaService = require(
   "../../src/modules/media/media.service"
@@ -57,10 +66,10 @@ afterEach(() => {
 function createRawMedia(overrides = {}) {
   return {
     id: 2,
-    provider: "CLOUDINARY",
+    provider: "IMAGEKIT",
     public_id: "qa/placeholder",
     secure_url:
-      "https://res.cloudinary.com/demo/image/upload/qa.jpg",
+      "https://ik.imagekit.io/test-imagekit-id/test-folder/qa.jpg",
     resource_type: "IMAGE",
     format: "jpg",
     bytes: 1234,
@@ -70,6 +79,21 @@ function createRawMedia(overrides = {}) {
     is_active: 1,
     created_at: new Date(),
     updated_at: new Date(),
+    ...overrides,
+  };
+}
+
+function createImageKitFile(overrides = {}) {
+  return {
+    fileId: "file_test_123",
+    filePath: "/test-folder/products/file.jpg",
+    fileType: "image",
+    mime: "image/jpeg",
+    name: "file.jpg",
+    size: 1024,
+    width: 1200,
+    height: 800,
+    url: "https://ik.imagekit.io/test-imagekit-id/test-folder/products/file.jpg",
     ...overrides,
   };
 }
@@ -172,6 +196,52 @@ test("media repository uses a safe order map and parameterized filters", async (
   ]);
 });
 
+test("media repository inserts provider metadata and counts all entity references", async () => {
+  const queries = [];
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      queries.push({ sql, parameters });
+      if (sql.includes("INSERT INTO media")) {
+        return [{ insertId: 12 }, []];
+      }
+      return [
+        [
+          {
+            category_count: 1,
+            product_count: 2,
+            announcement_count: 3,
+          },
+        ],
+        [],
+      ];
+    }
+  );
+
+  const created = await mediaRepository.createMedia({
+    publicId: "file_test_123",
+    secureUrl:
+      "https://ik.imagekit.io/test-imagekit-id/test-folder/products/file.jpg",
+    format: "jpg",
+    bytes: 1024,
+    width: 1200,
+    height: 800,
+    altText: null,
+  });
+  const references =
+    await mediaRepository.countMediaReferences(2);
+
+  assert.equal(created.id, 12);
+  assert.equal(references, 6);
+  assert.match(queries[0].sql, /INSERT INTO media/);
+  assert.equal(queries[0].parameters[0], "IMAGEKIT");
+  assert.equal(queries[0].parameters[1], "file_test_123");
+  assert.match(queries[1].sql, /categories/);
+  assert.match(queries[1].sql, /products/);
+  assert.match(queries[1].sql, /announcements/);
+});
+
 test("media service returns the approved administrative DTO", async () => {
   mock.method(
     mediaRepository,
@@ -245,6 +315,478 @@ test("media service returns a neutral not-found error", async () => {
     mediaService.getMediaById(999),
     (error) => {
       assertAppError(error, 404, "MEDIA_NOT_FOUND");
+      return true;
+    }
+  );
+});
+
+test("media upload and confirmation validators accept only approved inputs", () => {
+  assert.deepEqual(
+    parseUploadAuthBody({ target: "categories" }),
+    { target: "categories" }
+  );
+  assert.deepEqual(
+    parseConfirmMediaBody({
+      fileId: "file_test_123",
+      altText: null,
+    }),
+    {
+      fileId: "file_test_123",
+      altText: null,
+    }
+  );
+
+  for (const body of [
+    { target: "other" },
+    { target: "categories", folder: "client-folder" },
+  ]) {
+    assert.throws(
+      () => parseUploadAuthBody(body),
+      (error) => {
+        assert.equal(error.statusCode, 400);
+        return true;
+      }
+    );
+  }
+
+  assert.throws(
+    () =>
+      parseConfirmMediaBody({
+        fileId: "file_test_123",
+        secureUrl: "https://client-controlled",
+      }),
+    (error) => {
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.code, "UNEXPECTED_MEDIA_FIELDS");
+      return true;
+    }
+  );
+});
+
+test("media upload auth uses a short-lived provider signature and controlled folder", async () => {
+  mock.method(
+    imagekitAdapter,
+    "getAuthenticationParameters",
+    async (token, expire) => ({
+      token,
+      expire,
+      signature: "test-signature",
+    })
+  );
+
+  const result = await mediaService.createUploadAuth({
+    target: "products",
+  });
+
+  assert.equal(result.folder, "test-folder/products");
+  assert.equal(result.publicKey, "test_public_key");
+  assert.equal(
+    Object.hasOwn(result, "privateKey"),
+    false
+  );
+  assert.equal(result.signature, "test-signature");
+  assert.equal(result.useUniqueFileName, true);
+  assert.equal(
+    result.uploadUrl,
+    "https://upload.imagekit.io/api/v1/files/upload"
+  );
+});
+
+test("media upload auth rejects targets outside the approved map", async () => {
+  await assert.rejects(
+    mediaService.createUploadAuth({ target: "other" }),
+    (error) => {
+      assertAppError(
+        error,
+        400,
+        "INVALID_MEDIA_UPLOAD_TARGET"
+      );
+      return true;
+    }
+  );
+});
+
+test("media confirmation validates provider metadata before inserting", async () => {
+  mock.method(
+    imagekitAdapter,
+    "getFile",
+    async (fileId) => createImageKitFile({ fileId })
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaByPublicId",
+    async () => null
+  );
+  let inserted;
+  mock.method(
+    mediaRepository,
+    "createMedia",
+    async (input) => {
+      inserted = input;
+      return { id: 9 };
+    }
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        id: 9,
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+        secure_url:
+          "https://ik.imagekit.io/test-imagekit-id/test-folder/products/file.jpg",
+        format: "jpg",
+      })
+  );
+
+  const result = await mediaService.confirmMedia({
+    fileId: "file_test_123",
+    altText: "Confirmed",
+  });
+
+  assert.equal(result.id, 9);
+  assert.equal(result.provider, "IMAGEKIT");
+  assert.equal(inserted.publicId, "file_test_123");
+  assert.equal(inserted.bytes, 1024);
+  assert.equal(inserted.altText, "Confirmed");
+});
+
+test("media confirmation rejects provider metadata violations", async () => {
+  const cases = [
+    {
+      file: createImageKitFile({ mime: "image/svg+xml" }),
+      code: "MEDIA_INVALID_TYPE",
+      status: 400,
+    },
+    {
+      file: createImageKitFile({ name: "file.svg" }),
+      code: "MEDIA_INVALID_FORMAT",
+      status: 400,
+    },
+    {
+      file: createImageKitFile({
+        mime: "image/png",
+        name: "file.jpg",
+      }),
+      code: "MEDIA_INVALID_FORMAT",
+      status: 400,
+    },
+    {
+      file: createImageKitFile({ size: 6 * 1024 * 1024 }),
+      code: "MEDIA_TOO_LARGE",
+      status: 400,
+    },
+    {
+      file: createImageKitFile({ width: 6001 }),
+      code: "MEDIA_DIMENSIONS_EXCEEDED",
+      status: 400,
+    },
+    {
+      file: createImageKitFile({
+        url: "http://ik.imagekit.io/test/file.jpg",
+      }),
+      code: "MEDIA_PROVIDER_ERROR",
+      status: 502,
+    },
+    {
+      file: createImageKitFile({
+        filePath: "/outside/products/file.jpg",
+      }),
+      code: "MEDIA_PROVIDER_ERROR",
+      status: 502,
+    },
+  ];
+
+  for (const testCase of cases) {
+    mock.restoreAll();
+    mock.method(
+      imagekitAdapter,
+      "getFile",
+      async () => testCase.file
+    );
+    await assert.rejects(
+      mediaService.confirmMedia({
+        fileId: "file_test_123",
+        altText: null,
+      }),
+      (error) => {
+        assert.equal(error.statusCode, testCase.status);
+        assert.equal(error.code, testCase.code);
+        return true;
+      }
+    );
+  }
+});
+
+test("media confirmation maps provider not-found and duplicate errors", async () => {
+  const notFound = new Error("not found");
+  notFound.status = 404;
+  mock.method(
+    imagekitAdapter,
+    "getFile",
+    async () => {
+      throw notFound;
+    }
+  );
+  await assert.rejects(
+    mediaService.confirmMedia({
+      fileId: "file_test_123",
+      altText: null,
+    }),
+    (error) => {
+      assertAppError(error, 404, "MEDIA_FILE_NOT_FOUND");
+      return true;
+    }
+  );
+
+  mock.restoreAll();
+  mock.method(
+    imagekitAdapter,
+    "getFile",
+    async () => createImageKitFile()
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaByPublicId",
+    async () => createRawMedia({ provider: "IMAGEKIT" })
+  );
+  await assert.rejects(
+    mediaService.confirmMedia({
+      fileId: "file_test_123",
+      altText: null,
+    }),
+    (error) => {
+      assertAppError(error, 409, "MEDIA_ALREADY_EXISTS");
+      return true;
+    }
+  );
+});
+
+test("media deletion deactivates, deletes provider file, and then removes MySQL row", async () => {
+  let transactionCalls = 0;
+  let providerDeleteCalls = 0;
+  mock.method(
+    mediaRepository,
+    "withTransaction",
+    async (work) => {
+      transactionCalls += 1;
+      return work({});
+    }
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+      })
+  );
+  mock.method(
+    mediaRepository,
+    "countMediaReferences",
+    async () => 0
+  );
+  mock.method(
+    mediaRepository,
+    "updateMediaStatusById",
+    async () => true
+  );
+  mock.method(
+    mediaRepository,
+    "deleteMediaById",
+    async () => true
+  );
+  mock.method(
+    imagekitAdapter,
+    "deleteFile",
+    async () => {
+      providerDeleteCalls += 1;
+    }
+  );
+
+  const result = await mediaService.deleteMedia({
+    mediaId: 2,
+  });
+
+  assert.deepEqual(result, {
+    mediaId: 2,
+    deleted: true,
+  });
+  assert.equal(transactionCalls, 2);
+  assert.equal(providerDeleteCalls, 1);
+});
+
+test("media deletion rejects referenced media and compensates provider failure", async () => {
+  mock.method(
+    mediaRepository,
+    "withTransaction",
+    async (work) => work({})
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+      })
+  );
+  mock.method(
+    mediaRepository,
+    "countMediaReferences",
+    async () => 1
+  );
+  await assert.rejects(
+    mediaService.deleteMedia({ mediaId: 2 }),
+    (error) => {
+      assertAppError(error, 409, "MEDIA_IN_USE");
+      return true;
+    }
+  );
+
+  mock.restoreAll();
+  let restored = 0;
+  mock.method(
+    mediaRepository,
+    "withTransaction",
+    async (work) => work({})
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+      })
+  );
+  mock.method(
+    mediaRepository,
+    "countMediaReferences",
+    async () => 0
+  );
+  mock.method(
+    mediaRepository,
+    "updateMediaStatusById",
+    async ({ isActive }) => {
+      if (isActive) {
+        restored += 1;
+      }
+      return true;
+    }
+  );
+  mock.method(
+    imagekitAdapter,
+    "deleteFile",
+    async () => {
+      throw new Error("provider unavailable");
+    }
+  );
+  await assert.rejects(
+    mediaService.deleteMedia({ mediaId: 2 }),
+    (error) => {
+      assertAppError(error, 502, "MEDIA_PROVIDER_ERROR");
+      return true;
+    }
+  );
+  assert.equal(restored, 1);
+});
+
+test("media deletion treats a provider not-found response as an idempotent retry", async () => {
+  mock.method(
+    mediaRepository,
+    "withTransaction",
+    async (work) => work({})
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+        is_active: 0,
+      })
+  );
+  mock.method(
+    mediaRepository,
+    "countMediaReferences",
+    async () => 0
+  );
+  mock.method(
+    mediaRepository,
+    "deleteMediaById",
+    async () => true
+  );
+  mock.method(
+    imagekitAdapter,
+    "deleteFile",
+    async () => {
+      const error = new Error("already deleted");
+      error.status = 404;
+      throw error;
+    }
+  );
+
+  const result = await mediaService.deleteMedia({
+    mediaId: 2,
+  });
+
+  assert.deepEqual(result, {
+    mediaId: 2,
+    deleted: true,
+  });
+});
+
+test("media deletion hides a post-provider MySQL failure and leaves a retryable row", async () => {
+  let transactionCalls = 0;
+  mock.method(
+    console,
+    "error",
+    () => {}
+  );
+  mock.method(
+    mediaRepository,
+    "withTransaction",
+    async (work) => {
+      transactionCalls += 1;
+      if (transactionCalls === 2) {
+        throw new Error("database unavailable");
+      }
+      return work({});
+    }
+  );
+  mock.method(
+    mediaRepository,
+    "findMediaById",
+    async () =>
+      createRawMedia({
+        provider: "IMAGEKIT",
+        public_id: "file_test_123",
+      })
+  );
+  mock.method(
+    mediaRepository,
+    "countMediaReferences",
+    async () => 0
+  );
+  mock.method(
+    mediaRepository,
+    "updateMediaStatusById",
+    async () => true
+  );
+  mock.method(
+    imagekitAdapter,
+    "deleteFile",
+    async () => {}
+  );
+
+  await assert.rejects(
+    mediaService.deleteMedia({ mediaId: 2 }),
+    (error) => {
+      assertAppError(error, 500, "MEDIA_OPERATION_FAILED");
       return true;
     }
   );

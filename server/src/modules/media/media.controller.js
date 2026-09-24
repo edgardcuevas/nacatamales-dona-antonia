@@ -5,8 +5,11 @@ const {
 const {
   listMedia,
   getMediaById,
+  createUploadAuth,
+  confirmMedia,
   updateMediaAltText,
   changeMediaStatus,
+  deleteMedia,
 } = require("./media.service");
 
 async function listMediaController(request, response) {
@@ -69,9 +72,60 @@ async function changeMediaStatusController(
   );
 }
 
+async function createUploadAuthController(
+  request,
+  response
+) {
+  const upload = await createUploadAuth(
+    request.mediaUploadInput
+  );
+
+  return successResponse(
+    response,
+    200,
+    { upload },
+    "Media upload authorization created successfully"
+  );
+}
+
+async function confirmMediaController(
+  request,
+  response
+) {
+  const media = await confirmMedia(
+    request.mediaConfirmInput
+  );
+
+  return successResponse(
+    response,
+    201,
+    { media },
+    "Media confirmed and registered successfully"
+  );
+}
+
+async function deleteMediaController(
+  request,
+  response
+) {
+  const result = await deleteMedia({
+    mediaId: request.mediaId,
+  });
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "Media deleted successfully"
+  );
+}
+
 module.exports = {
   listMediaController,
   getMediaController,
+  createUploadAuthController,
+  confirmMediaController,
   updateMediaController,
   changeMediaStatusController,
+  deleteMediaController,
 };

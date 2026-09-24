@@ -18,6 +18,10 @@ const TEST_ENVIRONMENT = Object.freeze({
   JWT_REFRESH_TOKEN_SECRET:
     "test-refresh-secret-with-at-least-32-characters",
   JWT_REFRESH_TOKEN_TTL: "30d",
+  IMAGEKIT_PUBLIC_KEY: "test_public_key",
+  IMAGEKIT_PRIVATE_KEY: "test_private_key",
+  IMAGEKIT_URL_ENDPOINT: "https://ik.imagekit.io/test-imagekit-id",
+  IMAGEKIT_FOLDER: "test-folder",
 });
 
 for (const [name, value] of Object.entries(

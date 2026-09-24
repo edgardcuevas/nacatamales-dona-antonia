@@ -6,6 +6,7 @@ const {
   MAX_LIMIT,
   MAX_PUBLIC_ID_LENGTH,
   MAX_ALT_TEXT_LENGTH,
+  MEDIA_UPLOAD_TARGETS,
   MEDIA_RESOURCE_TYPES,
   MEDIA_SORT_FIELDS,
   MEDIA_SORT_ORDERS,
@@ -68,6 +69,72 @@ function parseMediaId(value) {
   }
 
   return mediaId;
+}
+
+function parseUploadTarget(value) {
+  if (
+    typeof value !== "string" ||
+    !MEDIA_UPLOAD_TARGETS.includes(value)
+  ) {
+    throw createValidationError(
+      "INVALID_MEDIA_UPLOAD_TARGET",
+      "A valid media upload target is required"
+    );
+  }
+
+  return value;
+}
+
+function parseFileId(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_PUBLIC_ID_LENGTH ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  ) {
+    throw createValidationError(
+      "INVALID_MEDIA_FILE_ID",
+      "A valid media file ID is required"
+    );
+  }
+
+  return value;
+}
+
+function parseUploadAuthBody(body) {
+  assertPlainObject(body);
+  assertAllowedFields(body, ["target"]);
+
+  if (!Object.hasOwn(body, "target")) {
+    throw createValidationError(
+      "INVALID_MEDIA_UPLOAD_TARGET",
+      "A valid media upload target is required"
+    );
+  }
+
+  return {
+    target: parseUploadTarget(body.target),
+  };
+}
+
+function parseConfirmMediaBody(body) {
+  assertPlainObject(body);
+  assertAllowedFields(body, ["fileId", "altText"]);
+
+  if (!Object.hasOwn(body, "fileId")) {
+    throw createValidationError(
+      "INVALID_MEDIA_FILE_ID",
+      "A valid media file ID is required"
+    );
+  }
+
+  return {
+    fileId: parseFileId(body.fileId),
+    altText:
+      body.altText === undefined
+        ? null
+        : parseAltText(body.altText),
+  };
 }
 
 function parseResourceType(value) {
@@ -268,6 +335,34 @@ function parseMediaStatusBody(body) {
   return { isActive: body.isActive };
 }
 
+function validateUploadAuth(
+  request,
+  response,
+  next
+) {
+  try {
+    request.mediaUploadInput =
+      parseUploadAuthBody(request.body);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function validateConfirmMedia(
+  request,
+  response,
+  next
+) {
+  try {
+    request.mediaConfirmInput =
+      parseConfirmMediaBody(request.body);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 function validateMediaListQuery(
   request,
   response,
@@ -332,14 +427,21 @@ function validateMediaStatus(
 }
 
 module.exports = {
+  MEDIA_UPLOAD_TARGETS,
   MEDIA_RESOURCE_TYPES,
   parseMediaId,
+  parseUploadTarget,
+  parseFileId,
+  parseUploadAuthBody,
+  parseConfirmMediaBody,
   parseResourceType,
   parsePublicId,
   parseAltText,
   parseMediaListQuery,
   parseUpdateMediaBody,
   parseMediaStatusBody,
+  validateUploadAuth,
+  validateConfirmMedia,
   validateMediaListQuery,
   validateMediaId,
   validateUpdateMedia,

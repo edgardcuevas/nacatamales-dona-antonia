@@ -11,13 +11,24 @@ const authorizeRoles = require(
 );
 
 const {
+  mediaUploadAuthRateLimiter,
+  mediaConfirmRateLimiter,
+  mediaDeleteRateLimiter,
+} = require("../../middlewares/media-rate-limit.middleware");
+
+const {
   listMediaController,
   getMediaController,
+  createUploadAuthController,
+  confirmMediaController,
   updateMediaController,
   changeMediaStatusController,
+  deleteMediaController,
 } = require("./media.controller");
 
 const {
+  validateUploadAuth,
+  validateConfirmMedia,
   validateMediaListQuery,
   validateMediaId,
   validateUpdateMedia,
@@ -41,6 +52,18 @@ router.get(
   validateMediaListQuery,
   listMediaController
 );
+router.post(
+  "/upload-auth",
+  mediaUploadAuthRateLimiter,
+  validateUploadAuth,
+  createUploadAuthController
+);
+router.post(
+  "/confirm",
+  mediaConfirmRateLimiter,
+  validateConfirmMedia,
+  confirmMediaController
+);
 router.patch(
   "/:mediaId/status",
   validateMediaStatus,
@@ -55,6 +78,12 @@ router.get(
   "/:mediaId",
   validateMediaId,
   getMediaController
+);
+router.delete(
+  "/:mediaId",
+  mediaDeleteRateLimiter,
+  validateMediaId,
+  deleteMediaController
 );
 
 module.exports = router;

@@ -20,6 +20,10 @@ const TEST_ENVIRONMENT = Object.freeze({
   JWT_REFRESH_TOKEN_SECRET:
     "test-refresh-secret-with-at-least-32-characters",
   JWT_REFRESH_TOKEN_TTL: "30d",
+  IMAGEKIT_PUBLIC_KEY: "test_public_key",
+  IMAGEKIT_PRIVATE_KEY: "test_private_key",
+  IMAGEKIT_URL_ENDPOINT: "https://ik.imagekit.io/test-imagekit-id",
+  IMAGEKIT_FOLDER: "test-folder",
 });
 
 for (const [name, value] of Object.entries(
@@ -52,7 +56,7 @@ const state = {
   },
   media: {
     id: 2,
-    provider: "CLOUDINARY",
+    provider: "IMAGEKIT",
     publicId: "qa/placeholder",
     secureUrl:
       "https://res.cloudinary.com/demo/image/upload/qa.jpg",
@@ -104,6 +108,48 @@ mock.method(
       throw state.errors.get;
     }
     return state.media;
+  }
+);
+mock.method(
+  mediaService,
+  "createUploadAuth",
+  async (input) => {
+    state.calls.uploadAuth = input;
+    if (state.errors.uploadAuth) {
+      throw state.errors.uploadAuth;
+    }
+    return {
+      uploadUrl: "https://upload.imagekit.io/api/v1/files/upload",
+      publicKey: "test_public_key",
+      urlEndpoint: "https://ik.imagekit.io/test-imagekit-id",
+      folder: `test-folder/${input.target}`,
+      token: "test-token",
+      expire: 2000000000,
+      signature: "test-signature",
+      useUniqueFileName: true,
+    };
+  }
+);
+mock.method(
+  mediaService,
+  "confirmMedia",
+  async (input) => {
+    state.calls.confirm = input;
+    if (state.errors.confirm) {
+      throw state.errors.confirm;
+    }
+    return state.media;
+  }
+);
+mock.method(
+  mediaService,
+  "deleteMedia",
+  async (input) => {
+    state.calls.delete = input;
+    if (state.errors.delete) {
+      throw state.errors.delete;
+    }
+    return { mediaId: input.mediaId, deleted: true };
   }
 );
 mock.method(
@@ -292,7 +338,39 @@ test("media admin permits alt text and status changes only", async () => {
   assert.equal(state.calls.status.isActive, false);
 });
 
-test("media admin does not expose POST or DELETE and rejects inactive users", async () => {
+test("media admin upload authorization and confirmation use protected routes", async () => {
+  const upload = await request(
+    "/api/admin/media/upload-auth",
+    {
+      method: "POST",
+      accessToken: token(),
+      body: { target: "products" },
+    }
+  );
+  const confirm = await request(
+    "/api/admin/media/confirm",
+    {
+      method: "POST",
+      accessToken: token(),
+      body: {
+        fileId: "file_test_123",
+        altText: null,
+      },
+    }
+  );
+
+  assert.equal(upload.status, 200);
+  assert.equal(upload.body.data.upload.folder, "test-folder/products");
+  assert.equal(
+    Object.hasOwn(upload.body.data.upload, "privateKey"),
+    false
+  );
+  assert.equal(confirm.status, 201);
+  assert.equal(state.calls.uploadAuth.target, "products");
+  assert.equal(state.calls.confirm.fileId, "file_test_123");
+});
+
+test("media admin does not expose generic POST and rejects inactive users", async () => {
   const post = await request(
     "/api/admin/media",
     {
@@ -315,7 +393,8 @@ test("media admin does not expose POST or DELETE and rejects inactive users", as
   );
 
   assert.equal(post.status, 404);
-  assert.equal(remove.status, 404);
+  assert.equal(remove.status, 200);
+  assert.equal(state.calls.delete.mediaId, 2);
   assert.equal(inactive.status, 401);
   assert.equal(
     inactive.body.error.code,
