@@ -25,6 +25,18 @@ const {
   validateUpdateVideo,
   validateVideoStatus,
 } = require("./video.validator");
+const {
+  uploadVideoController,
+  getVideoStatusController,
+} = require("../youtube/youtube.controller");
+const {
+  validateVideoUpload,
+  validateVideoStatusId,
+} = require("../youtube/youtube.validator");
+const {
+  youtubeUploadRateLimiter,
+  youtubeStatusRateLimiter,
+} = require("../../middlewares/youtube-rate-limit.middleware");
 
 const router = express.Router();
 const contentAdminOnly = authorizeRoles(
@@ -42,6 +54,18 @@ router.get(
   "/",
   validateAdministrativeVideoListQuery,
   listAdministrativeVideosController
+);
+router.post(
+  "/upload",
+  youtubeUploadRateLimiter,
+  validateVideoUpload,
+  uploadVideoController
+);
+router.get(
+  "/:videoId/status",
+  youtubeStatusRateLimiter,
+  validateVideoStatusId,
+  getVideoStatusController
 );
 router.post(
   "/",

@@ -24,6 +24,13 @@ const TEST_ENVIRONMENT = Object.freeze({
   IMAGEKIT_PRIVATE_KEY: "test_private_key",
   IMAGEKIT_URL_ENDPOINT: "https://ik.imagekit.io/test-imagekit-id",
   IMAGEKIT_FOLDER: "test-folder",
+  GOOGLE_CLIENT_ID: "test_google_client_id",
+  GOOGLE_CLIENT_SECRET: "test_google_client_secret",
+  GOOGLE_REDIRECT_URI:
+    "https://example.test/api/admin/youtube/callback",
+  YOUTUBE_TOKEN_ENCRYPTION_KEY:
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  YOUTUBE_CHANNEL_ID: "UC1234567890123456789012",
 });
 
 for (const [name, value] of Object.entries(
@@ -104,6 +111,10 @@ test("public video repository filters active rows and uses required order", asyn
 
   assert.equal(result.length, 1);
   assert.match(capturedSql, /WHERE is_active = 1/);
+  assert.match(
+    capturedSql,
+    /upload_status = 'READY'/
+  );
   assert.match(
     capturedSql,
     /sort_order ASC,[\s\S]*created_at DESC,[\s\S]*id DESC/

@@ -21,6 +21,14 @@ function createVideoDuplicateError() {
   );
 }
 
+function createVideoNotReadyError() {
+  return new AppError(
+    409,
+    "VIDEO_NOT_READY",
+    "The video must finish processing before it can be activated"
+  );
+}
+
 function isActiveRecord(value) {
   return value === true || value === 1;
 }
@@ -89,6 +97,8 @@ function toAdminVideo(video) {
     thumbnailUrl: video.thumbnail_url ?? null,
     sortOrder,
     isActive: isActiveRecord(video.is_active),
+    uploadStatus: video.upload_status ?? "READY",
+    privacyStatus: video.privacy_status ?? "UNLISTED",
     createdAt: toIsoString(video.created_at),
     updatedAt: toIsoString(video.updated_at),
   };
@@ -243,6 +253,15 @@ async function changeVideoStatus({
 
   if (!current) {
     throw createVideoNotFoundError();
+  }
+
+  const currentUploadStatus =
+    current.upload_status ?? "READY";
+  if (
+    isActive &&
+    currentUploadStatus !== "READY"
+  ) {
+    throw createVideoNotReadyError();
   }
 
   if (isActiveRecord(current.is_active) !== isActive) {

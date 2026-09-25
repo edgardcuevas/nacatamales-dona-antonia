@@ -2,6 +2,20 @@ const VIDEO_PROVIDERS = Object.freeze([
   "YOUTUBE",
 ]);
 
+const VIDEO_UPLOAD_STATUSES = Object.freeze([
+  "PENDING",
+  "UPLOADING",
+  "PROCESSING",
+  "READY",
+  "FAILED",
+]);
+
+const VIDEO_PRIVACY_STATUSES = Object.freeze([
+  "PRIVATE",
+  "UNLISTED",
+  "PUBLIC",
+]);
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -18,6 +32,8 @@ const VIDEO_SORT_FIELDS = Object.freeze({
   externalId: "external_id",
   sortOrder: "sort_order",
   isActive: "is_active",
+  uploadStatus: "upload_status",
+  privacyStatus: "privacy_status",
   createdAt: "created_at",
   updatedAt: "updated_at",
 });
@@ -29,6 +45,8 @@ const VIDEO_SORT_ORDERS = Object.freeze({
 
 module.exports = {
   VIDEO_PROVIDERS,
+  VIDEO_UPLOAD_STATUSES,
+  VIDEO_PRIVACY_STATUSES,
   DEFAULT_PAGE,
   DEFAULT_LIMIT,
   MAX_LIMIT,

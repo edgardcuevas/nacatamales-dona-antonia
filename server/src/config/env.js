@@ -8,6 +8,7 @@ const JWT_TTL_PATTERN = /^\d+[smhd]$/;
 const IMAGEKIT_HOST = "ik.imagekit.io";
 const IMAGEKIT_FOLDER_PATTERN =
   /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/;
+const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
 
 function parsePort(value, variableName) {
   const port = Number(value);
@@ -113,6 +114,76 @@ function validateImageKitFolder(value) {
   return normalizedFolder;
 }
 
+function validateGoogleRedirectUri(value, nodeEnv) {
+  let url;
+
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      "Environment variable GOOGLE_REDIRECT_URI must be a valid URL."
+    );
+  }
+
+  const isLocalDevelopmentUrl =
+    nodeEnv !== "production" &&
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(
+      url.hostname
+    );
+
+  if (
+    (url.protocol !== "https:" && !isLocalDevelopmentUrl) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "Environment variable GOOGLE_REDIRECT_URI must be a valid callback URL."
+    );
+  }
+
+  return url.toString();
+}
+
+function validateYoutubeTokenEncryptionKey(value) {
+  const isHex =
+    /^[A-Fa-f0-9]{64}$/.test(value);
+  const isBase64 =
+    /^[A-Za-z0-9+/]{43}=$/.test(value);
+  const key = isHex
+    ? Buffer.from(value, "hex")
+    : isBase64
+      ? Buffer.from(value, "base64")
+      : null;
+
+  if (!key || key.length !== 32) {
+    throw new Error(
+      "Environment variable YOUTUBE_TOKEN_ENCRYPTION_KEY must be a 32-byte base64 or hexadecimal key."
+    );
+  }
+
+  return value;
+}
+
+function validateYoutubeChannelId(value) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (
+    !YOUTUBE_CHANNEL_ID_PATTERN.test(value)
+  ) {
+    throw new Error(
+      "Environment variable YOUTUBE_CHANNEL_ID must be a valid YouTube channel ID."
+    );
+  }
+
+  return value;
+}
+
 function loadEnvironment() {
   const nodeEnv = process.env.NODE_ENV ?? "development";
 
@@ -187,6 +258,30 @@ function loadEnvironment() {
     ),
   });
 
+  const youtube = Object.freeze({
+    clientId: requireEnvironmentVariable(
+      "GOOGLE_CLIENT_ID"
+    ),
+    clientSecret: requireEnvironmentVariable(
+      "GOOGLE_CLIENT_SECRET"
+    ),
+    redirectUri: validateGoogleRedirectUri(
+      requireEnvironmentVariable(
+        "GOOGLE_REDIRECT_URI"
+      ),
+      nodeEnv
+    ),
+    tokenEncryptionKey:
+      validateYoutubeTokenEncryptionKey(
+        requireEnvironmentVariable(
+          "YOUTUBE_TOKEN_ENCRYPTION_KEY"
+        )
+      ),
+    channelId: validateYoutubeChannelId(
+      process.env.YOUTUBE_CHANNEL_ID?.trim()
+    ),
+  });
+
   if (
     jwt.accessTokenSecret ===
     jwt.refreshTokenSecret
@@ -202,6 +297,7 @@ function loadEnvironment() {
     database,
     jwt,
     imagekit,
+    youtube,
     isDevelopment: nodeEnv === "development",
     isTest: nodeEnv === "test",
     isProduction: nodeEnv === "production",

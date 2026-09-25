@@ -32,6 +32,12 @@ const videoAdminRoutes = require(
 const mediaAdminRoutes = require(
   "./modules/media/media.admin.routes"
 );
+const youtubeAdminRoutes = require(
+  "./modules/youtube/youtube.admin.routes"
+);
+const youtubeOAuthRoutes = require(
+  "./modules/youtube/youtube.oauth.routes"
+);
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -77,6 +83,14 @@ app.use(
 app.use(
   "/api/admin/media",
   mediaAdminRoutes
+);
+app.use(
+  "/api/admin/youtube",
+  youtubeAdminRoutes
+);
+app.use(
+  "/api/youtube/oauth",
+  youtubeOAuthRoutes
 );
 
 app.get("/api/health", (request, response) => {

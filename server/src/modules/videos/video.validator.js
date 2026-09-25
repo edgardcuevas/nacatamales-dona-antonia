@@ -633,6 +633,7 @@ module.exports = {
   APPROVED_YOUTUBE_HOSTS,
   parseVideoId,
   parseTitle,
+  parseDescription,
   parseProvider,
   parseHttpsUrl,
   parseYouTubeExternalId,

@@ -23,6 +23,13 @@ const TEST_ENVIRONMENT = Object.freeze({
   IMAGEKIT_PRIVATE_KEY: "test_private_key",
   IMAGEKIT_URL_ENDPOINT: "https://ik.imagekit.io/test-imagekit-id",
   IMAGEKIT_FOLDER: "test-folder",
+  GOOGLE_CLIENT_ID: "test_google_client_id",
+  GOOGLE_CLIENT_SECRET: "test_google_client_secret",
+  GOOGLE_REDIRECT_URI:
+    "https://example.test/api/admin/youtube/callback",
+  YOUTUBE_TOKEN_ENCRYPTION_KEY:
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  YOUTUBE_CHANNEL_ID: "UC1234567890123456789012",
 });
 
 for (const [name, value] of Object.entries(
@@ -354,6 +361,41 @@ test("video service creates safe admin DTO and validates update identity togethe
   );
 });
 
+test("processing videos cannot be activated before they are ready", async () => {
+  let updateCalls = 0;
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({
+        upload_status: "PROCESSING",
+      })
+  );
+  mock.method(
+    videoRepository,
+    "updateVideoStatusById",
+    async () => {
+      updateCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    videoService.changeVideoStatus({
+      videoId: 3,
+      isActive: true,
+    }),
+    (error) => {
+      assertAppError(
+        error,
+        409,
+        "VIDEO_NOT_READY"
+      );
+      return true;
+    }
+  );
+  assert.equal(updateCalls, 0);
+});
 test("video status changes are idempotent", async () => {
   let updateCalls = 0;
   mock.method(

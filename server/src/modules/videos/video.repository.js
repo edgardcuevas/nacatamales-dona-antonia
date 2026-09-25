@@ -62,6 +62,8 @@ function getVideoColumns() {
     thumbnail_url,
     sort_order,
     is_active,
+    upload_status,
+    privacy_status,
     created_at,
     updated_at
   `;
@@ -81,6 +83,7 @@ async function listPublicVideos() {
         sort_order
       FROM videos
       WHERE is_active = 1
+        AND upload_status = 'READY'
       ORDER BY
         sort_order ASC,
         created_at DESC,
@@ -106,6 +109,7 @@ async function findPublicVideoById(videoId) {
       FROM videos
       WHERE id = ?
         AND is_active = 1
+        AND upload_status = 'READY'
       LIMIT 1
     `,
     [videoId]
@@ -266,6 +270,95 @@ async function updateVideoStatusById({
   return result.affectedRows === 1;
 }
 
+async function createUploadedVideo({
+  title,
+  description,
+  url,
+  externalId,
+  thumbnailUrl,
+  uploadStatus,
+  privacyStatus,
+}) {
+  const [result] = await pool.execute(
+    `
+      INSERT INTO videos (
+        title,
+        description,
+        url,
+        provider,
+        external_id,
+        thumbnail_url,
+        sort_order,
+        is_active,
+        upload_status,
+        privacy_status
+      )
+      VALUES (?, ?, ?, 'YOUTUBE', ?, ?, 0, 0, ?, ?)
+    `,
+    [
+      title,
+      description,
+      url,
+      externalId,
+      thumbnailUrl,
+      uploadStatus,
+      privacyStatus,
+    ]
+  );
+
+  return { id: result.insertId };
+}
+
+async function updateVideoProcessingStatus({
+  videoId,
+  uploadStatus,
+  privacyStatus,
+  thumbnailUrl,
+  title,
+  description,
+}) {
+  const columnMap = {
+    uploadStatus: "upload_status",
+    privacyStatus: "privacy_status",
+    thumbnailUrl: "thumbnail_url",
+    title: "title",
+    description: "description",
+  };
+  const updates = {
+    uploadStatus,
+    privacyStatus,
+    thumbnailUrl,
+    title,
+    description,
+  };
+  const entries = Object.entries(updates).filter(
+    ([, value]) => value !== undefined
+  );
+
+  if (entries.length === 0) {
+    throw new Error("Video processing updates cannot be empty");
+  }
+
+  const setClause = entries
+    .map(([field]) => `${columnMap[field]} = ?`)
+    .join(", ");
+  const parameters = entries.map(
+    ([, value]) => value
+  );
+  const [result] = await pool.execute(
+    `
+      UPDATE videos
+      SET
+        ${setClause},
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    [...parameters, videoId]
+  );
+
+  return result.affectedRows === 1;
+}
+
 module.exports = {
   listPublicVideos,
   findPublicVideoById,
@@ -274,4 +367,6 @@ module.exports = {
   createVideo,
   updateVideoById,
   updateVideoStatusById,
+  createUploadedVideo,
+  updateVideoProcessingStatus,
 };
