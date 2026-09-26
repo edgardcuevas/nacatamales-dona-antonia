@@ -29,6 +29,12 @@ const videoRoutes = require(
 const videoAdminRoutes = require(
   "./modules/videos/video.admin.routes"
 );
+const settingsRoutes = require(
+  "./modules/settings/settings.routes"
+);
+const settingsAdminRoutes = require(
+  "./modules/settings/settings.admin.routes"
+);
 const mediaAdminRoutes = require(
   "./modules/media/media.admin.routes"
 );
@@ -80,6 +86,8 @@ app.use(
   "/api/admin/videos",
   videoAdminRoutes
 );
+app.use("/api/settings", settingsRoutes);
+app.use("/api/admin/settings", settingsAdminRoutes);
 app.use(
   "/api/admin/media",
   mediaAdminRoutes
