@@ -83,9 +83,11 @@ export default function Menu() {
     }
   }, [activeSlug])
 
-  function handleSelectCategory(slug) {
+ function handleSelectCategory(slug) {
     setSearchParams({ category: slug })
   }
+
+  const activeCategory = categories.find((category) => category.slug === activeSlug)
 
   return (
     <div className="menu-page">
@@ -96,6 +98,18 @@ export default function Menu() {
         <h1>Nacatamales y más</h1>
         <p>Elegí una categoría para ver lo que preparamos.</p>
       </div>
+
+      {activeCategory && (
+        <div
+          className="menu-page__category-banner"
+          style={activeCategory.image?.url ? { backgroundImage: `url(${activeCategory.image.url})` } : undefined}
+        >
+          <div className="menu-page__category-banner-overlay">
+            <h2>{activeCategory.name}</h2>
+            {activeCategory.description && <p>{activeCategory.description}</p>}
+          </div>
+        </div>
+      )}
 
       {errorMessage && <p className="menu-page__error">{errorMessage}</p>}
 

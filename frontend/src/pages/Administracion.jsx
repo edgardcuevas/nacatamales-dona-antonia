@@ -1,17 +1,37 @@
+import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import LoginForm from '../components/Admin/LoginForm/LoginForm'
+import CategoryManager from '../components/Admin/CategoryManager/CategoryManager'
+import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
 import '../styles/Administracion.css'
 
 const SECTIONS = [
-  { label: 'Categorías', description: 'Organiza el menú por secciones.' },
-  { label: 'Productos', description: 'Agrega, edita precios y disponibilidad.' },
-  { label: 'Anuncios', description: 'Publica alertas y promociones.' },
-  { label: 'Día a día', description: 'Sube fotos y videos del local.' },
-  { label: 'Configuración del sitio', description: 'Horario, WhatsApp, redes y ubicación.' },
+  { key: 'categories', label: 'Categorías', description: 'Organiza el menú por secciones.', available: true },
+  { key: 'products', label: 'Productos', description: 'Agrega, edita precios y disponibilidad.', available: false },
+  { key: 'announcements', label: 'Anuncios', description: 'Publica alertas y promociones.', available: false },
+  { key: 'feed', label: 'Día a día', description: 'Sube fotos y videos del local.', available: false },
+  {
+    key: 'media',
+    label: 'Galería de fotos',
+    description: 'Mirá dónde se usa cada imagen subida y borrá las que no necesités.',
+    available: true,
+  },
+  {
+    key: 'settings',
+    label: 'Configuración del sitio',
+    description: 'Horario, WhatsApp, redes y ubicación.',
+    available: false,
+  },
 ]
+
+const SECTION_COMPONENTS = {
+  categories: CategoryManager,
+  media: MediaLibrary,
+}
 
 export default function Administracion() {
   const { isAuthenticated, isLoading, user, logout } = useAuth()
+  const [activeSection, setActiveSection] = useState(null)
 
   if (isLoading) {
     return <div className="admin-loading">Cargando…</div>
@@ -21,27 +41,47 @@ export default function Administracion() {
     return <LoginForm />
   }
 
+  const ActiveComponent = activeSection ? SECTION_COMPONENTS[activeSection] : null
+  const activeSectionMeta = SECTIONS.find((section) => section.key === activeSection)
+
   return (
     <div className="admin-dashboard">
       <div className="admin-dashboard__header">
         <div>
-          <h1>Panel de administración</h1>
+          <h1>{activeSectionMeta ? activeSectionMeta.label : 'Panel de administración'}</h1>
           <p>Sesión iniciada como {user.email}</p>
         </div>
-        <button type="button" className="btn btn--outline" onClick={logout}>
-          Cerrar sesión
-        </button>
+        <div className="admin-dashboard__header-actions">
+          {activeSection && (
+            <button type="button" className="btn btn--outline" onClick={() => setActiveSection(null)}>
+              ← Volver
+            </button>
+          )}
+          <button type="button" className="btn btn--outline" onClick={logout}>
+            Cerrar sesión
+          </button>
+        </div>
       </div>
 
-      <div className="admin-dashboard__grid">
-        {SECTIONS.map((section) => (
-          <div className="admin-dashboard__card" key={section.label}>
-            <h3>{section.label}</h3>
-            <p>{section.description}</p>
-            <span className="admin-dashboard__soon">Próximamente</span>
-          </div>
-        ))}
-      </div>
+      {ActiveComponent ? (
+        <ActiveComponent />
+      ) : (
+        <div className="admin-dashboard__grid">
+          {SECTIONS.map((section) => (
+            <button
+              type="button"
+              key={section.key}
+              className="admin-dashboard__card"
+              onClick={() => section.available && setActiveSection(section.key)}
+              disabled={!section.available}
+            >
+              <h3>{section.label}</h3>
+              <p>{section.description}</p>
+              {!section.available && <span className="admin-dashboard__soon">Próximamente</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -28,6 +28,15 @@
   color: #7a6553;
 }
 
+.admin-dashboard__header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.admin-dashboard__header-actions button {
+  cursor: pointer;
+}
+
 .admin-dashboard__grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -40,6 +49,14 @@
   border-radius: 14px;
   padding: 20px;
   position: relative;
+  text-align: left;
+  cursor: pointer;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.admin-dashboard__card:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .admin-dashboard__card h3 {
@@ -64,6 +81,75 @@
   background: #fdf3e0;
   padding: 4px 10px;
   border-radius: 20px;
+}
+
+/* Clases compartidas por los formularios/listas de administración */
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-cafe-oscuro);
+}
+
+.admin-field input,
+.admin-field textarea {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e6d6be;
+  outline: none;
+  resize: vertical;
+}
+
+.admin-field input:focus,
+.admin-field textarea:focus {
+  border-color: var(--color-rojo);
+}
+
+.admin-error {
+  background: #fbeceb;
+  color: #a4302b;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+}
+
+.admin-loading-inline,
+.admin-empty-inline {
+  text-align: center;
+  color: #7a6553;
+  font-size: 13.5px;
+  padding: 16px 0;
+}
+
+.status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #eee;
+  color: #7a6553;
+  flex: none;
+}
+
+.status-pill--active {
+  background: #eef6ec;
+  color: #33502c;
+}
+
+.btn-link {
+  border: none;
+  background: none;
+  color: var(--color-rojo);
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
 }
 
 @media (min-width: 660px) {

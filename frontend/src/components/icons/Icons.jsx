@@ -54,6 +54,10 @@ export function IconDefs() {
       <symbol id="icon-pin" viewBox="0 0 24 24">
         <path d="M12 2C7.6 2 4 5.6 4 10c0 5.6 6.6 11.2 7.3 11.8.4.3 1 .3 1.4 0C13.4 21.2 20 15.6 20 10c0-4.4-3.6-8-8-8zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" fill="currentColor" />
       </symbol>
+
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </symbol>
     </svg>
   )
 }
