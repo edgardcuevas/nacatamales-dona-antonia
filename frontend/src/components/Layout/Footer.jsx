@@ -1,4 +1,5 @@
 import { useSettings } from '../../context/SettingsContext'
+import ScheduleBadge from '../ScheduleBadge/ScheduleBadge'
 import './Footer.css'
 
 export default function Footer() {
@@ -14,7 +15,16 @@ export default function Footer() {
           </div>
           <div>
             <h4>Horario</h4>
-            <p>{settings.scheduleText}</p>
+            <ScheduleBadge icon="pot" text={settings.scheduleText} color={settings.scheduleColor} />
+            {settings.fritangaScheduleText && (
+              <div className="site-footer__schedule-secondary">
+                <ScheduleBadge
+                  icon="grill"
+                  text={settings.fritangaScheduleText}
+                  color={settings.fritangaScheduleColor}
+                />
+              </div>
+            )}
           </div>
           <div>
             <h4>Visítanos</h4>

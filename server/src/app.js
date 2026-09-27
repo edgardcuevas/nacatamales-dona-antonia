@@ -23,6 +23,12 @@ const announcementRoutes = require(
 const announcementAdminRoutes = require(
   "./modules/announcements/announcement.admin.routes"
 );
+const photoRoutes = require(
+  "./modules/photos/photos.routes"
+);
+const photoAdminRoutes = require(
+  "./modules/photos/photos.admin.routes"
+);
 const videoRoutes = require(
   "./modules/videos/video.routes"
 );
@@ -81,6 +87,8 @@ app.use(
   "/api/admin/announcements",
   announcementAdminRoutes
 );
+app.use("/api/photos", photoRoutes);
+app.use("/api/admin/photos", photoAdminRoutes);
 app.use("/api/videos", videoRoutes);
 app.use(
   "/api/admin/videos",

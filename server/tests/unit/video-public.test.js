@@ -84,6 +84,7 @@ function createVideo(overrides = {}) {
     external_id: "dQw4w9WgXcQ",
     thumbnail_url: null,
     sort_order: 0,
+    created_at: new Date("2026-09-27T10:00:00.000Z"),
     ...overrides,
   };
 }
@@ -119,6 +120,7 @@ test("public video repository filters active rows and uses required order", asyn
     capturedSql,
     /sort_order ASC,[\s\S]*created_at DESC,[\s\S]*id DESC/
   );
+  assert.match(capturedSql, /sort_order,\s*created_at/);
   assert.doesNotMatch(capturedSql, /SELECT \*/);
 });
 
@@ -139,6 +141,7 @@ test("public video list returns only the approved DTO fields", async () => {
   assert.deepEqual(
     Object.keys(result.body.data.videos[0]).sort(),
     [
+      "createdAt",
       "description",
       "externalId",
       "id",
@@ -157,11 +160,8 @@ test("public video list returns only the approved DTO fields", async () => {
     false
   );
   assert.equal(
-    Object.hasOwn(
-      result.body.data.videos[0],
-      "createdAt"
-    ),
-    false
+    result.body.data.videos[0].createdAt,
+    "2026-09-27T10:00:00.000Z"
   );
 });
 
@@ -191,6 +191,10 @@ test("public video detail returns active video and hides missing video", async (
   const found = await request("/api/videos/3");
   assert.equal(found.status, 200);
   assert.equal(found.body.data.video.id, 3);
+  assert.equal(
+    found.body.data.video.createdAt,
+    "2026-09-27T10:00:00.000Z"
+  );
 
   mock.restoreAll();
   mock.method(

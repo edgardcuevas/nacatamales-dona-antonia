@@ -73,6 +73,10 @@ function createRawSettings(overrides = {}) {
     latitude: null,
     longitude: null,
     schedule_text: null,
+    schedule_color: "AMARILLO",
+    fritanga_schedule_text: null,
+    fritanga_schedule_color: "ROJO",
+    story_text: null,
     updated_at: new Date("2026-09-26T10:00:00.000Z"),
     ...overrides,
   };
@@ -91,6 +95,10 @@ test("settings update validator keeps only supplied fields and accepts nullables
       tagline: null,
       whatsappNumber: "50575303356",
       facebookUrl: "https://facebook.com/example",
+      storyText: "Historia del negocio",
+      scheduleColor: "VERDE",
+      fritangaScheduleText: "Viernes a domingo",
+      fritangaScheduleColor: "CAFE",
       latitude: 12.1,
       longitude: null,
     }),
@@ -99,10 +107,23 @@ test("settings update validator keeps only supplied fields and accepts nullables
       tagline: null,
       whatsappNumber: "50575303356",
       facebookUrl: "https://facebook.com/example",
+      storyText: "Historia del negocio",
+      scheduleColor: "VERDE",
+      fritangaScheduleText: "Viernes a domingo",
+      fritangaScheduleColor: "CAFE",
       latitude: 12.1,
       longitude: null,
     }
   );
+});
+
+test("settings validator accepts empty and null story text", () => {
+  assert.deepEqual(parseUpdateSettingsBody({ storyText: "" }), {
+    storyText: "",
+  });
+  assert.deepEqual(parseUpdateSettingsBody({ storyText: null }), {
+    storyText: null,
+  });
 });
 
 test("settings validator rejects empty bodies, unexpected fields, and invalid values", () => {
@@ -121,6 +142,11 @@ test("settings validator rejects empty bodies, unexpected fields, and invalid va
     [{ tagline: "x".repeat(256) }, "INVALID_TAGLINE"],
     [{ address: "x".repeat(256) }, "INVALID_ADDRESS"],
     [{ scheduleText: "x".repeat(256) }, "INVALID_SCHEDULE_TEXT"],
+    [{ storyText: "x".repeat(4001) }, "INVALID_STORY_TEXT"],
+    [{ scheduleColor: "AZUL" }, "INVALID_SCHEDULE_COLOR"],
+    [{ scheduleColor: "rojo" }, "INVALID_SCHEDULE_COLOR"],
+    [{ fritangaScheduleColor: "MORADO" }, "INVALID_FRITANGA_SCHEDULE_COLOR"],
+    [{ fritangaScheduleText: "x".repeat(256) }, "INVALID_FRITANGA_SCHEDULE_TEXT"],
   ];
 
   for (const [input, code] of invalidInputs) {
@@ -147,13 +173,28 @@ test("settings repository parameterizes updates using fixed column names", async
   const result = await settingsRepository.updateSettings({
     businessName: "Updated name",
     latitude: 12.25,
+    storyText: "Historia actualizada",
+    scheduleColor: "VERDE",
+    fritangaScheduleText: "Viernes a domingo",
+    fritangaScheduleColor: "CAFE",
   });
 
   assert.equal(result.id, 1);
   assert.match(queries[0].sql, /business_name = \?/);
   assert.match(queries[0].sql, /latitude = \?/);
+  assert.match(queries[0].sql, /story_text = \?/);
+  assert.match(queries[0].sql, /schedule_color = \?/);
+  assert.match(queries[0].sql, /fritanga_schedule_text = \?/);
+  assert.match(queries[0].sql, /fritanga_schedule_color = \?/);
   assert.match(queries[0].sql, /updated_at = CURRENT_TIMESTAMP WHERE id = 1/);
-  assert.deepEqual(queries[0].parameters, ["Updated name", 12.25]);
+  assert.deepEqual(queries[0].parameters, [
+    "Updated name",
+    12.25,
+    "Historia actualizada",
+    "VERDE",
+    "Viernes a domingo",
+    "CAFE",
+  ]);
   assert.match(queries[1].sql, /WHERE id = 1 LIMIT 1/);
 });
 
@@ -161,6 +202,10 @@ test("settings service maps safe DTOs and reports missing configuration", async 
   mock.method(settingsRepository, "getSettings", async () => createRawSettings({
     latitude: "12.1364",
     longitude: "-86.2514",
+    story_text: "Una historia familiar",
+    schedule_color: "VERDE",
+    fritanga_schedule_text: "Viernes a domingo",
+    fritanga_schedule_color: "CAFE",
   }));
 
   const result = await settingsService.getAdminSettings();
@@ -175,6 +220,10 @@ test("settings service maps safe DTOs and reports missing configuration", async 
     latitude: 12.1364,
     longitude: -86.2514,
     scheduleText: null,
+    storyText: "Una historia familiar",
+    scheduleColor: "VERDE",
+    fritangaScheduleText: "Viernes a domingo",
+    fritangaScheduleColor: "CAFE",
     updatedAt: "2026-09-26T10:00:00.000Z",
   });
   mock.method(settingsRepository, "getSettings", async () => null);

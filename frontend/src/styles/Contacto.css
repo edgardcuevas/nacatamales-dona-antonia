@@ -1,0 +1,162 @@
+.contacto-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 16px 60px;
+}
+
+.contacto-page__header {
+  text-align: center;
+  max-width: 560px;
+  margin: 0 auto 28px;
+}
+
+.contacto-page__header h1 {
+  font-size: 28px;
+  color: var(--color-rojo);
+  margin: 8px 0 12px;
+}
+
+.contacto-page__header p {
+  font-size: 14px;
+  color: #7a6553;
+  line-height: 1.6;
+}
+
+.contacto-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.contacto-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid #f2e5d1;
+  border-radius: 14px;
+  padding: 18px;
+  text-decoration: none;
+  color: var(--color-cafe-oscuro);
+}
+
+.contacto-card svg {
+  width: 24px;
+  height: 24px;
+  color: var(--color-verde);
+  flex: none;
+  margin-top: 2px;
+}
+
+.contacto-card strong {
+  display: block;
+  font-size: 14.5px;
+  margin-bottom: 4px;
+}
+
+.contacto-card span {
+  font-size: 13.5px;
+  color: #7a6553;
+}
+
+.contacto-card--whatsapp {
+  background: #eef6ec;
+  border-color: #cfe6c8;
+  align-items: center;
+}
+
+.contacto-card--whatsapp strong {
+  color: #33502c;
+}
+
+.contacto-card__icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-verde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.contacto-card__icon-circle svg {
+  width: 20px;
+  height: 20px;
+  color: #fff;
+  margin: 0;
+}
+
+.contacto-card__whatsapp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.contacto-card__whatsapp-body span {
+  font-size: 15px;
+  font-weight: 600;
+  color: #33502c;
+}
+
+.contacto-card__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  background: var(--color-verde);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.contacto-card__cta svg {
+  width: 13px;
+  height: 13px;
+}
+
+.contacto-card--socials {
+  flex-direction: column;
+}
+
+.contacto-socials {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.contacto-socials a {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--color-rojo);
+  text-decoration: none;
+}
+
+.contacto-map {
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  box-shadow: 0 14px 28px rgba(74, 48, 37, 0.18);
+}
+
+.contacto-map iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+@media (min-width: 880px) {
+  .contacto-cards {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .contacto-card {
+    flex: 1 1 260px;
+  }
+}

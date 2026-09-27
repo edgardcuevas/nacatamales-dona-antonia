@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { useSettings } from '../context/SettingsContext'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
+import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import AnnouncementsBanner from '../components/AnnouncementsBanner/AnnouncementsBanner'
-import '../styles/Home.css'
+import { mergeFeed } from '../utils/feed'
+import './../styles/Home.css'
 
 function whatsappHref(whatsappNumber, message) {
   if (!whatsappNumber) {
@@ -18,7 +20,7 @@ export default function Home() {
   const { settings } = useSettings()
   const [categories, setCategories] = useState([])
   const [featuredProducts, setFeaturedProducts] = useState([])
-  const [videos, setVideos] = useState([])
+  const [feedItems, setFeedItems] = useState([])
 
   useEffect(() => {
     let isMounted = true
@@ -44,11 +46,10 @@ export default function Home() {
         // Si falla, la sección de menú simplemente no se muestra.
       })
 
-    api
-      .get('/videos')
-      .then((data) => {
+    Promise.all([api.get('/videos'), api.get('/photos')])
+      .then(([videosData, photosData]) => {
         if (isMounted) {
-          setVideos((data.videos || []).slice(0, 3))
+          setFeedItems(mergeFeed(videosData.videos, photosData.photos).slice(0, 3))
         }
       })
       .catch(() => {})
@@ -69,11 +70,14 @@ export default function Home() {
       <header className="hero">
         <div className="hero__inner">
           <div className="hero__copy">
-            <span className="hero__eyebrow">
-              <Icon name="leaf" /> {settings.scheduleText}
-            </span>
+            <ScheduleBadge
+              icon="leaf"
+              text={settings.scheduleText}
+              color={settings.scheduleColor}
+              className="hero__eyebrow"
+            />
             <h1>
-              El sabor de <em>siempre</em>, hecho como en casa.
+              ¡Si de un buen <em>nacatamal</em> quieres disfrutar,<br />a nosotros debes visitar!
             </h1>
             <p className="hero__lead">{settings.tagline}</p>
             <div className="hero__actions">
@@ -150,7 +154,16 @@ export default function Home() {
           <Icon name="grill" className="fritanga-band__icon" />
           <div>
             <h2>También hacemos fritanga</h2>
-            <p>Algunos días encendemos la cocina para ofrecer nuestra fritanga tradicional.</p>
+            {settings.fritangaScheduleText ? (
+              <ScheduleBadge
+                icon="grill"
+                text={settings.fritangaScheduleText}
+                color={settings.fritangaScheduleColor}
+                className="fritanga-band__schedule"
+              />
+            ) : (
+              <p>Algunos días encendemos la cocina para ofrecer nuestra fritanga tradicional.</p>
+            )}
           </div>
           <Link className="btn btn--ghost-light" to={`/menu?category=${fritangaCategory.slug}`}>
             Ver fritanga
@@ -158,7 +171,7 @@ export default function Home() {
         </section>
       )}
 
-      {videos.length > 0 && (
+      {feedItems.length > 0 && (
         <section className="dia-a-dia-teaser">
           <div className="section-head">
             <span className="section-head__tag">
@@ -167,21 +180,21 @@ export default function Home() {
             <h2>Así se vive en el local</h2>
           </div>
           <div className="dia-a-dia-teaser__grid">
-            {videos.map((video) => (
-              <Link key={video.id} to="/dia-a-dia" className="video-thumb">
-                {video.thumbnailUrl ? (
-                  <img src={video.thumbnailUrl} alt={video.title} />
+            {feedItems.map((item) => (
+              <Link key={item.id} to="/dia-a-dia" className="video-thumb">
+                {(item.thumbnailUrl || item.imageUrl) ? (
+                  <img src={item.thumbnailUrl || item.imageUrl} alt={item.title || item.caption || 'Publicación'} />
                 ) : (
                   <div className="video-thumb__placeholder" />
                 )}
-                <Icon name="play" className="video-thumb__play" />
-                <span className="video-thumb__title">{video.title}</span>
+                {item.type === 'video' && <Icon name="play" className="video-thumb__play" />}
+                <span className="video-thumb__title">{item.title || item.caption}</span>
               </Link>
             ))}
           </div>
           <div className="section-cta">
             <Link className="btn btn--outline" to="/dia-a-dia">
-              Ver todos los videos
+              Ver todo
             </Link>
           </div>
         </section>

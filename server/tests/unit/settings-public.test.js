@@ -81,6 +81,10 @@ function createSettings(overrides = {}) {
     latitude: null,
     longitude: null,
     schedule_text: "Jueves a Domingo",
+    schedule_color: "AMARILLO",
+    fritanga_schedule_text: null,
+    fritanga_schedule_color: "ROJO",
+    story_text: null,
     updated_at: new Date("2026-09-26T10:00:00.000Z"),
     ...overrides,
   };
@@ -127,6 +131,10 @@ test("public settings returns only its approved DTO fields", async () => {
     latitude: 12.1364,
     longitude: -86.2514,
     scheduleText: "Jueves a Domingo",
+    storyText: null,
+    scheduleColor: "AMARILLO",
+    fritangaScheduleText: null,
+    fritangaScheduleColor: "ROJO",
   });
   assert.equal(Object.hasOwn(result.body.data.settings, "id"), false);
   assert.equal(Object.hasOwn(result.body.data.settings, "updatedAt"), false);

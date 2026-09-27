@@ -10,6 +10,10 @@ const SETTINGS_COLUMNS = Object.freeze({
   latitude: "latitude",
   longitude: "longitude",
   scheduleText: "schedule_text",
+  storyText: "story_text",
+  scheduleColor: "schedule_color",
+  fritangaScheduleText: "fritanga_schedule_text",
+  fritangaScheduleColor: "fritanga_schedule_color",
 });
 
 async function getSettings() {

@@ -24,6 +24,10 @@ function toPublicSettings(row) {
     latitude: row.latitude === null ? null : Number(row.latitude),
     longitude: row.longitude === null ? null : Number(row.longitude),
     scheduleText: row.schedule_text,
+    storyText: row.story_text,
+    scheduleColor: row.schedule_color,
+    fritangaScheduleText: row.fritanga_schedule_text,
+    fritangaScheduleColor: row.fritanga_schedule_color,
   };
 }
 

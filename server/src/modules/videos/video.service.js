@@ -71,6 +71,7 @@ function toPublicVideo(video) {
     externalId: video.external_id,
     thumbnailUrl: video.thumbnail_url ?? null,
     sortOrder,
+    createdAt: toIsoString(video.created_at),
   };
 }
 

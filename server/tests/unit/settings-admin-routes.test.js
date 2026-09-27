@@ -66,6 +66,10 @@ const state = {
     latitude: null,
     longitude: null,
     scheduleText: null,
+    storyText: null,
+    scheduleColor: "AMARILLO",
+    fritangaScheduleText: null,
+    fritangaScheduleColor: "ROJO",
     updatedAt: "2026-09-26T10:00:00.000Z",
   },
   calls: {},
@@ -169,6 +173,10 @@ test("settings admin routes allow ADMIN and EDITOR", async () => {
 
   assert.equal(adminResult.status, 200);
   assert.equal(editorResult.status, 200);
+  assert.equal(adminResult.body.data.settings.storyText, null);
+  assert.equal(adminResult.body.data.settings.scheduleColor, "AMARILLO");
+  assert.equal(adminResult.body.data.settings.fritangaScheduleText, null);
+  assert.equal(adminResult.body.data.settings.fritangaScheduleColor, "ROJO");
   assert.equal(
     Object.hasOwn(adminResult.body.data.settings, "updatedAt"),
     true
@@ -182,6 +190,10 @@ test("settings admin PATCH passes only validated partial updates", async () => {
     body: {
       businessName: "Updated business",
       tagline: null,
+      storyText: "Una reseña extensa del negocio",
+      scheduleColor: "VERDE",
+      fritangaScheduleText: "Viernes a domingo",
+      fritangaScheduleColor: "CAFE",
     },
   });
 
@@ -190,6 +202,10 @@ test("settings admin PATCH passes only validated partial updates", async () => {
   assert.deepEqual(state.calls.update, {
     businessName: "Updated business",
     tagline: null,
+    storyText: "Una reseña extensa del negocio",
+    scheduleColor: "VERDE",
+    fritangaScheduleText: "Viernes a domingo",
+    fritangaScheduleColor: "CAFE",
   });
 });
 

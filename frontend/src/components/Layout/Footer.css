@@ -32,6 +32,10 @@
   margin: 0;
 }
 
+.site-footer__schedule-secondary {
+  margin-top: 8px;
+}
+
 .site-footer__bottom {
   display: flex;
   justify-content: space-between;

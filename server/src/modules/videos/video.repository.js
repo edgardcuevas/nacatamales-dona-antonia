@@ -80,7 +80,8 @@ async function listPublicVideos() {
         provider,
         external_id,
         thumbnail_url,
-        sort_order
+        sort_order,
+        created_at
       FROM videos
       WHERE is_active = 1
         AND upload_status = 'READY'
@@ -105,7 +106,8 @@ async function findPublicVideoById(videoId) {
         provider,
         external_id,
         thumbnail_url,
-        sort_order
+        sort_order,
+        created_at
       FROM videos
       WHERE id = ?
         AND is_active = 1

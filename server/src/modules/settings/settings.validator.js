@@ -7,6 +7,9 @@ const {
   MAX_URL_LENGTH,
   MAX_ADDRESS_LENGTH,
   MAX_SCHEDULE_TEXT_LENGTH,
+  MAX_STORY_TEXT_LENGTH,
+  SCHEDULE_COLORS,
+  MAX_FRITANGA_SCHEDULE_TEXT_LENGTH,
 } = require("./settings.constants");
 
 function createValidationError(code, message) {
@@ -121,6 +124,14 @@ function parseCoordinate(value, minimum, maximum, code, label) {
   return value;
 }
 
+function parseScheduleColor(value, code, message) {
+  if (typeof value !== "string" || !SCHEDULE_COLORS.includes(value)) {
+    throw createValidationError(code, message);
+  }
+
+  return value;
+}
+
 function parseUpdateSettingsBody(body) {
   assertPlainObject(body);
   assertAllowedFields(body, [
@@ -133,6 +144,10 @@ function parseUpdateSettingsBody(body) {
     "latitude",
     "longitude",
     "scheduleText",
+    "storyText",
+    "scheduleColor",
+    "fritangaScheduleText",
+    "fritangaScheduleColor",
   ]);
 
   if (Object.keys(body).length === 0) {
@@ -203,6 +218,36 @@ function parseUpdateSettingsBody(body) {
       MAX_SCHEDULE_TEXT_LENGTH,
       "INVALID_SCHEDULE_TEXT",
       "A valid schedule text is required"
+    );
+  }
+  if (Object.hasOwn(body, "storyText")) {
+    updates.storyText = parseNullableString(
+      body.storyText,
+      MAX_STORY_TEXT_LENGTH,
+      "INVALID_STORY_TEXT",
+      "A valid story text is required"
+    );
+  }
+  if (Object.hasOwn(body, "scheduleColor")) {
+    updates.scheduleColor = parseScheduleColor(
+      body.scheduleColor,
+      "INVALID_SCHEDULE_COLOR",
+      "A valid schedule color is required"
+    );
+  }
+  if (Object.hasOwn(body, "fritangaScheduleText")) {
+    updates.fritangaScheduleText = parseNullableString(
+      body.fritangaScheduleText,
+      MAX_FRITANGA_SCHEDULE_TEXT_LENGTH,
+      "INVALID_FRITANGA_SCHEDULE_TEXT",
+      "A valid fritanga schedule text is required"
+    );
+  }
+  if (Object.hasOwn(body, "fritangaScheduleColor")) {
+    updates.fritangaScheduleColor = parseScheduleColor(
+      body.fritangaScheduleColor,
+      "INVALID_FRITANGA_SCHEDULE_COLOR",
+      "A valid fritanga schedule color is required"
     );
   }
 

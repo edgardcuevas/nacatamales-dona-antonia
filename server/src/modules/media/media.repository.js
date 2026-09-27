@@ -180,16 +180,20 @@ async function countMediaReferences(
           WHERE image_media_id = ?) AS product_count,
         (SELECT COUNT(*)
            FROM announcements
-          WHERE image_media_id = ?) AS announcement_count
+            WHERE image_media_id = ?) AS announcement_count,
+          (SELECT COUNT(*)
+             FROM photos
+            WHERE image_media_id = ?) AS photo_count
     `,
-    [mediaId, mediaId, mediaId]
+          [mediaId, mediaId, mediaId, mediaId]
   );
 
   const row = rows[0] ?? {};
   return (
     Number(row.category_count ?? 0) +
     Number(row.product_count ?? 0) +
-    Number(row.announcement_count ?? 0)
+    Number(row.announcement_count ?? 0) +
+    Number(row.photo_count ?? 0)
   );
 }
 

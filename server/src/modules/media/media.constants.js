@@ -18,6 +18,7 @@ const MEDIA_UPLOAD_TARGETS = Object.freeze([
   "categories",
   "products",
   "announcements",
+  "photos",
 ]);
 
 const ALLOWED_IMAGE_MIME_TYPES = Object.freeze([

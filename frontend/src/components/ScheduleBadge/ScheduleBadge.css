@@ -1,0 +1,16 @@
+.schedule-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 20px;
+  line-height: 1.3;
+}
+
+.schedule-badge svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}

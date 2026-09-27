@@ -219,6 +219,7 @@ test("media repository inserts provider metadata and counts all entity reference
             category_count: 1,
             product_count: 2,
             announcement_count: 3,
+            photo_count: 4,
           },
         ],
         [],
@@ -240,13 +241,14 @@ test("media repository inserts provider metadata and counts all entity reference
     await mediaRepository.countMediaReferences(2);
 
   assert.equal(created.id, 12);
-  assert.equal(references, 6);
+  assert.equal(references, 10);
   assert.match(queries[0].sql, /INSERT INTO media/);
   assert.equal(queries[0].parameters[0], "IMAGEKIT");
   assert.equal(queries[0].parameters[1], "file_test_123");
   assert.match(queries[1].sql, /categories/);
   assert.match(queries[1].sql, /products/);
   assert.match(queries[1].sql, /announcements/);
+  assert.match(queries[1].sql, /photos/);
 });
 
 test("media service returns the approved administrative DTO", async () => {

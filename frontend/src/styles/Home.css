@@ -16,22 +16,13 @@
 }
 
 .hero__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(229, 169, 40, 0.14);
-  border: 1px solid rgba(229, 169, 40, 0.45);
-  color: var(--color-amarillo);
-  font-size: 11.5px;
-  font-weight: 700;
-  padding: 6px 13px;
-  border-radius: 20px;
   margin-bottom: 16px;
 }
 
-.hero__eyebrow svg {
-  width: 13px;
-  height: 13px;
+.fritanga-band__schedule {
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #fff !important;
 }
 
 .hero h1 {
@@ -130,6 +121,7 @@
   max-width: 1180px;
   margin-left: auto;
   margin-right: auto;
+  border-radius: 16px;
 }
 
 .hero__strip-item {
