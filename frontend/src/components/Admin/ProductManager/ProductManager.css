@@ -1,0 +1,136 @@
+.product-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.product-manager__form {
+  background: #fff;
+  border: 1px solid #f2e5d1;
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.product-manager__form h3 {
+  font-size: 16px;
+  color: var(--color-cafe-oscuro);
+  margin-bottom: 14px;
+}
+
+.admin-field select,
+.product-manager__filter {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e6d6be;
+  background: #fff;
+  outline: none;
+}
+
+.admin-field select:focus,
+.product-manager__filter:focus {
+  border-color: var(--color-rojo);
+}
+
+.product-manager__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-cafe-oscuro);
+}
+
+.product-manager__form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.product-manager__form-actions button {
+  cursor: pointer;
+}
+
+.product-manager__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.product-manager__list-header h3 {
+  font-size: 16px;
+  color: var(--color-cafe-oscuro);
+}
+
+.product-manager__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.product-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #f2e5d1;
+  border-radius: 12px;
+  padding: 12px;
+  flex-wrap: wrap;
+}
+
+.product-row__thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f2e5d1;
+  flex: none;
+}
+
+.product-row__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.product-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.product-row__body strong {
+  font-size: 14px;
+  color: var(--color-cafe-oscuro);
+}
+
+.product-row__body span {
+  font-size: 12px;
+  color: #a08b76;
+}
+
+.product-row__pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.product-row__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+@media (min-width: 880px) {
+  .product-row__actions {
+    width: auto;
+  }
+}

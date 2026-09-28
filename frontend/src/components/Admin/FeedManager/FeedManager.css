@@ -1,0 +1,28 @@
+.feed-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.feed-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.feed-tab {
+  border: 1.5px solid #e6d6be;
+  background: #fff;
+  color: var(--color-cafe-oscuro);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 10px 22px;
+  border-radius: 24px;
+  cursor: pointer;
+}
+
+.feed-tab--active {
+  background: var(--color-rojo);
+  border-color: var(--color-rojo);
+  color: #fff;
+}

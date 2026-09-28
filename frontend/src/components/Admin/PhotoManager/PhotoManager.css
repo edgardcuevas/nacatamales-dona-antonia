@@ -1,0 +1,87 @@
+.photo-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.photo-manager__form {
+  background: #fff;
+  border: 1px solid #f2e5d1;
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.photo-manager__form h3 {
+  font-size: 16px;
+  color: var(--color-cafe-oscuro);
+  margin-bottom: 14px;
+}
+
+.photo-manager__form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.photo-manager__form-actions button {
+  cursor: pointer;
+}
+
+.photo-manager__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.photo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #f2e5d1;
+  border-radius: 12px;
+  padding: 12px;
+  flex-wrap: wrap;
+}
+
+.photo-row__thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f2e5d1;
+  flex: none;
+}
+
+.photo-row__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.photo-row__body strong {
+  font-size: 13.5px;
+  color: var(--color-cafe-oscuro);
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.photo-row__body span {
+  font-size: 12px;
+  color: #a08b76;
+}
+
+.photo-row__actions {
+  display: flex;
+  gap: 12px;
+}

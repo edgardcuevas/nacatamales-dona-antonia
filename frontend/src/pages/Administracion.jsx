@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import LoginForm from '../components/Admin/LoginForm/LoginForm'
 import CategoryManager from '../components/Admin/CategoryManager/CategoryManager'
+import ProductManager from '../components/Admin/ProductManager/ProductManager'
+import AnnouncementManager from '../components/Admin/AnnouncementManager/AnnouncementManager'
+import FeedManager from '../components/Admin/FeedManager/FeedManager'
 import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
 import '../styles/Administracion.css'
 
 const SECTIONS = [
   { key: 'categories', label: 'Categorías', description: 'Organiza el menú por secciones.', available: true },
-  { key: 'products', label: 'Productos', description: 'Agrega, edita precios y disponibilidad.', available: false },
-  { key: 'announcements', label: 'Anuncios', description: 'Publica alertas y promociones.', available: false },
-  { key: 'feed', label: 'Día a día', description: 'Sube fotos y videos del local.', available: false },
+  { key: 'products', label: 'Productos', description: 'Agrega, edita precios y disponibilidad.', available: true },
+  { key: 'announcements', label: 'Anuncios', description: 'Publica alertas y promociones.', available: true },
+  { key: 'feed', label: 'Día a día', description: 'Sube fotos y videos del local.', available: true },
   {
     key: 'media',
     label: 'Galería de fotos',
@@ -26,6 +29,9 @@ const SECTIONS = [
 
 const SECTION_COMPONENTS = {
   categories: CategoryManager,
+  products: ProductManager,
+  announcements: AnnouncementManager,
+  feed: FeedManager,
   media: MediaLibrary,
 }
 

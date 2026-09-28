@@ -17,6 +17,14 @@
   border: 1px solid transparent;
 }
 
+.announcement__image {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
 .announcement__tag {
   flex: none;
   font-size: 11px;

@@ -89,6 +89,12 @@ export const api = {
   post: (path, data) => request(path, { method: 'POST', body: JSON.stringify(data) }),
   patch: (path, data) => request(path, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (path) => request(path, { method: 'DELETE' }),
+  upload: (path, file, extraHeaders = {}) =>
+    request(path, {
+      method: 'POST',
+      body: file,
+      headers: { 'Content-Type': file.type, ...extraHeaders },
+    }),
 }
 
 export const authApi = {
