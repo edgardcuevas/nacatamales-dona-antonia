@@ -51,9 +51,16 @@ const userService = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const youtubeService =
+  require("../../src/modules/youtube/youtube.service");
 const {
   generateAccessToken,
 } = require("../../src/modules/auth/token.service");
+const {
+  resetYoutubeRateLimiters,
+} = require(
+  "../../src/middlewares/youtube-rate-limit.middleware"
+);
 
 const state = {
   currentUser: {
@@ -148,6 +155,36 @@ mock.method(
     return state.video;
   }
 );
+mock.method(
+  youtubeService,
+  "setVideoThumbnail",
+  async (input) => {
+    state.calls.setThumbnail = input;
+    if (state.errors.setThumbnail) {
+      throw state.errors.setThumbnail;
+    }
+    return {
+      video: state.video,
+      thumbnailUrl:
+        "https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg",
+    };
+  }
+);
+mock.method(
+  youtubeService,
+  "revertVideoThumbnail",
+  async (videoId) => {
+    state.calls.revertThumbnail = { videoId };
+    if (state.errors.revertThumbnail) {
+      throw state.errors.revertThumbnail;
+    }
+    return {
+      video: state.video,
+      thumbnailUrl:
+        "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg",
+    };
+  }
+);
 
 const app = require("../../src/app");
 const pool = require("../../src/database/pool");
@@ -178,7 +215,37 @@ afterEach(() => {
     role: "ADMIN",
     isActive: true,
   };
+  resetYoutubeRateLimiters();
 });
+
+function binaryRequest(
+  path,
+  {
+    method,
+    contentType,
+    body,
+    accessToken,
+  }
+) {
+  const headers = {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": contentType,
+  };
+  if (body !== undefined) {
+    headers["content-length"] = String(
+      Buffer.byteLength(body)
+    );
+  }
+
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers,
+    body,
+  }).then(async (response) => ({
+    status: response.status,
+    body: await response.json(),
+  }));
+}
 
 function token(role = "ADMIN") {
   return generateAccessToken({
@@ -333,6 +400,141 @@ test("video admin duplicate error is neutral and edit/status routes are availabl
   assert.equal(status.status, 200);
   assert.equal(state.calls.update.videoId, 3);
   assert.equal(state.calls.status.isActive, true);
+});
+
+test("setting a thumbnail accepts a raw JPEG body and returns the provider URL", async () => {
+  const result = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/jpeg",
+      body: Buffer.from("fake-jpeg-bytes"),
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  assert.equal(
+    result.body.data.thumbnailUrl,
+    "https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg"
+  );
+  assert.equal(state.calls.setThumbnail.videoId, 3);
+  assert.equal(
+    state.calls.setThumbnail.contentType,
+    "image/jpeg"
+  );
+  assert.equal(
+    state.calls.setThumbnail.fileSize,
+    "fake-jpeg-bytes".length
+  );
+});
+
+test("setting a thumbnail allows ADMIN and EDITOR and rejects anonymous callers", async () => {
+  const anonymous = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/jpeg",
+      body: Buffer.from("fake-jpeg-bytes"),
+      accessToken: token(),
+    }
+  );
+  assert.equal(anonymous.status, 200);
+
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  const editor = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/jpeg",
+      body: Buffer.from("fake-jpeg-bytes"),
+      accessToken: token("EDITOR"),
+    }
+  );
+  assert.equal(editor.status, 200);
+
+  const withoutToken = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/jpeg",
+      body: Buffer.from("fake-jpeg-bytes"),
+      accessToken: "",
+    }
+  );
+  assert.equal(withoutToken.status, 401);
+});
+
+test("setting a thumbnail rejects WebP, which the YouTube API does not accept", async () => {
+  const result = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/webp",
+      body: Buffer.from("fake-webp-bytes"),
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 400);
+  assert.equal(
+    result.body.error.code,
+    "INVALID_VIDEO_THUMBNAIL_TYPE"
+  );
+  assert.equal(
+    state.calls.setThumbnail,
+    undefined
+  );
+});
+
+test("reverting a thumbnail returns the provider frame", async () => {
+  const result = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "DELETE",
+      contentType: "application/json",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(
+    result.body.data.thumbnailUrl,
+    "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg"
+  );
+  assert.deepEqual(state.calls.revertThumbnail, {
+    videoId: 3,
+  });
+});
+
+test("thumbnail service errors are neutral and reach the client unchanged", async () => {
+  state.errors.setThumbnail = new AppError(
+    409,
+    "VIDEO_THUMBNAIL_NOT_READY",
+    "The video must finish processing before its thumbnail can be changed"
+  );
+
+  const result = await binaryRequest(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "PUT",
+      contentType: "image/jpeg",
+      body: Buffer.from("fake-jpeg-bytes"),
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 409);
+  assert.equal(
+    result.body.error.code,
+    "VIDEO_THUMBNAIL_NOT_READY"
+  );
 });
 
 test("video admin rejects unknown fields and inactive users", async () => {

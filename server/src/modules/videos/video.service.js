@@ -2,6 +2,11 @@ const AppError = require("../../errors/app-error");
 
 const videoRepository = require("./video.repository");
 const {
+  YOUTUBE_DEFAULT_THUMBNAIL_SOURCE,
+  CUSTOM_THUMBNAIL_SOURCE,
+  VIDEO_THUMBNAIL_SOURCES,
+} = require("./video.constants");
+const {
   validateYouTubeIdentity,
 } = require("./video.validator");
 
@@ -47,6 +52,12 @@ function toIsoString(value) {
   }
 
   return date.toISOString();
+}
+
+function toThumbnailSource(value) {
+  return VIDEO_THUMBNAIL_SOURCES.includes(value)
+    ? value
+    : YOUTUBE_DEFAULT_THUMBNAIL_SOURCE;
 }
 
 function toPublicVideo(video) {
@@ -96,6 +107,9 @@ function toAdminVideo(video) {
     provider: video.provider,
     externalId: video.external_id,
     thumbnailUrl: video.thumbnail_url ?? null,
+    thumbnailSource: toThumbnailSource(
+      video.thumbnail_source
+    ),
     sortOrder,
     isActive: isActiveRecord(video.is_active),
     uploadStatus: video.upload_status ?? "READY",
@@ -228,11 +242,24 @@ async function updateVideo({
         : current.external_id,
   });
 
+  // Choosing a thumbnail through the administrative update is a
+  // deliberate editorial decision, so it must survive the YouTube
+  // status synchronization instead of being reverted by it.
+  const normalizedUpdates = Object.hasOwn(
+    updates,
+    "thumbnailUrl"
+  )
+    ? {
+        ...updates,
+        thumbnailSource: CUSTOM_THUMBNAIL_SOURCE,
+      }
+    : updates;
+
   let updated;
   try {
     updated = await videoRepository.updateVideoById({
       videoId,
-      updates,
+      updates: normalizedUpdates,
     });
   } catch (error) {
     rethrowVideoWriteError(error);

@@ -1,6 +1,9 @@
 const AppError = require("../../errors/app-error");
 
 const {
+  isAllowedThumbnailUrl,
+} = require("../../config/youtube");
+const {
   VIDEO_PROVIDERS,
   DEFAULT_PAGE,
   DEFAULT_LIMIT,
@@ -280,6 +283,16 @@ function parseThumbnailUrl(value) {
     "INVALID_VIDEO_THUMBNAIL_URL",
     "A valid HTTPS thumbnail URL is required"
   );
+
+  // The provider for this module is YouTube only, so an
+  // administrative override may never point at an arbitrary host.
+  if (!isAllowedThumbnailUrl(value)) {
+    throw createValidationError(
+      "INVALID_VIDEO_THUMBNAIL_URL",
+      "A valid YouTube thumbnail URL is required"
+    );
+  }
+
   return value;
 }
 

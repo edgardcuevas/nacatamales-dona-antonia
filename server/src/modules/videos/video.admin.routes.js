@@ -28,14 +28,18 @@ const {
 const {
   uploadVideoController,
   getVideoStatusController,
+  setVideoThumbnailController,
+  revertVideoThumbnailController,
 } = require("../youtube/youtube.controller");
 const {
   validateVideoUpload,
+  validateVideoThumbnail,
   validateVideoStatusId,
 } = require("../youtube/youtube.validator");
 const {
   youtubeUploadRateLimiter,
   youtubeStatusRateLimiter,
+  youtubeThumbnailRateLimiter,
 } = require("../../middlewares/youtube-rate-limit.middleware");
 
 const router = express.Router();
@@ -66,6 +70,21 @@ router.get(
   youtubeStatusRateLimiter,
   validateVideoStatusId,
   getVideoStatusController
+);
+// Declared before "/:videoId" style routes so the literal path can
+// never be captured as a video ID.
+router.put(
+  "/:videoId/thumbnail",
+  youtubeThumbnailRateLimiter,
+  validateVideoStatusId,
+  validateVideoThumbnail,
+  setVideoThumbnailController
+);
+router.delete(
+  "/:videoId/thumbnail",
+  youtubeThumbnailRateLimiter,
+  validateVideoStatusId,
+  revertVideoThumbnailController
 );
 router.post(
   "/",

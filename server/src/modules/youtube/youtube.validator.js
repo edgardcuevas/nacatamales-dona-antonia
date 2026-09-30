@@ -7,6 +7,8 @@ const {
 const {
   ALLOWED_VIDEO_CONTENT_TYPES,
   MAX_VIDEO_UPLOAD_BYTES,
+  MAX_VIDEO_THUMBNAIL_BYTES,
+  ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES,
   MAX_YOUTUBE_DESCRIPTION_LENGTH,
 } = require("./youtube.constants");
 
@@ -230,6 +232,79 @@ function validateVideoUpload(
   }
 }
 
+function validateVideoThumbnail(
+  request,
+  response,
+  next
+) {
+  try {
+    const contentType =
+      getSingleHeader(request, "content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+    const contentLengthValue =
+      getSingleHeader(request, "content-length");
+    const contentEncoding =
+      getSingleHeader(
+        request,
+        "content-encoding"
+      );
+
+    if (
+      contentEncoding !== undefined &&
+      contentEncoding !== ""
+    ) {
+      throw createValidationError(
+        "INVALID_VIDEO_THUMBNAIL_ENCODING",
+        "Encoded thumbnail uploads are not accepted"
+      );
+    }
+
+    if (
+      contentLengthValue === undefined ||
+      !/^\d+$/.test(contentLengthValue)
+    ) {
+      throw createValidationError(
+        "VIDEO_THUMBNAIL_SIZE_REQUIRED",
+        "A valid thumbnail file size is required"
+      );
+    }
+
+    const fileSize = Number(contentLengthValue);
+    if (
+      !Number.isSafeInteger(fileSize) ||
+      fileSize <= 0 ||
+      fileSize > MAX_VIDEO_THUMBNAIL_BYTES
+    ) {
+      throw createValidationError(
+        "INVALID_VIDEO_THUMBNAIL_SIZE",
+        "The thumbnail file size is not allowed"
+      );
+    }
+
+    if (
+      !ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES.includes(
+        contentType
+      )
+    ) {
+      throw createValidationError(
+        "INVALID_VIDEO_THUMBNAIL_TYPE",
+        "Only JPEG and PNG thumbnails are accepted"
+      );
+    }
+
+    request.youtubeThumbnailInput = {
+      fileStream: request,
+      fileSize,
+      contentType,
+    };
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 function validateVideoStatusId(
   request,
   response,
@@ -249,5 +324,6 @@ module.exports = {
   parseCallbackQuery,
   validateOAuthCallback,
   validateVideoUpload,
+  validateVideoThumbnail,
   validateVideoStatusId,
 };

@@ -8,10 +8,16 @@ const YOUTUBE_STATUS_WINDOW_MS = 15 * 60 * 1000;
 const YOUTUBE_STATUS_MAX_REQUESTS = 60;
 const YOUTUBE_UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 const YOUTUBE_UPLOAD_MAX_REQUESTS = 5;
+// Deliberately more generous than the upload limiter: changing a
+// thumbnail is a cheap, reversible action and must not consume the
+// same budget as publishing a video.
+const YOUTUBE_THUMBNAIL_WINDOW_MS = 15 * 60 * 1000;
+const YOUTUBE_THUMBNAIL_MAX_REQUESTS = 20;
 
 const oauthStore = new Map();
 const statusStore = new Map();
 const uploadStore = new Map();
+const thumbnailStore = new Map();
 
 const youtubeOAuthRateLimiter = createRateLimiter({
   windowMs: YOUTUBE_OAUTH_WINDOW_MS,
@@ -28,17 +34,24 @@ const youtubeUploadRateLimiter = createRateLimiter({
   maxRequests: YOUTUBE_UPLOAD_MAX_REQUESTS,
   store: uploadStore,
 });
+const youtubeThumbnailRateLimiter = createRateLimiter({
+  windowMs: YOUTUBE_THUMBNAIL_WINDOW_MS,
+  maxRequests: YOUTUBE_THUMBNAIL_MAX_REQUESTS,
+  store: thumbnailStore,
+});
 
 function resetYoutubeRateLimiters() {
   oauthStore.clear();
   statusStore.clear();
   uploadStore.clear();
+  thumbnailStore.clear();
 }
 
 module.exports = {
   youtubeOAuthRateLimiter,
   youtubeStatusRateLimiter,
   youtubeUploadRateLimiter,
+  youtubeThumbnailRateLimiter,
   resetYoutubeRateLimiters,
   limits: Object.freeze({
     oauth: Object.freeze({
@@ -52,6 +65,10 @@ module.exports = {
     upload: Object.freeze({
       windowMs: YOUTUBE_UPLOAD_WINDOW_MS,
       maxRequests: YOUTUBE_UPLOAD_MAX_REQUESTS,
+    }),
+    thumbnail: Object.freeze({
+      windowMs: YOUTUBE_THUMBNAIL_WINDOW_MS,
+      maxRequests: YOUTUBE_THUMBNAIL_MAX_REQUESTS,
     }),
   }),
 };

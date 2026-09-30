@@ -1,6 +1,10 @@
 const { Transform } = require("node:stream");
 
 const env = require("./env");
+const {
+  MAX_VIDEO_THUMBNAIL_BYTES,
+  ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES,
+} = require("../modules/youtube/youtube.constants");
 
 const OAUTH_AUTHORIZATION_URL =
   "https://accounts.google.com/o/oauth2/v2/auth";
@@ -10,6 +14,8 @@ const YOUTUBE_API_URL =
   "https://www.googleapis.com/youtube/v3";
 const YOUTUBE_UPLOAD_URL =
   "https://www.googleapis.com/upload/youtube/v3/videos";
+const YOUTUBE_THUMBNAIL_SET_URL =
+  "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 const YOUTUBE_VIDEO_ID_PATTERN =
   /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_CHANNEL_ID_PATTERN =
@@ -79,6 +85,49 @@ function createValidatedVideoStream(
       ) {
         callback(
           new Error("Video stream length or format is invalid")
+        );
+        return;
+      }
+      callback();
+    },
+  });
+
+  if (typeof source.once === "function") {
+    source.once("error", (error) => {
+      monitored.destroy(error);
+    });
+  }
+  source.pipe(monitored);
+  return monitored;
+}
+
+function createBoundedImageStream(
+  source,
+  expectedSize
+) {
+  let bytesRead = 0;
+
+  const monitored = new Transform({
+    transform(chunk, encoding, callback) {
+      const buffer =
+        Buffer.isBuffer(chunk)
+          ? chunk
+          : Buffer.from(chunk, encoding);
+
+      bytesRead += buffer.length;
+      if (bytesRead > expectedSize) {
+        callback(
+          new Error("Thumbnail stream exceeds the allowed size")
+        );
+        return;
+      }
+
+      callback(null, buffer);
+    },
+    flush(callback) {
+      if (bytesRead !== expectedSize) {
+        callback(
+          new Error("Thumbnail stream length is invalid")
         );
         return;
       }
@@ -249,6 +298,61 @@ function normalizeVideo(
       processingDetails.processingStatus ??
       fallback.processingStatus ??
       null,
+  };
+}
+
+// The reason is read only to pick a stable application code. Provider
+// messages are never forwarded to the client.
+function getProviderErrorReason(payload) {
+  const reason =
+    payload?.error?.errors?.[0]?.reason;
+  return typeof reason === "string"
+    ? reason
+    : null;
+}
+
+async function readThumbnailErrorResponse(
+  response,
+  operation
+) {
+  if (response.ok) {
+    return null;
+  }
+
+  const reason = await response
+    .json()
+    .then(getProviderErrorReason)
+    .catch(() => null);
+
+  const error = new YouTubeApiError(
+    operation,
+    response.status
+  );
+  error.reason = reason;
+  return error;
+}
+
+function normalizeThumbnailSetResponse(payload) {
+  const thumbnail = payload?.items?.[0];
+
+  if (
+    !thumbnail ||
+    !isAllowedThumbnailUrl(thumbnail.url)
+  ) {
+    throw new YouTubeApiError(
+      "set-thumbnail",
+      502
+    );
+  }
+
+  return {
+    thumbnailUrl: thumbnail.url,
+    width: Number.isSafeInteger(thumbnail.width)
+      ? thumbnail.width
+      : null,
+    height: Number.isSafeInteger(thumbnail.height)
+      ? thumbnail.height
+      : null,
   };
 }
 
@@ -557,6 +661,72 @@ const youtubeClient = {
     } catch {
       return normalizedUpload;
     }
+  },
+
+  // The youtube.upload scope already grants thumbnails.set, so
+  // changing a custom thumbnail never requires a new OAuth consent.
+  async setVideoThumbnail({
+    accessToken,
+    videoId,
+    fileStream,
+    fileSize,
+    contentType,
+  }) {
+    if (
+      typeof accessToken !== "string" ||
+      accessToken.length === 0 ||
+      typeof videoId !== "string" ||
+      !YOUTUBE_VIDEO_ID_PATTERN.test(videoId) ||
+      !Number.isSafeInteger(fileSize) ||
+      fileSize <= 0 ||
+      typeof contentType !== "string" ||
+      !ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES.includes(
+        contentType
+      ) ||
+      !fileStream ||
+      typeof fileStream.pipe !== "function"
+    ) {
+      throw new YouTubeApiError("set-thumbnail", 400);
+    }
+
+    const response = await fetch(
+      `${YOUTUBE_THUMBNAIL_SET_URL}?videoId=${encodeURIComponent(videoId)}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": contentType,
+          "content-length": String(fileSize),
+        },
+        body: createBoundedImageStream(
+          fileStream,
+          fileSize
+        ),
+        duplex: "half",
+        signal: AbortSignal.timeout(60_000),
+      }
+    );
+
+    const error =
+      await readThumbnailErrorResponse(
+        response,
+        "set-thumbnail"
+      );
+    if (error) {
+      throw error;
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new YouTubeApiError(
+        "set-thumbnail",
+        502
+      );
+    }
+
+    return normalizeThumbnailSetResponse(payload);
   },
 
   async getVideo(accessToken, videoId) {

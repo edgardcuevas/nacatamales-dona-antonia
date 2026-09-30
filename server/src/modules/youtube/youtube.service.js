@@ -4,6 +4,10 @@ const AppError = require("../../errors/app-error");
 const videoRepository = require("../videos/video.repository");
 const videoService = require("../videos/video.service");
 const {
+  YOUTUBE_DEFAULT_THUMBNAIL_SOURCE,
+  CUSTOM_THUMBNAIL_SOURCE,
+} = require("../videos/video.constants");
+const {
   youtubeClient,
   YouTubeApiError,
   isAllowedThumbnailUrl,
@@ -16,7 +20,9 @@ const {
 } = require("./youtube-token-crypto");
 const {
   MAX_VIDEO_UPLOAD_BYTES,
+  MAX_VIDEO_THUMBNAIL_BYTES,
   MAX_YOUTUBE_DESCRIPTION_LENGTH,
+  ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES,
   OAUTH_STATE_TTL_MS,
 } = require("./youtube.constants");
 
@@ -84,6 +90,87 @@ function createStatusError() {
     "YOUTUBE_STATUS_UNAVAILABLE",
     "The YouTube video status could not be retrieved"
   );
+}
+
+function createThumbnailError() {
+  return createYoutubeError(
+    502,
+    "YOUTUBE_THUMBNAIL_FAILED",
+    "The video thumbnail could not be updated on YouTube"
+  );
+}
+
+function createThumbnailNotReadyError() {
+  return createYoutubeError(
+    409,
+    "VIDEO_THUMBNAIL_NOT_READY",
+    "The video must finish processing before its thumbnail can be changed"
+  );
+}
+
+function createThumbnailNotFoundError() {
+  return new AppError(
+    404,
+    "VIDEO_NOT_FOUND",
+    "The requested video does not exist"
+  );
+}
+
+function createThumbnailUnsupportedProviderError() {
+  return createYoutubeError(
+    400,
+    "VIDEO_PROVIDER_NOT_YOUTUBE",
+    "Only YouTube videos can receive a custom thumbnail"
+  );
+}
+
+function mapThumbnailError(error) {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  if (error instanceof YouTubeApiError) {
+    if (error.reason === "invalidImage") {
+      return createYoutubeError(
+        400,
+        "INVALID_VIDEO_THUMBNAIL_IMAGE",
+        "The image could not be accepted as a YouTube thumbnail"
+      );
+    }
+
+    if (error.reason === "videoNotFound") {
+      return createThumbnailNotFoundError();
+    }
+
+    if (
+      error.reason === "uploadRateLimitExceeded" ||
+      error.status === 429
+    ) {
+      return createYoutubeError(
+        429,
+        "YOUTUBE_THUMBNAIL_RATE_LIMITED",
+        "Too many thumbnail changes were requested for this channel"
+      );
+    }
+
+    if (error.status === 403) {
+      return createYoutubeError(
+        409,
+        "YOUTUBE_THUMBNAIL_NOT_PERMITTED",
+        "The connected channel is not allowed to change this thumbnail"
+      );
+    }
+
+    if (error.status === 400) {
+      return createYoutubeError(
+        400,
+        "INVALID_VIDEO_THUMBNAIL",
+        "The thumbnail request was rejected by YouTube"
+      );
+    }
+  }
+
+  return createThumbnailError();
 }
 
 function createChannelMismatchError() {
@@ -660,10 +747,19 @@ async function getVideoStatus(videoId) {
     mapUploadStatus(remoteVideo);
   const privacyStatus =
     mapPrivacyStatus(remoteVideo.privacyStatus);
-  const thumbnailUrl =
-    isAllowedThumbnailUrl(
-      remoteVideo.thumbnailUrl
-    )
+
+  // A custom thumbnail is an explicit editorial decision, so the
+  // provider synchronization must not silently replace it with the
+  // frame YouTube auto-generated. This is what keeps a freshly
+  // chosen thumbnail from reverting during propagation.
+  const isCustomThumbnail =
+    current.thumbnail_source ===
+    CUSTOM_THUMBNAIL_SOURCE;
+  const thumbnailUrl = isCustomThumbnail
+    ? undefined
+    : isAllowedThumbnailUrl(
+        remoteVideo.thumbnailUrl
+      )
       ? remoteVideo.thumbnailUrl
       : current.thumbnail_url;
 
@@ -693,13 +789,178 @@ async function getVideoStatus(videoId) {
   };
 }
 
+async function setVideoThumbnail({
+  videoId,
+  fileStream,
+  fileSize,
+  contentType,
+}) {
+  if (
+    !Number.isSafeInteger(fileSize) ||
+    fileSize <= 0 ||
+    fileSize > MAX_VIDEO_THUMBNAIL_BYTES
+  ) {
+    throw createYoutubeError(
+      400,
+      "INVALID_VIDEO_THUMBNAIL_SIZE",
+      "The thumbnail file size is not allowed"
+    );
+  }
+
+  if (
+    !ALLOWED_VIDEO_THUMBNAIL_CONTENT_TYPES.includes(
+      contentType
+    )
+  ) {
+    throw createYoutubeError(
+      400,
+      "INVALID_VIDEO_THUMBNAIL_TYPE",
+      "Only JPEG and PNG thumbnails are accepted"
+    );
+  }
+
+  if (!fileStream || typeof fileStream.pipe !== "function") {
+    throw createYoutubeError(
+      400,
+      "INVALID_VIDEO_THUMBNAIL",
+      "A thumbnail image is required"
+    );
+  }
+
+  const current =
+    await videoRepository.findVideoById(videoId);
+  if (!current) {
+    throw createThumbnailNotFoundError();
+  }
+
+  if (current.provider !== "YOUTUBE") {
+    throw createThumbnailUnsupportedProviderError();
+  }
+
+  if (
+    (current.upload_status ?? "READY") !== "READY"
+  ) {
+    throw createThumbnailNotReadyError();
+  }
+
+  const accessToken =
+    await getAccessToken();
+
+  let providerThumbnail;
+  try {
+    providerThumbnail =
+      await youtubeClient.setVideoThumbnail({
+        accessToken,
+        videoId: current.external_id,
+        fileStream,
+        fileSize,
+        contentType,
+      });
+  } catch (error) {
+    throw mapThumbnailError(error);
+  }
+
+  // The URL is taken from the response of thumbnails.set instead of
+  // from a follow-up read, because the provider can still report the
+  // previous frame during the propagation window.
+  try {
+    const updated =
+      await videoRepository.updateVideoProcessingStatus({
+        videoId,
+        thumbnailUrl: providerThumbnail.thumbnailUrl,
+        thumbnailSource: CUSTOM_THUMBNAIL_SOURCE,
+      });
+    if (!updated) {
+      throw new Error(
+        "Video disappeared during thumbnail update"
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw createYoutubeError(
+      500,
+      "VIDEO_THUMBNAIL_PERSISTENCE_FAILED",
+      "The chosen thumbnail could not be recorded"
+    );
+  }
+
+  return {
+    video: await videoService.getVideoById(videoId),
+    thumbnailUrl: providerThumbnail.thumbnailUrl,
+  };
+}
+
+async function revertVideoThumbnail(videoId) {
+  const current =
+    await videoRepository.findVideoById(videoId);
+  if (!current) {
+    throw createThumbnailNotFoundError();
+  }
+
+  if (current.provider !== "YOUTUBE") {
+    throw createThumbnailUnsupportedProviderError();
+  }
+
+  // Reverting only needs the provider's own current frame, so it
+  // does not require the channel to be connected.
+  let providerThumbnailUrl = null;
+  try {
+    const accessToken =
+      await getAccessToken();
+    const remoteVideo =
+      await youtubeClient.getVideo(
+        accessToken,
+        current.external_id
+      );
+    if (isAllowedThumbnailUrl(remoteVideo.thumbnailUrl)) {
+      providerThumbnailUrl = remoteVideo.thumbnailUrl;
+    }
+  } catch {
+    // Leaving the stored URL is preferable to failing the revert
+    // when the provider is temporarily unreachable.
+  }
+
+  try {
+    const updated =
+      await videoRepository.updateVideoProcessingStatus({
+        videoId,
+        thumbnailUrl: providerThumbnailUrl,
+        thumbnailSource: YOUTUBE_DEFAULT_THUMBNAIL_SOURCE,
+      });
+    if (!updated) {
+      throw new Error("Video disappeared during revert");
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw createYoutubeError(
+      500,
+      "VIDEO_THUMBNAIL_PERSISTENCE_FAILED",
+      "The thumbnail could not be restored"
+    );
+  }
+
+  return {
+    video: await videoService.getVideoById(videoId),
+    thumbnailUrl: providerThumbnailUrl,
+  };
+}
+
 module.exports = {
   createAuthorizationRequest,
   completeAuthorization,
   getConnectionStatus,
   uploadVideo,
   getVideoStatus,
+  setVideoThumbnail,
+  revertVideoThumbnail,
   clearAccessTokenCache,
   mapUploadStatus,
   validateUploadInput,
+  mapThumbnailError,
 };

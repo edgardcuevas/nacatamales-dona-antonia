@@ -60,6 +60,7 @@ function getVideoColumns() {
     provider,
     external_id,
     thumbnail_url,
+    thumbnail_source,
     sort_order,
     is_active,
     upload_status,
@@ -80,6 +81,7 @@ async function listPublicVideos() {
         provider,
         external_id,
         thumbnail_url,
+        thumbnail_source,
         sort_order,
         created_at
       FROM videos
@@ -106,6 +108,7 @@ async function findPublicVideoById(videoId) {
         provider,
         external_id,
         thumbnail_url,
+        thumbnail_source,
         sort_order,
         created_at
       FROM videos
@@ -218,6 +221,7 @@ async function updateVideoById({
     provider: "provider",
     externalId: "external_id",
     thumbnailUrl: "thumbnail_url",
+    thumbnailSource: "thumbnail_source",
     sortOrder: "sort_order",
   };
   const updateEntries = Object.entries(updates);
@@ -316,6 +320,7 @@ async function updateVideoProcessingStatus({
   uploadStatus,
   privacyStatus,
   thumbnailUrl,
+  thumbnailSource,
   title,
   description,
 }) {
@@ -323,6 +328,7 @@ async function updateVideoProcessingStatus({
     uploadStatus: "upload_status",
     privacyStatus: "privacy_status",
     thumbnailUrl: "thumbnail_url",
+    thumbnailSource: "thumbnail_source",
     title: "title",
     description: "description",
   };
@@ -330,6 +336,7 @@ async function updateVideoProcessingStatus({
     uploadStatus,
     privacyStatus,
     thumbnailUrl,
+    thumbnailSource,
     title,
     description,
   };

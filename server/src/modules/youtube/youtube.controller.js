@@ -134,6 +134,41 @@ async function getVideoStatusController(
   );
 }
 
+async function setVideoThumbnailController(
+  request,
+  response
+) {
+  const result =
+    await youtubeService.setVideoThumbnail({
+      ...request.youtubeThumbnailInput,
+      videoId: request.videoId,
+    });
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "The video thumbnail was updated successfully"
+  );
+}
+
+async function revertVideoThumbnailController(
+  request,
+  response
+) {
+  const result =
+    await youtubeService.revertVideoThumbnail(
+      request.videoId
+    );
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "The video thumbnail was restored successfully"
+  );
+}
+
 module.exports = {
   OAUTH_STATE_COOKIE,
   OAUTH_COOKIE_PATH,
@@ -142,4 +177,6 @@ module.exports = {
   channelStatusController,
   uploadVideoController,
   getVideoStatusController,
+  setVideoThumbnailController,
+  revertVideoThumbnailController,
 };
