@@ -6,6 +6,9 @@ export function mergeFeed(videos = [], photos = []) {
     title: video.title,
     caption: video.description,
     thumbnailUrl: video.thumbnailUrl,
+    // The public DTO has no updatedAt, so createdAt is the version
+    // signal used to bust the browser cache after a thumbnail change.
+    thumbnailVersion: video.createdAt,
     externalId: video.externalId,
   }))
 

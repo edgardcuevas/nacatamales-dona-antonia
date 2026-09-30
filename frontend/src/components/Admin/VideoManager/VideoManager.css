@@ -156,3 +156,23 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+
+.video-row__thumbnail-editor {
+  flex-basis: 100%;
+  border-top: 1px solid #f2e5d1;
+  padding-top: 12px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.video-row__thumbnail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.video-row__thumbnail-actions button {
+  cursor: pointer;
+}

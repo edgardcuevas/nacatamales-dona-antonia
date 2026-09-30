@@ -37,6 +37,12 @@ async function rawRequest(path, options = {}) {
     credentials: 'include',
   })
 
+  // A 204 or a failed request can legitimately have no JSON body, so
+  // the guard has to read the status before touching the payload.
+  if (response.status === 204) {
+    return null
+  }
+
   const body = await response.json().catch(() => null)
 
   if (!response.ok || !body?.success) {
@@ -92,6 +98,14 @@ export const api = {
   upload: (path, file, extraHeaders = {}) =>
     request(path, {
       method: 'POST',
+      body: file,
+      headers: { 'Content-Type': file.type, ...extraHeaders },
+    }),
+  // Raw binary body with a caller-chosen method. Used by the YouTube
+  // thumbnail route, which is a PUT of an image, not a form upload.
+  putBinary: (path, file, extraHeaders = {}) =>
+    request(path, {
+      method: 'PUT',
       body: file,
       headers: { 'Content-Type': file.type, ...extraHeaders },
     }),

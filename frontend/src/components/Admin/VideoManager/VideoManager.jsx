@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
+import { uploadVideoThumbnail, revertVideoThumbnail } from '../../../utils/mediaUpload'
+import VideoThumbnailField from './VideoThumbnailField'
 import './VideoManager.css'
 
 const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
 const POLL_INTERVAL_MS = 8000
 const MAX_POLLS = 75
+
+// Revokes a preview URL only when it is the one currently tracked, so
+// clearing the form can never revoke a newer preview.
+function releaseObjectUrl(url, ref) {
+  if (!url || !ref.current || ref.current !== url) {
+    return
+  }
+  URL.revokeObjectURL(url)
+  ref.current = null
+}
 
 const STATUS_LABELS = {
   PENDING: 'En cola',
@@ -65,6 +77,54 @@ function describeUploadError(error) {
   return 'No se pudo subir el video.'
 }
 
+function describeThumbnailError(error) {
+  if (
+    error.code === 'YOUTUBE_NOT_CONNECTED' ||
+    error.code === 'YOUTUBE_REAUTH_REQUIRED' ||
+    error.code === 'YOUTUBE_CHANNEL_MISMATCH'
+  ) {
+    return 'La cuenta de YouTube no está conectada. Avisale al administrador del sitio para que la reconecte.'
+  }
+  if (error.code === 'VIDEO_THUMBNAIL_NOT_READY') {
+    return 'YouTube todavía está procesando el video. Cambiá la miniatura cuando esté listo.'
+  }
+  if (error.code === 'YOUTUBE_THUMBNAIL_NOT_PERMITTED') {
+    return 'Este canal de YouTube no puede cambiar esa miniatura.'
+  }
+  if (
+    error.code === 'INVALID_VIDEO_THUMBNAIL_TYPE' ||
+    error.code === 'INVALID_VIDEO_THUMBNAIL_IMAGE' ||
+    error.code === 'INVALID_VIDEO_THUMBNAIL'
+  ) {
+    return 'YouTube no aceptó la imagen. Probá con una JPG.'
+  }
+  if (
+    error.code === 'INVALID_VIDEO_THUMBNAIL_SIZE' ||
+    error.code === 'VIDEO_THUMBNAIL_SIZE_REQUIRED'
+  ) {
+    return 'La miniatura pesa demasiado. Probá con una imagen más chica.'
+  }
+  if (
+    error.code === 'YOUTUBE_THUMBNAIL_RATE_LIMITED' ||
+    error.status === 429
+  ) {
+    return 'YouTube limitó los cambios de miniatura. Esperá un momento e intentá de nuevo.'
+  }
+  if (error.code === 'VIDEO_PROVIDER_NOT_YOUTUBE') {
+    return 'Este video no es de YouTube, así que no admite miniatura propia.'
+  }
+  if (error.code === 'VIDEO_NOT_FOUND') {
+    return 'Ese video ya no existe.'
+  }
+  if (error.code === 'YOUTUBE_THUMBNAIL_FAILED' || error.code === 'YOUTUBE_PROVIDER_ERROR') {
+    return 'YouTube no pudo cambiar la miniatura. Intentá de nuevo en unos minutos.'
+  }
+  if (error instanceof TypeError) {
+    return 'Se cortó la conexión al cambiar la miniatura. Revisá tu internet.'
+  }
+  return 'No se pudo cambiar la miniatura.'
+}
+
 export default function VideoManager() {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -77,10 +137,23 @@ export default function VideoManager() {
   const [stage, setStage] = useState('idle')
   const isMountedRef = useRef(true)
 
+  // Thumbnail chosen in the form. It is a File already downscaled to
+  // 1280x720 JPEG, ready to send once the video reaches READY.
+  const [thumbnailFile, setThumbnailFile] = useState(null)
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState(null)
+  const thumbnailObjectUrlRef = useRef(null)
+
+  // Row-level thumbnail editor for videos that are already stored.
+  const [rowThumbnail, setRowThumbnail] = useState(null)
+  const rowThumbnailObjectUrlRef = useRef(null)
+  const [revertingVideoId, setRevertingVideoId] = useState(null)
+
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
+      releaseObjectUrl(thumbnailObjectUrlRef.current, thumbnailObjectUrlRef)
+      releaseObjectUrl(rowThumbnailObjectUrlRef.current, rowThumbnailObjectUrlRef)
     }
   }, [])
 
@@ -110,12 +183,123 @@ export default function VideoManager() {
 
   const isBusy = stage !== 'idle'
 
+  function releaseThumbnailPreview() {
+    releaseObjectUrl(thumbnailObjectUrlRef.current, thumbnailObjectUrlRef)
+  }
+
+  function releaseRowThumbnailPreview() {
+    releaseObjectUrl(rowThumbnailObjectUrlRef.current, rowThumbnailObjectUrlRef)
+  }
+
   function resetForm() {
     setForm(EMPTY_FORM)
     setFile(null)
     setFileInputKey((key) => key + 1)
     setEditingId(null)
     setErrorMessage(null)
+    releaseThumbnailPreview()
+    setThumbnailFile(null)
+    setThumbnailPreviewUrl(null)
+  }
+
+  function handleThumbnailSelected(scaledFile) {
+    releaseThumbnailPreview()
+    const objectUrl = URL.createObjectURL(scaledFile)
+    thumbnailObjectUrlRef.current = objectUrl
+    setThumbnailFile(scaledFile)
+    setThumbnailPreviewUrl(objectUrl)
+  }
+
+  function handleThumbnailRemoved() {
+    releaseThumbnailPreview()
+    setThumbnailFile(null)
+    setThumbnailPreviewUrl(null)
+  }
+
+  // Row editor state is kept in one object so the preview URL and the
+  // staged file can never disagree.
+  function openRowThumbnail(video) {
+    releaseRowThumbnailPreview()
+    setRowThumbnail({
+      ...video,
+      pendingFile: null,
+      previewUrl: null,
+    })
+  }
+
+  function closeRowThumbnail() {
+    releaseRowThumbnailPreview()
+    setRowThumbnail(null)
+  }
+
+  function handleRowThumbnailSelected(scaledFile) {
+    releaseRowThumbnailPreview()
+    const objectUrl = URL.createObjectURL(scaledFile)
+    rowThumbnailObjectUrlRef.current = objectUrl
+    setRowThumbnail((current) =>
+      current
+        ? { ...current, pendingFile: scaledFile, previewUrl: objectUrl }
+        : current
+    )
+  }
+
+  function handleRowThumbnailRemoved() {
+    releaseRowThumbnailPreview()
+    setRowThumbnail((current) =>
+      current
+        ? { ...current, pendingFile: null, previewUrl: null }
+        : current
+    )
+  }
+
+  async function handleRowThumbnailSubmit() {
+    if (!rowThumbnail?.pendingFile) {
+      return
+    }
+
+    const videoId = rowThumbnail.id
+    setErrorMessage(null)
+    setInfoMessage(null)
+    setStage('saving')
+
+    try {
+      await uploadVideoThumbnail(videoId, rowThumbnail.pendingFile)
+      closeRowThumbnail()
+      loadVideos()
+      if (isMountedRef.current) {
+        setInfoMessage('La miniatura se actualizó en YouTube y en el sitio.')
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        setErrorMessage(describeThumbnailError(error))
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setStage('idle')
+      }
+    }
+  }
+
+  async function handleRevertThumbnail(video) {
+    setErrorMessage(null)
+    setInfoMessage(null)
+    setRevertingVideoId(video.id)
+
+    try {
+      await revertVideoThumbnail(video.id)
+      loadVideos()
+      if (isMountedRef.current) {
+        setInfoMessage('Se restauró la miniatura que elige YouTube.')
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        setErrorMessage(describeThumbnailError(error))
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRevertingVideoId(null)
+      }
+    }
   }
 
   function startEdit(video) {
@@ -196,6 +380,7 @@ export default function VideoManager() {
     const description = form.description.trim()
 
     setInfoMessage(null)
+    setErrorMessage(null)
     setStage('uploading')
 
     try {
@@ -218,6 +403,11 @@ export default function VideoManager() {
         await api.patch(`/admin/videos/${video.id}`, fix)
       }
 
+      // Captured before resetForm() clears the staged thumbnail, and
+      // released together with the form preview.
+      const selectedThumbnail = thumbnailFile
+      const selectedThumbnailPreviewUrl = thumbnailPreviewUrl
+
       resetForm()
       loadVideos()
 
@@ -228,6 +418,20 @@ export default function VideoManager() {
       const finalStatus = await waitUntilReady(video.id)
 
       if (finalStatus === 'READY') {
+        // A custom thumbnail can only be applied to a processed video,
+        // so it happens here and never before. A failure here must not
+        // block publishing the video itself.
+        if (selectedThumbnail) {
+          releaseObjectUrl(selectedThumbnailPreviewUrl, thumbnailObjectUrlRef)
+          try {
+            await uploadVideoThumbnail(video.id, selectedThumbnail)
+          } catch (error) {
+            if (isMountedRef.current) {
+              setErrorMessage(describeThumbnailError(error))
+            }
+          }
+        }
+
         if (form.publishNow) {
           await api.patch(`/admin/videos/${video.id}/status`, { isActive: true })
         }
@@ -302,6 +506,17 @@ export default function VideoManager() {
             {file && <small className="video-manager__file-info">{file.name}</small>}
           </div>
         )}
+
+        <div className="admin-field">
+          <span>Miniatura (opcional)</span>
+          <VideoThumbnailField
+            previewUrl={thumbnailPreviewUrl}
+            file={thumbnailFile}
+            onFileSelected={handleThumbnailSelected}
+            onRemove={thumbnailPreviewUrl ? handleThumbnailRemoved : null}
+            isBusy={isBusy}
+          />
+        </div>
 
         <label className="admin-field">
           <span>Título</span>
@@ -409,7 +624,55 @@ export default function VideoManager() {
                     Actualizar estado
                   </button>
                 )}
+                {isReady && rowThumbnail?.id !== video.id && (
+                  <button type="button" className="btn-link" onClick={() => openRowThumbnail(video)}>
+                    Cambiar miniatura
+                  </button>
+                )}
+                {isReady && video.thumbnailSource === 'CUSTOM' && rowThumbnail?.id !== video.id && (
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => handleRevertThumbnail(video)}
+                    disabled={revertingVideoId === video.id}
+                  >
+                    {revertingVideoId === video.id ? 'Restaurando…' : 'Usar la de YouTube'}
+                  </button>
+                )}
               </div>
+
+              {rowThumbnail?.id === video.id && (
+                <div className="video-row__thumbnail-editor">
+                  <VideoThumbnailField
+                    previewUrl={rowThumbnail.previewUrl || video.thumbnailUrl}
+                    file={rowThumbnail.pendingFile}
+                    onFileSelected={handleRowThumbnailSelected}
+                    onRemove={rowThumbnail.previewUrl ? handleRowThumbnailRemoved : null}
+                    isBusy={isBusy}
+                    canRevert={video.thumbnailSource === 'CUSTOM'}
+                    isReverting={revertingVideoId === video.id}
+                    onRevert={() => handleRevertThumbnail(video)}
+                  />
+                  <div className="video-row__thumbnail-actions">
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={handleRowThumbnailSubmit}
+                      disabled={isBusy || !rowThumbnail.pendingFile}
+                    >
+                      {stage === 'saving' ? 'Guardando…' : 'Guardar miniatura'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--outline"
+                      onClick={closeRowThumbnail}
+                      disabled={isBusy}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}
