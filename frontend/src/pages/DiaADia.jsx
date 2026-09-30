@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
 import { mergeFeed } from '../utils/feed'
+import { withCacheBuster } from '../utils/cacheBuster'
 import '../styles/DiaADia.css'
 
 export default function DiaADia() {
@@ -74,7 +75,13 @@ export default function DiaADia() {
                   aria-label={`Reproducir ${item.title}`}
                 >
                   {item.thumbnailUrl ? (
-                    <img src={item.thumbnailUrl} alt={item.title} />
+                    // A custom thumbnail replaces the bytes behind the same
+                    // i.ytimg.com URL, so the cache key has to change or
+                    // visitors keep seeing the previous frame.
+                    <img
+                      src={withCacheBuster(item.thumbnailUrl, item.thumbnailVersion)}
+                      alt={item.title}
+                    />
                   ) : (
                     <div className="dia-post__placeholder" />
                   )}

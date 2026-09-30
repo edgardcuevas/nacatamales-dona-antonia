@@ -1,5 +1,20 @@
 import { api } from '../api/client'
 
+// Video thumbnails are not ImageKit-backed: they are applied inside
+// YouTube by the backend, so they bypass the media library entirely.
+export async function uploadVideoThumbnail(videoId, file) {
+  const data = await api.putBinary(
+    `/admin/videos/${videoId}/thumbnail`,
+    file
+  )
+  return data.thumbnailUrl
+}
+
+export async function revertVideoThumbnail(videoId) {
+  const data = await api.delete(`/admin/videos/${videoId}/thumbnail`)
+  return data.thumbnailUrl
+}
+
 export async function uploadImage(target, file, altText = null) {
   const { upload } = await api.post('/admin/media/upload-auth', { target })
 

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { uploadImage } from '../../../utils/mediaUpload'
-import ImageUploader from '../ImageUploader/ImageUploader'
+import { useStagedImage } from '../../../hooks/useStagedImage'
+import MediaPicker from '../MediaPicker/MediaPicker'
 import './CategoryManager.css'
 
 const EMPTY_FORM = {
@@ -26,11 +27,7 @@ export default function CategoryManager() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
-
-  const [imageFile, setImageFile] = useState(null)
-  const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
-  const [existingImageId, setExistingImageId] = useState(null)
-  const objectUrlRef = useRef(null)
+  const image = useStagedImage()
 
   function loadCategories() {
     setIsLoading(true)
@@ -45,50 +42,22 @@ export default function CategoryManager() {
     loadCategories()
   }, [])
 
-  function clearLocalPreview() {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current)
-      objectUrlRef.current = null
-    }
-  }
-
   function resetForm() {
-    clearLocalPreview()
     setForm(EMPTY_FORM)
     setEditingId(null)
-    setImageFile(null)
-    setImagePreviewUrl(null)
-    setExistingImageId(null)
     setErrorMessage(null)
+    image.reset()
   }
 
   function startEdit(category) {
-    clearLocalPreview()
     setForm({
       name: category.name,
       description: category.description || '',
       sortOrder: category.sortOrder,
     })
     setEditingId(category.id)
-    setImageFile(null)
-    setImagePreviewUrl(category.image?.url || null)
-    setExistingImageId(category.image?.id || null)
     setErrorMessage(null)
-  }
-
-  function handleFileSelected(file) {
-    clearLocalPreview()
-    const objectUrl = URL.createObjectURL(file)
-    objectUrlRef.current = objectUrl
-    setImageFile(file)
-    setImagePreviewUrl(objectUrl)
-  }
-
-  function handleRemoveImage() {
-    clearLocalPreview()
-    setImageFile(null)
-    setImagePreviewUrl(null)
-    setExistingImageId(null)
+    image.load(category.image)
   }
 
   async function handleSubmit(event) {
@@ -97,10 +66,10 @@ export default function CategoryManager() {
     setIsSaving(true)
 
     try {
-      let imageMediaId = existingImageId
+      let imageMediaId = image.existingId
 
-      if (imageFile) {
-        const media = await uploadImage('categories', imageFile, form.name.trim())
+      if (image.file) {
+        const media = await uploadImage('categories', image.file, form.name.trim())
         imageMediaId = media.id
       }
 
@@ -183,12 +152,7 @@ export default function CategoryManager() {
 
         <div className="admin-field">
           <span>Imagen (opcional)</span>
-          <ImageUploader
-            previewUrl={imagePreviewUrl}
-            onFileSelected={handleFileSelected}
-            onRemove={imagePreviewUrl ? handleRemoveImage : null}
-            isBusy={isSaving}
-          />
+          <MediaPicker image={image} isBusy={isSaving} />
         </div>
 
         {errorMessage && <p className="admin-error">{errorMessage}</p>}

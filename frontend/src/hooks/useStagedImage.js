@@ -43,9 +43,31 @@ export function useStagedImage() {
     setExistingId(image?.id || null)
   }
 
+  // Reuses an image that is already stored in the media library, so
+  // no new file is uploaded and no extra storage is consumed.
+  function pickExisting(media) {
+    if (!media?.id) {
+      return
+    }
+    load({
+      id: media.id,
+      url: media.secureUrl || media.url || null,
+    })
+  }
+
   function reset() {
     load(null)
   }
 
-  return { file, previewUrl, existingId, select, remove, load, reset }
+  return {
+    file,
+    previewUrl,
+    existingId,
+    hasImage: Boolean(file || existingId),
+    select,
+    remove,
+    load,
+    pickExisting,
+    reset,
+  }
 }

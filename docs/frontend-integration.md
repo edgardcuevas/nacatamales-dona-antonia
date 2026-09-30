@@ -13,9 +13,9 @@
 
 La auditoría realizada antes de documentar confirmó:
 
-- `npm test`: **274 pruebas aprobadas, 0 fallidas**.
+- `npm test`: **323 pruebas aprobadas, 0 fallidas**.
 - `npm audit`: **0 vulnerabilidades**.
-- Migraciones: **11 completadas, 0 pendientes**.
+- Migraciones: **16 completadas, 0 pendientes**.
 - Conexión MySQL: verificada.
 - YouTube OAuth: verificado con una conexión real.
 - ImageKit: integración configurada y verificada por pruebas; el media store contiene únicamente proveedor `IMAGEKIT`.
@@ -1832,6 +1832,7 @@ No establecer manualmente `Content-Length` si el navegador lo calcula automátic
       "provider": "YOUTUBE",
       "externalId": "VIDEO_ID",
       "thumbnailUrl": "https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg",
+      "thumbnailSource": "YOUTUBE_DEFAULT",
       "sortOrder": 0,
       "isActive": false,
       "uploadStatus": "PROCESSING",
@@ -1873,7 +1874,108 @@ Response `200`:
 
 El endpoint no debe consultarse en loop aggressively. El frontend puede consultar después de un intervalo prudente y dejar de consultar cuando `READY` o `FAILED`.
 
-## 11.7 Errores de Videos
+Cuando `thumbnailSource` es `CUSTOM`, este endpoint **no** sobrescribe `thumbnailUrl`. Ese es el mecanismo que evita que una miniatura elegida se revierta durante la ventana de propagación de YouTube.
+
+## 11.7 `PUT /api/admin/videos/:videoId/thumbnail`
+
+**Roles:** `ADMIN`, `EDITOR`.
+
+Permite elegir la miniatura que YouTube mostrará para el video. No es `multipart/form-data` y no acepta `FormData`: el body es la imagen binaria, igual que en la subida de video.
+
+### Headers
+
+```http
+Authorization: Bearer <accessToken>
+Content-Type: image/jpeg | image/png
+Content-Length: <file-size-in-bytes>
+```
+
+Reglas:
+
+- `Content-Type` debe ser `image/jpeg` o `image/png`. **YouTube no acepta WebP** aunque el pipeline de ImageKit del proyecto sí lo acepte.
+- `Content-Length` es obligatorio.
+- El body es la imagen binaria.
+- El backend verifica la longitud real del stream y no lo carga completo en memoria.
+- Solo funciona con videos en `uploadStatus=READY`; mientras tanto devuelve `409 VIDEO_THUMBNAIL_NOT_READY`.
+- Solo funciona con `provider=YOUTUBE`.
+- El scope `youtube.upload` ya está concedido, por lo que **no requiere reconectar el canal** ni un nuevo consentimiento OAuth.
+- Costo de cuota de YouTube: ~50 unidades por llamada.
+- La URL persistida es la que devuelve `thumbnails.set`, no una lectura posterior, porque el proveedor puede seguir reportando el frame anterior durante la propagación.
+
+### Límite
+
+- Tamaño máximo: **10 MiB** (`10485760` bytes).
+- Timeout: **60 segundos**.
+
+Se recomienda escalar la imagen a 1280×720 en el navegador antes de subirla. Eso reduce el peso a 100-300 KB sin pérdida visible, y evita gastar cuota con originales de 4K que se muestran a 480 px de ancho.
+
+### Response `200`
+
+```json
+{
+  "success": true,
+  "message": "The video thumbnail was updated successfully",
+  "data": {
+    "video": {
+      "id": 2,
+      "externalId": "VIDEO_ID",
+      "thumbnailUrl": "https://i.ytimg.com/vi/VIDEO_ID/maxresdefault.jpg",
+      "thumbnailSource": "CUSTOM",
+      "uploadStatus": "READY"
+    },
+    "thumbnailUrl": "https://i.ytimg.com/vi/VIDEO_ID/maxresdefault.jpg"
+  }
+}
+```
+
+### Ejemplo desde React
+
+```ts
+await fetch(`/api/admin/videos/${videoId}/thumbnail`, {
+  method: "PUT",
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": scaledBlob.type,
+  },
+  body: scaledBlob,
+});
+```
+
+## 11.8 `DELETE /api/admin/videos/:videoId/thumbnail`
+
+**Roles:** `ADMIN`, `EDITOR`.
+
+Restaura la miniatura automática de YouTube. Marca `thumbnailSource` como `YOUTUBE_DEFAULT`, lo que permite que `GET /api/admin/videos/:videoId/status` vuelva a refrescar la miniatura en consultas posteriores.
+
+No requiere que el canal esté conectado: si el proveedor no responde, se limpia el marcador `CUSTOM` de todos modos y la URL queda en `null` hasta la próxima sincronización exitosa.
+
+```json
+{
+  "success": true,
+  "message": "The video thumbnail was restored successfully",
+  "data": {
+    "video": { "id": 2, "thumbnailSource": "YOUTUBE_DEFAULT" },
+    "thumbnailUrl": "https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg"
+  }
+}
+```
+
+## 11.9 `thumbnailSource` y el campo `thumbnailUrl` del PATCH
+
+El DTO administrativo de video expone `thumbnailSource`:
+
+| Valor | Significado |
+|---|---|
+| `YOUTUBE_DEFAULT` | La miniatura es la que YouTube generó. La sincronización de estado puede refrescarla. |
+| `CUSTOM` | La miniatura fue elegida a propósito. La sincronización de estado **no** la toca. |
+
+`thumbnailSource` no aparece en el DTO público.
+
+El `PATCH /api/admin/videos/:videoId` acepta `thumbnailUrl`, pero endurecido: solo se admiten hosts de miniatura de YouTube (`i.ytimg.com`, `img.youtube.com`, `yt3.ggpht.com`). Cualquier otro host devuelve `400 INVALID_VIDEO_THUMBNAIL_URL`. Cuando el PATCH incluye `thumbnailUrl`, el backend marca automáticamente `thumbnailSource=CUSTOM`, de modo que la elección sobrevive a la sincronización.
+
+Para cambiar la miniatura de forma soportada conviene usar `PUT /api/admin/videos/:videoId/thumbnail`, que además la aplica dentro de YouTube.
+
+## 11.10 Errores de Videos
 
 | HTTP | Código | Mensaje |
 |---:|---|---|
@@ -1886,7 +1988,7 @@ El endpoint no debe consultarse en loop aggressively. El frontend puede consulta
 | 400 | `INVALID_VIDEO_EXTERNAL_ID` | A valid YouTube external ID is required |
 | 400 | `INVALID_VIDEO_URL` | A valid HTTPS YouTube URL is required |
 | 400 | `VIDEO_URL_ID_MISMATCH` | The YouTube URL and external ID must identify the same video |
-| 400 | `INVALID_VIDEO_THUMBNAIL_URL` | A valid HTTPS thumbnail URL is required |
+| 400 | `INVALID_VIDEO_THUMBNAIL_URL` | A valid YouTube thumbnail URL is required |
 | 400 | `INVALID_VIDEO_SORT_ORDER` | A valid video sort order is required |
 | 400 | `INVALID_VIDEO_LIST_QUERY` | Invalid video list query |
 | 400 | `INVALID_VIDEO_STATUS` | A valid video status is required |
@@ -1895,15 +1997,27 @@ El endpoint no debe consultarse en loop aggressively. El frontend puede consulta
 | 400 | `INVALID_VIDEO_FILE_SIZE` | The video file size is not allowed |
 | 400 | `INVALID_VIDEO_UPLOAD_ENCODING` | Encoded video uploads are not accepted |
 | 400 | `VIDEO_PROVIDER_NOT_YOUTUBE` | Only YouTube videos can be checked |
+| 400 | `INVALID_VIDEO_THUMBNAIL` | The thumbnail request was rejected by YouTube |
+| 400 | `INVALID_VIDEO_THUMBNAIL_TYPE` | Only JPEG and PNG thumbnails are accepted |
+| 400 | `INVALID_VIDEO_THUMBNAIL_SIZE` | The thumbnail file size is not allowed |
+| 400 | `INVALID_VIDEO_THUMBNAIL_IMAGE` | The image could not be accepted as a YouTube thumbnail |
+| 400 | `VIDEO_THUMBNAIL_SIZE_REQUIRED` | A valid thumbnail file size is required |
+| 400 | `INVALID_VIDEO_THUMBNAIL_ENCODING` | Encoded thumbnail uploads are not accepted |
 | 404 | `VIDEO_NOT_FOUND` | The requested video does not exist |
 | 409 | `VIDEO_ALREADY_EXISTS` | A video with this provider and external ID already exists |
 | 409 | `VIDEO_NOT_READY` | The video must finish processing before it can be activated |
+| 409 | `VIDEO_THUMBNAIL_NOT_READY` | The video must finish processing before its thumbnail can be changed |
+| 409 | `YOUTUBE_THUMBNAIL_NOT_PERMITTED` | The connected channel is not allowed to change this thumbnail |
+| 429 | `YOUTUBE_THUMBNAIL_RATE_LIMITED` | Too many thumbnail changes were requested for this channel |
+| 500 | `VIDEO_THUMBNAIL_PERSISTENCE_FAILED` | The chosen thumbnail could not be recorded |
+| 502 | `YOUTUBE_THUMBNAIL_FAILED` | The video thumbnail could not be updated on YouTube |
 
 ### Rate limit de YouTube Video Upload
 
 - 5 requests por IP cada 15 minutos.
 - `GET /status`: 60 requests por IP cada 15 minutos.
-- Ambos stores son locales al proceso.
+- Miniatura: 20 requests por IP cada 15 minutos, en un store independiente para no consumir el presupuesto de subida.
+- Todos los stores son locales al proceso.
 
 ---
 
@@ -2121,6 +2235,7 @@ Las respuestas de ImageKit, Google OAuth y YouTube no se reenvían literalmente 
 8. **Announcements**
 9. **Videos**
 10. **YouTube Upload**
+11. **YouTube Thumbnail**
 
 ## 14.2 Auth Provider
 
@@ -2216,7 +2331,35 @@ o el mensaje específico de negocio. El usuario está autenticado pero no tiene 
 
 La llamada directa a ImageKit debe hacerse desde el navegador para aprovechar la arquitectura de carga directa. No enviar la private key al frontend.
 
-## 14.8 Upload de YouTube
+## 14.8 Miniatura de YouTube
+
+La miniatura también pasa por el backend, porque el backend necesita el access token para llamar a `thumbnails.set`. No hay carga directa a ImageKit para este caso.
+
+Secuencia recomendada al subir un video nuevo:
+
+1. Subir el MP4 y esperar a `READY` (el video debe estar procesado para aceptar miniatura).
+2. `PUT /api/admin/videos/:videoId/thumbnail` con la imagen ya escalada.
+3. Recién entonces publicar, si corresponde.
+
+Para cambiar la miniatura de un video existente, el listado administrativo debe ofrecer la acción cuando `uploadStatus === "READY"`.
+
+Escalar en el navegador antes de subir:
+
+- El `input` de archivo puede aceptar `image/png,image/jpeg,image/webp` porque el navegador sabe decodificar los tres.
+- El archivo que se envía al backend debe ser **JPEG**: la API de YouTube rechaza WebP.
+- Escalar a 1280×720 con `canvas` y `toBlob("image/jpeg", 0.85)`.
+- El resultado típico queda entre 100 y 300 KB, muy por debajo del límite de 10 MiB.
+- Mostrar la vista previa con `URL.createObjectURL` y revocarla al reemplazar o desmontar.
+
+Errores a manejar con mensaje propio:
+
+- `VIDEO_THUMBNAIL_NOT_READY`: el video todavía se procesa.
+- `YOUTUBE_NOT_CONNECTED` / `YOUTUBE_REAUTH_REQUIRED` / `YOUTUBE_CHANNEL_MISMATCH`: hay que reconectar el canal.
+- `INVALID_VIDEO_THUMBNAIL_TYPE` / `INVALID_VIDEO_THUMBNAIL_SIZE`: la imagen local no cumple; reintentar tras escalar.
+- `YOUTUBE_THUMBNAIL_RATE_LIMITED`: esperar antes de reintentar.
+- Fallo al decodificar la imagen en el navegador: informar que se use JPG o PNG, porque es un fallo local y no del backend.
+
+## 14.9 Upload de YouTube
 
 El upload de YouTube sí pasa por el backend porque el backend debe:
 
@@ -2249,7 +2392,7 @@ Después:
 4. no activar hasta que `READY`;
 5. no cambiar privacidad a `PUBLIC` automáticamente.
 
-## 14.9 Cookies y CORS
+## 14.10 Cookies y CORS
 
 - `refreshToken` es HttpOnly y no es accesible desde JavaScript.
 - `youtube_oauth_state` también es HttpOnly.
@@ -2257,7 +2400,7 @@ Después:
 - Si frontend y backend están en dominios distintos, configurar proxy/CORS en infraestructura; el backend no añade headers CORS por sí mismo.
 - Para desarrollo, usar un proxy que mantenga el mismo origen.
 
-## 14.10 React Query/TanStack Query recomendado
+## 14.11 React Query/TanStack Query recomendado
 
 - Query keys separados por módulo.
 - Invalidar la lista después de create/update/status.
@@ -2296,10 +2439,10 @@ node --env-file=.env src/database/test-connection.js
 Resultado de la auditoría:
 
 ```text
-274 tests passed
+323 tests passed
 0 failed
 0 npm audit vulnerabilities
-11 migrations completed
+16 migrations completed
 0 pending migrations
 MySQL connection verified successfully
 ```

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import { uploadImage } from '../../../utils/mediaUpload'
 import { useStagedImage } from '../../../hooks/useStagedImage'
-import ImageUploader from '../ImageUploader/ImageUploader'
+import MediaPicker from '../MediaPicker/MediaPicker'
 import './AnnouncementManager.css'
 
 const TYPE_LABELS = {
@@ -255,12 +255,7 @@ export default function AnnouncementManager() {
 
         <div className="admin-field">
           <span>Imagen (opcional)</span>
-          <ImageUploader
-            previewUrl={image.previewUrl}
-            onFileSelected={image.select}
-            onRemove={image.previewUrl ? image.remove : null}
-            isBusy={isSaving}
-          />
+          <MediaPicker image={image} isBusy={isSaving} />
         </div>
 
         {!editingId && (
