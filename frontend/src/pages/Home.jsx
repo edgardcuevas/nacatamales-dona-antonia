@@ -6,6 +6,7 @@ import { Icon } from '../components/icons/Icons'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import AnnouncementsBanner from '../components/AnnouncementsBanner/AnnouncementsBanner'
 import { mergeFeed } from '../utils/feed'
+import { withCacheBuster } from '../utils/cacheBuster'
 import './../styles/Home.css'
 
 function whatsappHref(whatsappNumber, message) {
@@ -183,7 +184,15 @@ export default function Home() {
             {feedItems.map((item) => (
               <Link key={item.id} to="/dia-a-dia" className="video-thumb">
                 {(item.thumbnailUrl || item.imageUrl) ? (
-                  <img src={item.thumbnailUrl || item.imageUrl} alt={item.title || item.caption || 'Publicación'} />
+                  // Same reason as in DiaADia: a custom YouTube thumbnail
+                  // replaces the bytes behind the identical i.ytimg.com
+                  // URL, so without a version the teaser keeps serving
+                  // the previous frame while the full page already
+                  // shows the new one.
+                  <img
+                    src={withCacheBuster(item.thumbnailUrl || item.imageUrl, item.thumbnailVersion)}
+                    alt={item.title || item.caption || 'Publicación'}
+                  />
                 ) : (
                   <div className="video-thumb__placeholder" />
                 )}

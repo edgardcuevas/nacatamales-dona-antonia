@@ -42,6 +42,11 @@ export default function VideoThumbnailField({
     : null
 
   useEffect(() => {
+    // Re-armed on every mount, not just initialized: StrictMode runs
+    // setup -> cleanup -> setup in development, so a cleanup-only
+    // effect leaves this ref permanently false and the field silently
+    // rejects every picked file.
+    isMountedRef.current = true
     return () => {
       isMountedRef.current = false
     }

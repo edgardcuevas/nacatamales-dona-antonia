@@ -5,7 +5,14 @@ const {
 const YOUTUBE_OAUTH_WINDOW_MS = 15 * 60 * 1000;
 const YOUTUBE_OAUTH_MAX_REQUESTS = 10;
 const YOUTUBE_STATUS_WINDOW_MS = 15 * 60 * 1000;
-const YOUTUBE_STATUS_MAX_REQUESTS = 60;
+// This route carries three consumers: the automatic poll that waits for
+// a fresh upload to finish, the manual "Actualizar estado" button, and
+// the list background refresh. The browser polls MAX_POLLS times at
+// POLL_INTERVAL_MS, so this ceiling must stay above that count: when it
+// was 60 the poll died on a 429 at attempt 61 and the caller never
+// reached its own TIMEOUT branch, leaving the row stuck on
+// "Procesando en YouTube". Each call costs one YouTube quota unit.
+const YOUTUBE_STATUS_MAX_REQUESTS = 120;
 const YOUTUBE_UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 const YOUTUBE_UPLOAD_MAX_REQUESTS = 5;
 // Deliberately more generous than the upload limiter: changing a

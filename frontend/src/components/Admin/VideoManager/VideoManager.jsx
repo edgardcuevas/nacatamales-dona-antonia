@@ -5,8 +5,19 @@ import VideoThumbnailField from './VideoThumbnailField'
 import './VideoManager.css'
 
 const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
-const POLL_INTERVAL_MS = 8000
-const MAX_POLLS = 75
+// 60 polls at 10s is the same 10 minute wait the old 75-at-8s pair
+// intended, at 20% fewer provider calls. The ceiling is deliberately
+// kept under YOUTUBE_STATUS_MAX_REQUESTS: polling past it would turn
+// the friendly "still processing" message into a 429.
+const POLL_INTERVAL_MS = 10000
+const MAX_POLLS = 60
+// A failed poll must not abort the whole wait, because the video may
+// already be processed. After this many consecutive failures the wait
+// degrades to TIMEOUT instead of surfacing a misleading upload error.
+const MAX_CONSECUTIVE_POLL_FAILURES = 3
+// Cadence used to advance upload_status on rows the browser is not
+// actively polling.
+const STATUS_REFRESH_INTERVAL_MS = 20000
 
 // Revokes a preview URL only when it is the one currently tracked, so
 // clearing the form can never revoke a newer preview.
@@ -181,6 +192,48 @@ export default function VideoManager() {
     loadVideos()
   }, [])
 
+  // The row badge renders upload_status straight from the database, and
+  // "Cambiar miniatura" only appears once the video is READY. Without
+  // this the row would sit on "Procesando en YouTube" forever whenever
+  // the upload poll ends before YouTube finishes. Only pending videos
+  // are polled, so the loop stops on its own once nothing is in flight.
+  //
+  // It stays paused while an upload is in progress: waitUntilReady is
+  // already polling that same video every 10s, and running both loops
+  // would spend 135 requests per window against a 120 ceiling.
+  useEffect(() => {
+    const pendingIds = videos
+      .filter((video) => video.uploadStatus !== 'READY')
+      .map((video) => video.id)
+
+    if (pendingIds.length === 0 || stage !== 'idle') {
+      return
+    }
+
+    let cancelled = false
+
+    const timer = setInterval(() => {
+      if (cancelled || !isMountedRef.current) {
+        return
+      }
+
+      Promise.all(
+        pendingIds.map((videoId) =>
+          api.get(`/admin/videos/${videoId}/status`).catch(() => null)
+        )
+      ).then(() => {
+        if (!cancelled && isMountedRef.current) {
+          loadVideos()
+        }
+      })
+    }, STATUS_REFRESH_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [videos, stage])
+
   const isBusy = stage !== 'idle'
 
   function releaseThumbnailPreview() {
@@ -337,14 +390,29 @@ export default function VideoManager() {
   }
 
   async function waitUntilReady(videoId) {
+    let consecutiveFailures = 0
+
     for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
       if (!isMountedRef.current) {
         return 'ABANDONED'
       }
 
-      const result = await api.get(`/admin/videos/${videoId}/status`)
+      let result
+      try {
+        result = await api.get(`/admin/videos/${videoId}/status`)
+        consecutiveFailures = 0
+      } catch {
+        // Keep waiting: a rate limit or a dropped connection says
+        // nothing about the provider state. Only a sustained failure
+        // ends the wait, and it ends in TIMEOUT so the caller always
+        // reaches a defined branch.
+        consecutiveFailures += 1
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          return 'TIMEOUT'
+        }
+      }
 
-      if (result.uploadStatus === 'READY' || result.uploadStatus === 'FAILED') {
+      if (result?.uploadStatus === 'READY' || result?.uploadStatus === 'FAILED') {
         return result.uploadStatus
       }
 
@@ -446,9 +514,13 @@ export default function VideoManager() {
         if (isMountedRef.current) {
           setErrorMessage('YouTube no pudo procesar el video. Probá con otro archivo MP4.')
         }
-      } else if (finalStatus === 'TIMEOUT') {
+      } else if (finalStatus === 'TIMEOUT' || finalStatus === 'ABANDONED') {
+        // ABANDONED means the component went away mid-wait, so this
+        // rarely renders, but leaving it unhandled made the branch
+        // fall through silently. The list refreshes pending rows on its
+        // own now, and the thumbnail editor unlocks once READY.
         if (isMountedRef.current) {
-          setInfoMessage('YouTube todavía está procesando el video. Usá "Actualizar estado" en la lista más tarde.')
+          setInfoMessage('YouTube todavía está procesando el video. La lista va a actualizarse sola; cuando aparezca "Listo" podés cambiar la miniatura.')
         }
       }
 

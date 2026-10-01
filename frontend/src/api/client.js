@@ -10,8 +10,65 @@ const DEFAULT_FALLBACKS = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const NO_RETRY_PATHS = ['/auth/login', '/auth/refresh', '/auth/logout']
 
+// Every public read used to be fetched once per component mount, and
+// navigating remounts the page, so a seven page visit repeated the same
+// endpoints over and over. These are the reads worth remembering: they
+// change when an admin publishes, and the cache is dropped on any
+// successful mutation in this tab. Admin reads are deliberately absent,
+// so the management panel never renders a stale list.
+const CACHE_TTL_MS = 60_000
+const CACHEABLE_GET_PREFIXES = [
+  '/settings',
+  '/categories',
+  '/products',
+  '/videos',
+  '/photos',
+  '/announcements',
+]
+
+// Distinct from a cached `null`, which is a legitimate result for a 204.
+const CACHE_MISS = Symbol('cache-miss')
+
+// Both stores are module scoped, so the cache lives for the lifetime of
+// the tab and is shared by every component, including the ones that
+// mount later.
+const responseCache = new Map()
+const inFlightReads = new Map()
+
 let accessToken = null
 let refreshPromise = null
+
+function isCacheableRead(path, method) {
+  return (
+    method === 'GET' &&
+    CACHEABLE_GET_PREFIXES.some((prefix) => path.startsWith(prefix))
+  )
+}
+
+function readCache(key) {
+  const entry = responseCache.get(key)
+  if (!entry) {
+    return CACHE_MISS
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    responseCache.delete(key)
+    return CACHE_MISS
+  }
+
+  return entry.data
+}
+
+function writeCache(key, data) {
+  responseCache.set(key, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  })
+}
+
+function invalidateCache() {
+  responseCache.clear()
+}
 
 export function setAccessToken(token) {
   accessToken = token
@@ -74,7 +131,9 @@ async function refreshAccessToken() {
   return refreshPromise
 }
 
-async function request(path, options = {}) {
+// The 401 refresh-and-retry, unchanged. Kept separate from the cache so
+// the cache only ever wraps a fully resolved read.
+async function performRequest(path, options) {
   try {
     return await rawRequest(path, options)
   } catch (error) {
@@ -88,6 +147,54 @@ async function request(path, options = {}) {
     await refreshAccessToken()
     return rawRequest(path, { ...options, __isRetry: true })
   }
+}
+
+async function request(path, options = {}) {
+  const method = options.method || 'GET'
+  const cacheable = isCacheableRead(path, method)
+
+  if (cacheable) {
+    const cached = readCache(path)
+    if (cached !== CACHE_MISS) {
+      return cached
+    }
+
+    // Two components asking for the same read in the same tick get one
+    // network call, not two.
+    const pending = inFlightReads.get(path)
+    if (pending) {
+      return pending
+    }
+  }
+
+  const promise = (async () => {
+    try {
+      const data = await performRequest(path, options)
+
+      if (cacheable) {
+        // Only a resolved read is stored, so a transient failure never
+        // becomes a cached one.
+        writeCache(path, data)
+      } else if (method !== 'GET') {
+        // A successful mutation can change anything the public reads
+        // hold. The cache is per tab, so dropping all of it is cheap and
+        // always correct.
+        invalidateCache()
+      }
+
+      return data
+    } finally {
+      if (cacheable) {
+        inFlightReads.delete(path)
+      }
+    }
+  })()
+
+  if (cacheable) {
+    inFlightReads.set(path, promise)
+  }
+
+  return promise
 }
 
 export const api = {

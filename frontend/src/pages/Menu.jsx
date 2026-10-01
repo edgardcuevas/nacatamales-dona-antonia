@@ -20,7 +20,11 @@ export default function Menu() {
   const [products, setProducts] = useState([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
-  const [errorMessage, setErrorMessage] = useState(null)
+  // Each effect owns its own message so a later success in the other
+  // one cannot wipe an error the user still needs to read.
+  const [categoryError, setCategoryError] = useState(null)
+  const [productsError, setProductsError] = useState(null)
+  const errorMessage = categoryError || productsError
 
   const activeSlug = searchParams.get('category')
 
@@ -33,6 +37,7 @@ export default function Menu() {
         if (!isMounted) return
         const categoryList = data.categories || []
         setCategories(categoryList)
+        setCategoryError(null)
 
         const hasActive = categoryList.some((category) => category.slug === activeSlug)
         if (!hasActive && categoryList.length > 0) {
@@ -41,7 +46,7 @@ export default function Menu() {
       })
       .catch(() => {
         if (isMounted) {
-          setErrorMessage('No se pudo cargar el menú. Intenta recargar la página.')
+          setCategoryError('No se pudo cargar el menú. Intenta recargar la página.')
         }
       })
       .finally(() => {
@@ -56,6 +61,12 @@ export default function Menu() {
 
   useEffect(() => {
     if (!activeSlug) {
+      // The request that was in flight is about to be discarded by its
+      // own cleanup, so nothing will ever clear the flag. Without this
+      // the page sits on "Cargando…" forever once the category param
+      // is dropped from the URL.
+      setProducts([])
+      setIsLoadingProducts(false)
       return
     }
 
@@ -67,11 +78,12 @@ export default function Menu() {
       .then((data) => {
         if (isMounted) {
           setProducts(data.products || [])
+          setProductsError(null)
         }
       })
       .catch(() => {
         if (isMounted) {
-          setErrorMessage('No se pudieron cargar los productos de esta categoría.')
+          setProductsError('No se pudieron cargar los productos de esta categoría.')
         }
       })
       .finally(() => {
@@ -140,7 +152,7 @@ export default function Menu() {
         <p className="menu-page__empty">Todavía no hay productos en esta categoría.</p>
       )}
 
-      {!isLoadingProducts && products.length > 0 && (
+      {!isLoadingProducts && activeSlug && products.length > 0 && (
         <div className="menu-grid">
           {products.map((product) => {
             const waHref = whatsappHref(settings.whatsappNumber, product.name)

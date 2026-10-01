@@ -73,6 +73,20 @@ test("YouTube OAuth, status, and upload limiters have independent limits", () =>
 test("YouTube limiter configuration is explicit and frozen", () => {
   assert.equal(Object.isFrozen(limits), true);
   assert.equal(limits.oauth.maxRequests, 10);
-  assert.equal(limits.status.maxRequests, 60);
+  assert.equal(limits.status.maxRequests, 120);
   assert.equal(limits.upload.maxRequests, 5);
+});
+
+test("the status limiter leaves room for the browser upload poll", () => {
+  // The admin list polls MAX_POLLS times while a fresh upload finishes.
+  // When the two numbers were within 15 of each other the poll died on
+  // a 429 instead of reaching its own TIMEOUT branch, which left the
+  // row stuck on "Procesando en YouTube" with no way to unlock the
+  // thumbnail editor. Keep the ceiling comfortably above the poll.
+  const BROWSER_MAX_POLLS = 60;
+
+  assert.ok(
+    limits.status.maxRequests > BROWSER_MAX_POLLS,
+    `status limit ${limits.status.maxRequests} must exceed the ${BROWSER_MAX_POLLS} poll attempts`
+  );
 });

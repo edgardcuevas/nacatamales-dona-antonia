@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { api, withSettingsFallback } from '../api/client'
 
 const SettingsContext = createContext(null)
@@ -31,8 +31,15 @@ export function SettingsProvider({ children }) {
     }
   }, [])
 
+  // An inline value object would hand every consumer a new reference on
+  // each provider render and re-render all six of them for nothing.
+  const value = useMemo(
+    () => ({ settings, isLoading }),
+    [settings, isLoading]
+  )
+
   return (
-    <SettingsContext.Provider value={{ settings, isLoading }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   )

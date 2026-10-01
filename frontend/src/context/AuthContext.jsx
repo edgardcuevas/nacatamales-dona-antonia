@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { authApi, setAccessToken } from '../api/client'
 
 const AuthContext = createContext(null)
@@ -29,24 +29,39 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  async function login(email, password) {
+  // Stable so the provider value does not change identity when this
+  // component re-renders for any other reason.
+  const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password)
     setAccessToken(data.accessToken)
     setUser(data.user)
     return data.user
-  }
+  }, [])
 
-  async function logout() {
+  const logout = useCallback(async () => {
     try {
       await authApi.logout()
     } finally {
       setAccessToken(null)
       setUser(null)
     }
-  }
+  }, [])
+
+  // This provider sits above <Routes>, so an unmemoized value would
+  // re-render the entire page tree on every auth state change.
+  const value = useMemo(
+    () => ({
+      user,
+      isAuthenticated: Boolean(user),
+      isLoading,
+      login,
+      logout,
+    }),
+    [user, isLoading, login, logout]
+  )
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: Boolean(user), isLoading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   )
