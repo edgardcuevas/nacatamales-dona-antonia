@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { authApi, setAccessToken } from '../api/client'
+import { authApi, setAccessToken, setSessionExpiredHandler } from '../api/client'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -29,12 +30,27 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+   // El cliente avisa cuando el refresh es rechazado a mitad de sesión:
+  // se limpia el usuario y la pantalla vuelve al login.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setAccessToken(null)
+      setUser(null)
+      setSessionExpired(true)
+    })
+
+    return () => {
+      setSessionExpiredHandler(null)
+    }
+  }, [])
+
   // Stable so the provider value does not change identity when this
   // component re-renders for any other reason.
   const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password)
     setAccessToken(data.accessToken)
     setUser(data.user)
+    setSessionExpired(false)
     return data.user
   }, [])
 
@@ -53,11 +69,12 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       isAuthenticated: Boolean(user),
-      isLoading,
+            isLoading,
+      sessionExpired,
       login,
       logout,
     }),
-    [user, isLoading, login, logout]
+    [user, isLoading, sessionExpired, login, logout]
   )
 
   return (

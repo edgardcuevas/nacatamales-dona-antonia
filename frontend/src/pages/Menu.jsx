@@ -95,7 +95,7 @@ export default function Menu() {
     }
   }, [activeSlug])
 
- function handleSelectCategory(slug) {
+  function handleSelectCategory(slug) {
     setSearchParams({ category: slug })
   }
 

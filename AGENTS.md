@@ -15,8 +15,8 @@ Dead ends: root `README.md` is empty, `frontend/README.md` is the untouched Vite
 ```bash
 # server (always cd server first)
 npm run dev      # nodemon --env-file=.env src/server.js, port 3000
-npm start        # node --env-file=.env src/server.js
-npm test         # node --test "tests/**/*.test.js" -> 323 tests, no MySQL needed
+npm start        # node --env-file-if-exists=.env src/server.js
+npm test         # node --test "tests/**/*.test.js" -> 371 tests, no MySQL needed
 node --test tests/unit/auth.me.test.js          # single file
 node --test --test-name-pattern="stale" tests/unit/auth.me.test.js
 node --env-file=.env node_modules/knex/bin/cli.js migrate:latest   # knex CLI (see env note)
@@ -29,6 +29,7 @@ npm run build
 npm run lint
 ```
 
+- `start` uses `--env-file-if-exists` (Node ≥24) so it boots **both** with a `.env` file and with variables injected by systemd/Docker/PM2. `dev` and `test` are unchanged and still hard-require `.env`.
 - There is **no** lint/format/typecheck script for the server, and **no** test runner for the frontend.
 - `frontend/npm run lint` **currently fails with 8 pre-existing errors** (`react-hooks/set-state-in-effect` in 5 Admin managers + `pages/Menu.jsx`, `react-refresh/only-export-components` in `context/AuthContext.jsx` and `context/SettingsContext.jsx`). Baseline is red — don't treat it as your regression, and don't refactor those files unless asked.
 - No npm script exists for migrations or `database/scripts/*`; use the `node --env-file=.env` forms above.
@@ -36,8 +37,10 @@ npm run lint
 ## Environment gotchas
 
 - `server/src/config/env.js` parses, validates and `Object.freeze`s **all** config at require time and throws on anything missing/invalid (JWT secrets ≥32 chars and must differ, TTL must match `^\d+[smhd]$`, `YOUTUBE_TOKEN_ENCRYPTION_KEY` must be exactly 32 bytes hex/base64, `GOOGLE_REDIRECT_URI` must be HTTPS unless `localhost` in non-production, `IMAGEKIT_URL_ENDPOINT` must be exactly `https://ik.imagekit.io/<id>`). Copy `server/.env.example` to `server/.env`; it is gitignored.
-- **Knex CLI does not load `.env` itself** and `knexfile.js` requires `src/config/env`, so bare `npx knex ...` fails. Always prefix `node --env-file=.env`. `knexfile.js` only defines a `development` environment.
-- `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` (≥12 chars) are required by `database/scripts/create-initial-admin.js` but are missing from `.env.example`.
+- **Knex CLI does not load `.env` itself** and `knexfile.js` requires `src/config/env`, so bare `npx knex ...` fails. Always prefix `node --env-file=.env`.
+- `knexfile.js` defines **both** `development` and `production` from one shared `connection`/`migrations` object (via `createEnvironmentConfig()`), so `migrate:latest` resolves with `NODE_ENV=production`. Note `knex` is a **runtime dependency**, not a devDependency, so `npm ci --omit=dev` still ships the CLI.
+- `TRUST_PROXY` is optional and only accepts an **integer ≥ 0** (hops). Empty/absent leaves Express' default (no proxy trust, so `request.ip` is the socket address). `true`, `false`, `*`, `loopback` and IP lists are **rejected at startup** on purpose: they trust a client-supplied `X-Forwarded-For` and let anyone mint a fresh rate-limit bucket per request. Set it to `1` behind a single reverse proxy, otherwise every visitor shares one login quota (8 per 15 min site-wide).
+- `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` (≥12 chars) are read only by `database/scripts/create-initial-admin.js`; `RESET_ADMIN_EMAIL` / `RESET_ADMIN_PASSWORD` only by `database/scripts/reset-admin-password.js`. None are needed to boot the server and none are read by `env.js` — all four are now documented in `.env.example`, commented out.
 - `frontend/.env.development` / `.env.production` are gitignored by the root `.env.*` rule, so a fresh clone has no `VITE_API_BASE_URL`. That's fine: `api/client.js` falls back to `''`, requests go to relative `/api`, and the Vite proxy handles it.
 
 ## Server architecture and conventions
@@ -55,8 +58,10 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 - Throw `new AppError(statusCode, "SCREAMING_SNAKE_CODE", message)` (`src/errors/app-error.js`). Anything else is swallowed into a 500 `INTERNAL_SERVER_ERROR`. Error codes are part of the public contract — keep them stable.
 - Repositories build parameterized SQL strings against the shared `mysql2` pool. Never interpolate user input; `Object.hasOwn` whitelist lookups guard `ORDER BY`.
 - Express `json()` limit is `100kb`, but `POST /api/admin/videos/upload` takes a raw streamed `video/mp4` body with `X-Video-Title` / `X-Video-Description` headers — not JSON, not FormData.
-- **No CORS middleware exists.** Dev relies on the Vite `/api` proxy; cross-origin in production must be handled at the proxy/infra layer. Don't add a CORS dependency casually.
-- Auth chain: `authenticate` (verifies bearer JWT, sets `request.auth`) -> `requireActiveUser` (re-reads the user, sets `request.currentUser`, returns `AUTHENTICATION_STALE` when the token role no longer matches the DB role) -> `authorize-roles` (role gate). Rate limiters are applied per-route from `src/middlewares/rate-limit.middleware.js`, `media-rate-limit.middleware.js`, `youtube-rate-limit.middleware.js`.
+- **No CORS middleware exists.** Dev relies on the Vite `/api` proxy; cross-origin in production must be handled at the proxy/infra layer. Don't add a CORS dependency casually. The decided production topology is **single domain behind a reverse proxy**, so no CORS is required and the `SameSite=None; Secure` refresh cookie works as-is.
+- **Health endpoints:** `GET /api/health` is a static liveness probe (no database access). `GET /api/health/ready` is the readiness probe: it runs `SELECT 1` through the pool with a short timeout and answers `200` or `503 SERVICE_UNAVAILABLE`. A `200` from `/api/health` alone does **not** prove the database is reachable.
+- **Observability:** `error.middleware.js` logs a single sanitized line for any `AppError` with `statusCode >= 500` (code, status, message, method, path **without** query string, and `cause` only as text). AppErrors below 500 are never logged, and request bodies/headers/cookies/tokens are never logged. Keep any new logging to that same shape.
+- Auth chain: `authenticate` (verifies bearer JWT, sets `request.auth`) -> `requireActiveUser` (re-reads the user, sets `request.currentUser`, returns `AUTHENTICATION_STALE` when the token role no longer matches the DB role) -> `authorize-roles` (role gate). Rate limiters are applied per-route from `src/middlewares/rate-limit.middleware.js`, `media-rate-limit.middleware.js`, `youtube-rate-limit.middleware.js`. All of them key on `request.ip`, so `TRUST_PROXY` decides whether they see real client addresses or a single shared proxy address. The stores are process-local `Map`s, and each store is swept for expired entries at most once per `PRUNE_INTERVAL_MS`.
 - Naming is inconsistent on purpose: `modules/photos/photos.*` is plural while every other module is singular (`announcement.*`, `category.*`, `media.*`, `video.*`, `settings.*`, `user.*`). Use the singular pattern for new modules.
 - **Video thumbnails (`videos.thumbnail_source`)**: `YOUTUBE_DEFAULT` vs `CUSTOM`. This is what stops the `GET /admin/videos/:videoId/status` poll from reverting a hand-picked thumbnail: when it is `CUSTOM` the service passes `thumbnailUrl: undefined` and the repository drops it from the `UPDATE`. Any administrative `thumbnailUrl` override flips the marker to `CUSTOM` automatically. `PUT /api/admin/videos/:videoId/thumbnail` (raw `image/jpeg`/`image/png` body, max 10 MiB) and `DELETE` to restore YouTube's own. The persisted URL comes from the `thumbnails.set` **response**, never a follow-up read, because of provider propagation delay. The `youtube.upload` scope already covers this, so no new OAuth consent.
 - YouTube rejects **WebP** in `thumbnails.set` even though the ImageKit pipeline accepts it. The browser must emit JPEG.
@@ -95,6 +100,10 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 - `videos.thumbnail_source` is a knex-managed ENUM. Changing the allowed values means `changeTable` with the new enum definition, and MySQL recreates the column type.
 - The thumbnail route has a per-IP request limit but no per-IP byte limit, so 10 MiB × 20 requests is the worst case per window. Fine for authenticated admins; worth remembering before exposing it more widely.
 - Provider quota: `thumbnails.set` costs ~50 units against YouTube's 10,000/day. No quota metric is recorded, so a retry loop could exhaust the day. Watch the logs.
+- **`videos.updated_at` has no `ON UPDATE CURRENT_TIMESTAMP`.** Every write must set `updated_at = CURRENT_TIMESTAMP` by hand; `updateVideoById`, `updateVideoStatusById` and `updateVideoProcessingStatus` all do. Adding an `UPDATE videos` that forgets it silently freezes the public `updatedAt` that the thumbnail cache-busting depends on, with no error and only a stale image in visitors' browsers. `tests/unit/video-updated-at-guard.test.js` fails CI on that regression — do not "fix" it by loosening the guard.
+- `getVideoStatus` skips the `UPDATE` entirely when `uploadStatus`, `privacyStatus` and `thumbnailUrl` all match what is stored, so polling no longer churns `updated_at`. The `CUSTOM` case (where `thumbnailUrl` is sent as `undefined`) must keep counting as *no change*; if it ever did, polling would both churn `updated_at` and risk reverting an editorial thumbnail.
+- `tests/unit/video-thumbnail.test.js` verifies the CUSTOM case through that skip: it asserts **zero** `updateVideoProcessingStatus` calls plus a returned DTO that still carries `thumbnailSource: "CUSTOM"` and the stored URL, even though the provider offered a different frame. If the skip ever regresses and starts writing again, that test fails — don't reintroduce the old "capture the UPDATE input" shape, which contradicts the no-op-when-unchanged rule.
+- `rate-limit.middleware.js` sweeps its store for expired entries **at most once per 30 s** (`PRUNE_INTERVAL_MS`), not on every request, because a full walk per request is O(n) and `TRUST_PROXY` makes the key space grow with the number of visitors. The sweep is memory hygiene only: `rateLimit` treats an entry whose `resetAt <= now` as absent when reading it, so limiting stays exact regardless of when the sweep last ran. Never make correctness depend on the sweep having happened.
 
 ## Git
 

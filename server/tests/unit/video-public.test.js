@@ -85,6 +85,7 @@ function createVideo(overrides = {}) {
     thumbnail_url: null,
     sort_order: 0,
     created_at: new Date("2026-09-27T10:00:00.000Z"),
+    updated_at: new Date("2026-09-28T18:30:00.000Z"),
     ...overrides,
   };
 }
@@ -124,6 +125,44 @@ test("public video repository filters active rows and uses required order", asyn
   assert.doesNotMatch(capturedSql, /SELECT \*/);
 });
 
+test("public video repository selects updated_at for the thumbnail version signal", async () => {
+  let listSql = "";
+  mock.method(
+    pool,
+    "execute",
+    async (sql) => {
+      listSql = sql;
+      return [[createVideo()], []];
+    }
+  );
+
+  await videoRepository.listPublicVideos();
+
+  assert.match(listSql, /created_at,\s*updated_at/);
+  assert.doesNotMatch(
+    listSql,
+    /SELECT \*/
+  );
+
+  mock.restoreAll();
+  let detailSql = "";
+  mock.method(
+    pool,
+    "execute",
+    async (sql) => {
+      detailSql = sql;
+      return [[createVideo()], []];
+    }
+  );
+
+  const found =
+    await videoRepository.findPublicVideoById(3);
+
+  assert.ok(found);
+  assert.match(detailSql, /created_at,\s*updated_at/);
+  assert.doesNotMatch(detailSql, /SELECT \*/);
+});
+
 test("public video list returns only the approved DTO fields", async () => {
   mock.method(
     videoRepository,
@@ -149,6 +188,7 @@ test("public video list returns only the approved DTO fields", async () => {
       "sortOrder",
       "thumbnailUrl",
       "title",
+      "updatedAt",
       "url",
     ]
   );
@@ -163,6 +203,87 @@ test("public video list returns only the approved DTO fields", async () => {
     result.body.data.videos[0].createdAt,
     "2026-09-27T10:00:00.000Z"
   );
+  assert.equal(
+    result.body.data.videos[0].updatedAt,
+    "2026-09-28T18:30:00.000Z"
+  );
+});
+
+test("public video list keeps the previous DTO values untouched and exposes updatedAt as an ISO string", async () => {
+  mock.method(
+    videoRepository,
+    "listPublicVideos",
+    async () => [createVideo()]
+  );
+
+  const result = await request("/api/videos");
+  const [video] = result.body.data.videos;
+
+  assert.equal(result.status, 200);
+
+  // Every pre-existing field keeps its exact previous shape and
+  // value; updatedAt is strictly additive.
+  assert.deepEqual(
+    { ...video, updatedAt: undefined },
+    {
+      id: 3,
+      title: "QA video",
+      description: "Temporary video",
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      provider: "YOUTUBE",
+      externalId: "dQw4w9WgXcQ",
+      thumbnailUrl: null,
+      sortOrder: 0,
+      createdAt: "2026-09-27T10:00:00.000Z",
+      updatedAt: undefined,
+    }
+  );
+
+  // Administrative-only fields stay hidden from the public DTO.
+  for (const hiddenField of [
+    "thumbnailSource",
+    "isActive",
+    "uploadStatus",
+    "privacyStatus",
+  ]) {
+    assert.equal(
+      Object.hasOwn(video, hiddenField),
+      false
+    );
+  }
+
+  assert.equal(typeof video.updatedAt, "string");
+  assert.equal(
+    video.updatedAt,
+    new Date(video.updatedAt).toISOString()
+  );
+});
+
+test("public video DTO normalizes updatedAt from an ISO date string and reports null when it is missing", async () => {
+  mock.method(
+    videoRepository,
+    "listPublicVideos",
+    async () => [
+      createVideo({
+        updated_at: "2026-09-28T18:30:00.000Z",
+      }),
+      createVideo({
+        id: 4,
+        updated_at: null,
+      }),
+    ]
+  );
+
+  const result = await request("/api/videos");
+  const [withDate, withoutDate] =
+    result.body.data.videos;
+
+  assert.equal(result.status, 200);
+  assert.equal(
+    withDate.updatedAt,
+    "2026-09-28T18:30:00.000Z"
+  );
+  assert.equal(withoutDate.updatedAt, null);
 });
 
 test("public video list supports an empty result", async () => {
@@ -194,6 +315,25 @@ test("public video detail returns active video and hides missing video", async (
   assert.equal(
     found.body.data.video.createdAt,
     "2026-09-27T10:00:00.000Z"
+  );
+  assert.equal(
+    found.body.data.video.updatedAt,
+    "2026-09-28T18:30:00.000Z"
+  );
+  assert.deepEqual(
+    Object.keys(found.body.data.video).sort(),
+    [
+      "createdAt",
+      "description",
+      "externalId",
+      "id",
+      "provider",
+      "sortOrder",
+      "thumbnailUrl",
+      "title",
+      "updatedAt",
+      "url",
+    ]
   );
 
   mock.restoreAll();

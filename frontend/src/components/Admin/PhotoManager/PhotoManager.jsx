@@ -62,7 +62,9 @@ export default function PhotoManager() {
 
     try {
       const cleanCaption = caption.trim() === '' ? null : caption.trim()
-      let imageMediaId
+       // Una foto elegida de la galería ya existe: se reutiliza su id.
+      // Si además se sube un archivo nuevo, ese id lo reemplaza.
+      let imageMediaId = image.existingId ?? undefined
 
       if (image.file) {
         const media = await uploadImage('photos', image.file, cleanCaption ? cleanCaption.slice(0, 120) : null)

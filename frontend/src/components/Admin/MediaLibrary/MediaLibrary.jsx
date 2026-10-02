@@ -10,9 +10,12 @@ async function safeList(path) {
   }
 }
 
-function registerUsage(usage, items, label, nameKey) {
+// Las fotos de "Día a día" no devuelven image.id, solo la URL; por eso
+// se resuelve el id comparando contra la URL de cada imagen de la galería.
+function registerUsage(usage, items, label, nameKey, idByUrl) {
   ;(items || []).forEach((item) => {
-    const mediaId = item.imageMediaId ?? item.image?.id
+    const mediaId =
+      item.imageMediaId ?? item.image?.id ?? idByUrl.get(item.image?.url)
     if (!mediaId) {
       return
     }
@@ -40,13 +43,15 @@ export default function MediaLibrary() {
       safeList('/admin/photos?limit=100'),
     ])
       .then(([mediaData, categoriesData, productsData, announcementsData, photosData]) => {
-        setMediaItems(mediaData.media || [])
+        const media = mediaData.media || []
+        setMediaItems(media)
 
+        const idByUrl = new Map(media.map((item) => [item.secureUrl, item.id]))
         const usage = {}
-        registerUsage(usage, categoriesData?.categories, 'Categoría', 'name')
-        registerUsage(usage, productsData?.products, 'Producto', 'name')
-        registerUsage(usage, announcementsData?.announcements, 'Anuncio', 'title')
-        registerUsage(usage, photosData?.photos, 'Foto de día a día', 'caption')
+        registerUsage(usage, categoriesData?.categories, 'Categoría', 'name', idByUrl)
+        registerUsage(usage, productsData?.products, 'Producto', 'name', idByUrl)
+        registerUsage(usage, announcementsData?.announcements, 'Anuncio', 'title', idByUrl)
+        registerUsage(usage, photosData?.photos, 'Foto de día a día', 'caption', idByUrl)
         setUsageByMediaId(usage)
       })
       .catch(() => setErrorMessage('No se pudo cargar la galería de medios.'))

@@ -38,7 +38,7 @@ export default function AnnouncementsBanner() {
   return (
     <div className="announcements">
       {announcements.map((announcement) => (
-        <div key={announcement.id} className={`announcement announcement--${announcement.type.toLowerCase()}`}>
+        <div key={announcement.id} className={`announcement announcement--${(announcement.type || 'info').toLowerCase()}`}>
           {announcement.image?.url && (
             <img className="announcement__image" src={announcement.image.url} alt={announcement.image.altText || ''} />
           )}

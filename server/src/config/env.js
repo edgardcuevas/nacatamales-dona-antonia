@@ -184,6 +184,33 @@ function validateYoutubeChannelId(value) {
   return value;
 }
 
+function validateTrustProxy(value) {
+  if (value === undefined || value === "") {
+    return null;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    // Express also accepts "true", "*", "loopback" and address
+    // lists here. Those trust a client-supplied X-Forwarded-For
+    // unconditionally, which lets anyone forge their address and
+    // take a fresh rate limiter bucket on every request. Only an
+    // explicit hop count is safe to configure.
+    throw new Error(
+      "Environment variable TRUST_PROXY must be the number of trusted reverse proxies, an integer greater than or equal to 0. Values such as \"true\", \"*\", \"loopback\" or an IP list are rejected because they let a client forge X-Forwarded-For and bypass the rate limiters."
+    );
+  }
+
+  const hops = Number(value);
+
+  if (!Number.isSafeInteger(hops)) {
+    throw new Error(
+      "Environment variable TRUST_PROXY must be the number of trusted reverse proxies, an integer greater than or equal to 0."
+    );
+  }
+
+  return hops;
+}
+
 function loadEnvironment() {
   const nodeEnv = process.env.NODE_ENV ?? "development";
 
@@ -298,6 +325,12 @@ function loadEnvironment() {
     jwt,
     imagekit,
     youtube,
+    // null keeps Express' default of trusting nothing, so request.ip
+    // stays the socket address. See validateTrustProxy for why no
+    // looser value is accepted.
+    trustProxy: validateTrustProxy(
+      process.env.TRUST_PROXY?.trim()
+    ),
     isDevelopment: nodeEnv === "development",
     isTest: nodeEnv === "test",
     isProduction: nodeEnv === "production",

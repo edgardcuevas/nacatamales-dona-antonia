@@ -37,6 +37,12 @@ const inFlightReads = new Map()
 
 let accessToken = null
 let refreshPromise = null
+let sessionExpiredHandler = null
+
+// Sube cada vez que una mutación invalida la caché. Una lectura que salió
+// antes de esa mutación compara este número al terminar y, si cambió, no
+// guarda su resultado: sería un dato viejo vivo durante CACHE_TTL_MS.
+let cacheGeneration = 0
 
 function isCacheableRead(path, method) {
   return (
@@ -67,11 +73,22 @@ function writeCache(key, data) {
 }
 
 function invalidateCache() {
+  cacheGeneration += 1
   responseCache.clear()
+  // Las lecturas en vuelo nacieron antes de la mutación: una lectura nueva
+  // no debe engancharse a ellas y recibir datos anteriores al cambio.
+  inFlightReads.clear()
 }
 
 export function setAccessToken(token) {
   accessToken = token
+}
+
+// AuthProvider registra aquí qué hacer cuando la sesión termina a mitad
+// de uso (el refresh es rechazado). Así la interfaz vuelve al login en
+// lugar de seguir "logueada" mostrando errores genéricos.
+export function setSessionExpiredHandler(handler) {
+  sessionExpiredHandler = handler
 }
 
 export function getAccessToken() {
@@ -134,6 +151,10 @@ async function refreshAccessToken() {
 // The 401 refresh-and-retry, unchanged. Kept separate from the cache so
 // the cache only ever wraps a fully resolved read.
 async function performRequest(path, options) {
+  // Solo una sesión que existía puede "expirar". Un visitante anónimo no
+  // tiene token y no debe disparar el aviso.
+  const hadSession = Boolean(accessToken)
+
   try {
     return await rawRequest(path, options)
   } catch (error) {
@@ -144,8 +165,28 @@ async function performRequest(path, options) {
       throw error
     }
 
-    await refreshAccessToken()
-    return rawRequest(path, { ...options, __isRetry: true })
+    try {
+      await refreshAccessToken()
+    } catch (refreshError) {
+      // Un corte de red o un 5xx no dicen nada de la sesión; solo un
+      // rechazo de autenticación significa que ya no es válida.
+      if (
+        hadSession &&
+        (refreshError.status === 401 || refreshError.status === 403)
+      ) {
+        sessionExpiredHandler?.()
+      }
+      throw refreshError
+    }
+
+    try {
+      return await rawRequest(path, { ...options, __isRetry: true })
+    } catch (retryError) {
+      if (hadSession && retryError.status === 401) {
+        sessionExpiredHandler?.()
+      }
+      throw retryError
+    }
   }
 }
 
@@ -167,14 +208,19 @@ async function request(path, options = {}) {
     }
   }
 
+    const generation = cacheGeneration
+
   const promise = (async () => {
     try {
       const data = await performRequest(path, options)
 
       if (cacheable) {
         // Only a resolved read is stored, so a transient failure never
-        // becomes a cached one.
-        writeCache(path, data)
+        // becomes a cached one. If a mutation finished while this read was
+        // in flight, the result predates it and is not stored.
+        if (generation === cacheGeneration) {
+          writeCache(path, data)
+        }
       } else if (method !== 'GET') {
         // A successful mutation can change anything the public reads
         // hold. The cache is per tab, so dropping all of it is cheap and
@@ -183,8 +229,10 @@ async function request(path, options = {}) {
       }
 
       return data
-    } finally {
-      if (cacheable) {
+        } finally {
+      // Solo se libera la entrada propia: invalidateCache() pudo haberla
+      // reemplazado ya por la de una lectura más nueva.
+      if (cacheable && inFlightReads.get(path) === promise) {
         inFlightReads.delete(path)
       }
     }

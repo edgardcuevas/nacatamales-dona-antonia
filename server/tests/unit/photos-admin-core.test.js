@@ -251,6 +251,7 @@ test("photo service requires active image media and returns safe admin DTOs", as
     id: 1,
     caption: "A fresh photo",
     image: {
+      id: 8,
       url: "https://cdn.example/photo.jpg",
       altText: "Fresh food",
       width: 1200,
@@ -261,6 +262,50 @@ test("photo service requires active image media and returns safe admin DTOs", as
     sortOrder: 3,
     updatedAt: "2026-09-27T11:00:00.000Z",
   });
+});
+
+test("photo admin DTO exposes the same numeric media id as the public DTO", async () => {
+  mock.method(photosRepository, "findPhotoById", async () =>
+    createRawPhoto({ image_id: "8" })
+  );
+
+  const result = await photosService.getPhotoById(1);
+
+  assert.equal(result.image.id, 8);
+  assert.equal(typeof result.image.id, "number");
+  assert.deepEqual(Object.keys(result.image), [
+    "id",
+    "url",
+    "altText",
+    "width",
+    "height",
+  ]);
+  assert.equal(result.image.url, "https://cdn.example/photo.jpg");
+  assert.equal(result.image.altText, "Fresh food");
+  assert.equal(result.image.width, 1200);
+  assert.equal(result.image.height, 900);
+});
+
+test("photo DTO rejects an unusable media id in both public and administrative shapes", () => {
+  for (const invalidImageId of [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    "not-a-number",
+    "9007199254740992",
+  ]) {
+    const raw = createRawPhoto({ image_id: invalidImageId });
+
+    for (const shape of ["toPublicPhoto", "toAdminPhoto"]) {
+      assert.throws(
+        () => photosService[shape](raw),
+        /Invalid photo image record/,
+        `${shape} accepted image_id ${String(invalidImageId)}`
+      );
+    }
+  }
 });
 
 test("photo service rejects missing, inactive, and non-image media", async () => {

@@ -11,6 +11,10 @@
 
 ## 1. Auditoría y alcance
 
+> Los números de esta sección son el **snapshot histórico** de la auditoría original
+> (2026-01). Están congelados a propósito para no falsear ese registro. El **estado verificado
+> actual** está en [§16 bis](#16-bis-estado-verificado-del-backend).
+
 La auditoría realizada antes de documentar confirmó:
 
 - `npm test`: **323 pruebas aprobadas, 0 fallidas**.
@@ -19,6 +23,20 @@ La auditoría realizada antes de documentar confirmó:
 - Conexión MySQL: verificada.
 - YouTube OAuth: verificado con una conexión real.
 - ImageKit: integración configurada y verificada por pruebas; el media store contiene únicamente proveedor `IMAGEKIT`.
+
+### Cambios de contrato posteriores a esa auditoría
+
+Todos **aditivos**. Ningún campo, ruta, forma de respuesta ni código de error existente cambió de
+nombre, tipo ni valor, y **el frontend en producción actual sigue funcionando sin cambios**.
+
+| Cambio | Dónde | Para qué |
+|---|---|---|
+| `updatedAt` en el DTO público de video | [§11.1](#111-dto-publico) | Señal de versión para romper la caché de la miniatura de YouTube |
+| `image.id` en fotos | [§6](#6-dtos-de-imagen), [§17](#17-fotos-dia-a-dia) | Saber qué imagen está en uso y reutilizarla de la galería |
+| `GET /api/health/ready` | [§3.1](#31-salud) | Saber si la base de datos responde de verdad |
+| `503 SERVICE_UNAVAILABLE` | [§13.1](#131-errores-http-globales) | **Único código de error nuevo.** Solo lo devuelve el readiness |
+| `TRUST_PROXY` | [§2.7](#27-configuracion-de-proxy-trust_proxy) | Que el rate limiter vea la IP real detrás del proxy |
+| Documentación del módulo `photos` | [§17](#17-fotos-dia-a-dia) | El módulo no estaba documentado |
 
 La documentación cubre:
 
@@ -62,6 +80,10 @@ El backend no tiene middleware CORS habilitado. El frontend debe consumirlo medi
 - una configuración de infraestructura que ya resuelva CORS fuera de esta aplicación.
 
 No se deben enviar claves de ImageKit, Google o tokens de proveedor desde el frontend.
+
+**Topología decidida:** mismo dominio con reverse proxy. No se requiere CORS y la cookie
+`refreshToken` (`SameSite=None; Secure`) funciona sin configuración adicional. La variable
+`TRUST_PROXY` (ver [§2.7](#27-configuracion-de-proxy-trust_proxy)) sí es obligatoria en ese escenario.
 
 ### 2.3 Envoltura de respuestas
 
@@ -122,6 +144,59 @@ Los endpoints paginados usan:
 
 El middleware `express.json()` tiene un límite de `100kb` para cuerpos JSON. Esto no aplica al body binario de YouTube Upload, que se procesa como stream.
 
+### 2.7 Configuración de proxy (`TRUST_PROXY`)
+
+Variable de entorno **opcional**. No afecta al contrato HTTP: es configuración del servidor y el
+frontend no puede leerla ni cambiarla.
+
+Todos los rate limiters agrupan por `request.ip`. Si la API se publica detrás de un reverse proxy
+sin configurar esto, `request.ip` es la dirección del proxy y **todos los visitantes comparten un
+único cupo**: los 8 intentos de login por 15 minutos pasarían a ser 8 para todo el sitio, y
+cualquier cliente podría agotar el cupo de los administradores legítimos.
+
+| Valor | Comportamiento |
+|---|---|
+| Ausente o vacío | No se configura nada. `request.ip` es la dirección del socket (comportamiento por defecto). |
+| `0` | No se confía en ningún proxy. Equivalente a dejarlo vacío. |
+| `1` | Se confía en **un** proxy. Es el valor para un único nginx/Caddy/balanceador. |
+| `2`, `3`, … | Se confía en esa cantidad de saltos, de derecha a izquierda en `X-Forwarded-For`. |
+
+Solo se aceptan enteros `>= 0`. **Cualquier otro valor hace que el servidor no arranque**, incluidos
+`true`, `false`, `*`, `loopback` y listas de IP.
+
+Motivo de la restricción: Express acepta esas formas, pero confían en el `X-Forwarded-For` que envía
+el cliente. Con `trust proxy: true` cualquier visitante podría mandar esa cabecera con una IP
+inventada y obtener un cupo nuevo de rate limiter en cada petición, anulando la protección por
+completo. Un número de saltos obliga a que el proxy sobrescriba la cabecera.
+
+Ejemplo con un solo proxy inverso:
+
+```text
+TRUST_PROXY=1
+```
+
+> Si el proxy no está exactamente en el número de saltos declarado, el resultado es que se confía de
+> menos (el proxy no se ve, todos comparten cupo) o de más (un cliente puede inyectar un salto extra
+> y falsear la IP). Conviene verificarlo tras desplegar.
+
+### 2.8 Logging de errores del servidor
+
+Todo `AppError` con `status >= 500` deja **una línea** en el log del servidor:
+
+```text
+Server error: code=VIDEO_STATUS_PERSISTENCE_FAILED status=500 method=GET path=/api/admin/videos/3/status message="The YouTube video status could not be recorded"
+```
+
+Reglas, útiles si se_revisiona o se ingestan logs:
+
+- Solo se registran `5xx`. Los `4xx` son tráfico normal y **no** se registran, para no generar ruido.
+- Se registra `error.code`, `error.statusCode`, método y ruta. **La query string nunca se registra.**
+- `error.cause` se añade solo si es un `Error`, y solo su texto.
+- **Nunca** se registran cuerpo de la petición, cabeceras, cookies ni tokens.
+- Los errores que no son `AppError` mantienen el log preexistente `Unhandled request error: <error>`.
+
+Esto no cambia ninguna respuesta HTTP: solo añade visibilidad a fallos que antes eran invisibles.
+
 ---
 
 ## 3. Mapa completo de endpoints
@@ -130,7 +205,76 @@ El middleware `express.json()` tiene un límite de `100kb` para cuerpos JSON. Es
 
 | Método | Ruta | Auth | Descripción |
 |---|---|---:|---|
-| GET | `/api/health` | No | Estado de la aplicación |
+| GET | `/api/health` | No | Estado de la aplicación (no consulta la base de datos) |
+| GET | `/api/health/ready` | No | Estado de la aplicación **y** de la base de datos |
+
+#### `GET /api/health`
+
+Liveness. Respuesta estática, **nunca consulta la base de datos**. Solo confirma que el proceso
+atiende peticiones HTTP.
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "message": "API is running",
+  "data": { "status": "UP" }
+}
+```
+
+> Un `200` aquí **no demuestra** que el sistema pueda atender una petición real: responde igual con
+> MySQL caído, con la pool agotada o con credenciales inválidas.
+
+#### `GET /api/health/ready`
+
+Readiness. Ejecuta `SELECT 1` sobre el pool con un timeout de **2 s**.
+
+> ### ⚠️ Configurar el health check del balanceador aquí
+>
+> El health check de tráfico del balanceador, del orquestador o del supervisor **debe apuntar a
+> `GET /api/health/ready`**, y **nunca** a `GET /api/health`.
+>
+> | Endpoint | Consulta MySQL | Uso correcto |
+> |---|:---:|---|
+> | `GET /api/health/ready` | Sí | **Health check de tráfico.** Decide si la instancia recibe peticiones |
+> | `GET /api/health` | No | Solo comprobación de que el proceso está vivo (liveness). Para reinicios y monitorización del proceso |
+>
+> Si el balanceador sondea `/api/health`, cada vez que MySQL está caído la instancia seguirá
+> recibiendo tráfico porque responde `200`, y cada una de esas peticiones fallará con
+> `500 INTERNAL_SERVER_ERROR` para el visitante. Con el readiness configurado, la instancia sale de
+> rotación en ≤2 s en lugar de servir errores.
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "message": "API and database are ready",
+  "data": { "status": "READY" }
+}
+```
+
+Response `503` cuando la base de datos falla o no responde dentro de 2 s:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SERVICE_UNAVAILABLE",
+    "message": "The database is not available"
+  }
+}
+```
+
+Notas:
+
+- **Nuevo y aditivo.** `GET /api/health` no cambia de comportamiento.
+- No requiere autenticación ni consume cupo de rate limiting.
+- El motivo real (host, puerto, mensaje del driver) se registra en el log del servidor y **nunca**
+  se devuelve en la respuesta.
+- Con una cola de conexión saturada, `pool.execute` puede quedarse esperando indefinidamente; por eso
+  la comprobación se_envuelve en un timeout y no depende de un timeout de sentencia de MySQL.
 
 ### 3.2 Auth
 
@@ -255,6 +399,27 @@ Administrativos (`ADMIN` o `EDITOR`):
 | GET | `/api/admin/youtube/connect` | Bearer | `ADMIN` |
 | GET | `/api/admin/youtube/status` | Bearer | `ADMIN` |
 | GET | `/api/youtube/oauth/callback` | State + cookie | Continuación OAuth |
+
+### 3.10 Fotos (día a día)
+
+Detalle completo en [§17. Fotos](#17-fotos-dia-a-dia).
+
+Públicos:
+
+| Método | Ruta |
+|---|---|
+| GET | `/api/photos` |
+| GET | `/api/photos/:photoId` |
+
+Administrativos (`ADMIN` o `EDITOR`):
+
+| Método | Ruta |
+|---|---|
+| GET | `/api/admin/photos` |
+| POST | `/api/admin/photos` |
+| GET | `/api/admin/photos/:photoId` |
+| PATCH | `/api/admin/photos/:photoId` |
+| DELETE | `/api/admin/photos/:photoId` |
 
 ---
 
@@ -670,12 +835,19 @@ Los DTOs públicos y administrativos usan esta forma:
 
 Puede ser `null` si no hay imagen activa o la referencia fue retirada.
 
-- `id`: ID interno de media.
+- `id`: ID interno de media. **Entero `>= 1`, siempre presente cuando `image` no es `null`.** Es el
+  valor que hay que enviar como `imageMediaId` para reutilizar esa misma imagen.
 - `url`: URL HTTPS de ImageKit.
 - `altText`: texto alternativo o `null`.
 - `width`, `height`: enteros o `null`.
 
 El `imageMediaId` solo aparece en DTOs administrativos.
+
+Entidades que exponen este DTO: categorías, productos, avisos y fotos del día a día.
+
+**Excepción — fotos:** en fotos la imagen es **obligatoria**. No se puede crear una foto sin
+`imageMediaId` y no se puede poner a `null` al actualizar, así que `image` **nunca** es `null` y
+siempre trae los cinco campos. Ver [§17. Fotos](#17-fotos-dia-a-dia).
 
 ---
 
@@ -1524,7 +1696,8 @@ Después de confirmar, usar el `media.id` como `imageMediaId` en:
 
 - categorías;
 - productos;
-- avisos.
+- avisos;
+- fotos del día a día.
 
 Ejemplo:
 
@@ -1549,12 +1722,14 @@ La entidad solo acepta media activa de tipo `IMAGE`.
 El backend:
 
 1. bloquea y comprueba el registro;
-2. comprueba referencias en categorías, productos y avisos;
+2. comprueba referencias en categorías, productos, avisos y fotos;
 3. desactiva el registro;
 4. elimina el archivo en ImageKit;
 5. elimina la fila MySQL.
 
-No se permite eliminar media referenciada. `imageMediaId: null` es la forma de retirar asociaciones.
+No se permite eliminar media referenciada. `imageMediaId: null` es la forma de retirar asociaciones
+en categorías, productos y avisos. **En fotos no existe esa salida:** una foto siempre tiene
+imagen, así que para reutilizar el archivo hay que reasignarlo o borrar antes la foto que lo usa.
 
 Response `200`:
 
@@ -1626,9 +1801,79 @@ Error:
   "provider": "YOUTUBE",
   "externalId": "VIDEO_ID",
   "thumbnailUrl": "https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg",
-  "sortOrder": 0
+  "sortOrder": 0,
+  "createdAt": "2026-01-01T09:00:00.000Z",
+  "updatedAt": "2026-01-02T10:15:00.000Z"
 }
 ```
+
+Campos del DTO público:
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | number | Identificador interno. |
+| `title` | string | Título del video. |
+| `description` | string \| null | Descripción editorial. |
+| `url` | string | URL de YouTube. |
+| `provider` | string | Siempre `YOUTUBE`. |
+| `externalId` | string | ID del video en YouTube (11 caracteres). |
+| `thumbnailUrl` | string \| null | Miniatura vigente. |
+| `sortOrder` | number | Orden manual, `>= 0`. |
+| `createdAt` | string \| null | ISO 8601. Fecha de creación. |
+| `updatedAt` | string \| null | ISO 8601. Última modificación del registro. **Campo nuevo y aditivo.** |
+
+### `updatedAt` como señal de versión de la miniatura
+
+YouTube reemplaza los bytes de la miniatura **detrás de la misma URL** `i.ytimg.com`, y el
+admin también la restaura con `DELETE /api/admin/videos/:videoId/thumbnail`. En ambos casos la
+URL no cambia, así que el navegador puede seguir mostrando el fotograma anterior desde su
+caché. `updatedAt` es la señal que cambia en esos dos casos; `createdAt` nunca se mueve y por
+eso no sirve como versión.
+
+Uso recomendado como versión de caché:
+
+```text
+thumbnailUrl + "?v=" + updatedAt
+```
+
+Notas:
+
+- Es **aditivo**: `GET /api/videos` y `GET /api/videos/:videoId` siguen devolviendo todos los
+  campos anteriores con el mismo nombre, tipo y valor. Un cliente que ignore `updatedAt`
+  sigue funcionando sin cambios.
+- Es la **misma clave y el mismo formato** que ya expone el DTO administrativo, de modo que el
+  cliente puede usar un único helper para ambos.
+- `updatedAt` cambia con **cualquier** modificación del registro del video (título, orden,
+  activación, estado de upload, miniatura), no solo con la miniatura. Es aceptable como señal de
+  versión: como máximo provoca una recarga de imagen de más.
+- Puede ser `null` solo si el registro no tuviera `updated_at`; el DTO administrativo aplica la
+  misma normalización.
+
+### El sondeo de estado ya no mueve `updatedAt` sin motivo
+
+`GET /api/admin/videos/:videoId/status` sincroniza con YouTube y, antes, escribía la fila en
+**cada** llamada. Como esa escritura fija `updated_at`, `updatedAt` se movía aunque el proveedor
+devolviera exactamente lo mismo que ya estaba guardado, invalidando la caché de miniatura de los
+visitantes por el simple hecho de que un admin tuviera abierta la pantalla de detalles.
+
+Ahora el backend **solo escribe cuando algún valor cambió de verdad**. Compara `uploadStatus`,
+`privacyStatus` y `thumbnailUrl` contra lo almacenado y, si los tres coinciden, se salta el
+`UPDATE` y devuelve **exactamente el mismo DTO**.
+
+Detalles:
+
+- El caso `thumbnail_source = CUSTOM` no cuenta como cambio: en una miniatura personalizada
+  `thumbnailUrl` viaja como `undefined` a propósito, así que el sondeo nunca toca esa columna ni
+  revierte la elección editorial.
+- Los valores se comparan contra los mismos defaults que usa el DTO administrativo
+  (`READY`, `UNLISTED`, `null`), de modo que una fila antigua con columnas `null` no genera
+  escrituras espurias.
+- La **respuesta HTTP no cambia**: el contrato de `GET /api/admin/videos/:videoId/status` es
+  idéntico. Lo único que cambia es que ya no se escribe en la base de datos.
+- Cada sentencia `UPDATE videos` del repositorio sigue fijando `updated_at` a mano, porque la
+  columna **no** tiene `ON UPDATE CURRENT_TIMESTAMP`. Un test deanguardia
+  (`video-updated-at-guard.test.js`) falla en CI si alguien añade un `UPDATE` que lo olvide, ya que
+  el síntoma sería un error silencioso.
 
 Solo se muestran videos con:
 
@@ -2192,7 +2437,13 @@ Sin conexión:
 | 403 | `FORBIDDEN` | You do not have permission to perform this action |
 | 404 | `ROUTE_NOT_FOUND` | The requested route does not exist |
 | 429 | `RATE_LIMIT_EXCEEDED` | Too many requests. Please try again later |
+| 503 | `SERVICE_UNAVAILABLE` | The database is not available |
 | 500 | `INTERNAL_SERVER_ERROR` | An unexpected error occurred |
+
+`SERVICE_UNAVAILABLE` solo lo devuelve `GET /api/health/ready` cuando la base de datos no responde o
+supera el timeout de 2 s. La respuesta nunca incluye el error del driver; el motivo queda solo en el
+log del servidor. Un `503` aquí significa "no enviar tráfico a esta instancia", no "el usuario hizo
+algo mal".
 
 ## 13.2 Auth
 
@@ -2418,6 +2669,11 @@ Después:
 - No construir URLs de proveedor con datos del cliente para la confirmación.
 - No modificar `provider`, `externalId` o `publicId` desde endpoints que no los acepten.
 - No intentar eliminar media referenciada; primero quitar asociaciones.
+
+> En fotos no se puede quitar la asociación, porque la imagen es obligatoria. Reasignar la foto a
+> otra imagen o borrar la foto antes de eliminar el archivo de media.
+
+---
 - No activar videos `PROCESSING` o `FAILED`.
 - No publicar un video QA como `PUBLIC` salvo una acción editorial explícita y posterior.
 
@@ -2450,3 +2706,233 @@ MySQL connection verified successfully
 No se modificó código de negocio, tablas, migraciones ni dependencias para producir esta documentación.
 
 No se creó commit.
+
+---
+
+## 16 bis. Estado verificado del backend
+
+Este bloque **sí** se mantiene al día (a diferencia del snapshot histórico de §16). Refleja el
+estado real comprobado tras las últimas rondas de trabajo.
+
+```text
+371 tests passed
+0 failed
+Módulos con error de sintaxis: 0
+Migraciones en disco: 16 (sin cambios; ninguna migración nueva ni editada)
+```
+
+### Verificación funcional
+
+Ejecutada sobre una copia temporal con un `.env` de valores ficticios. **Nunca** sobre el `.env`
+real, que es gitignored y no se lee ni se imprime.
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | 371 / 371, 0 fallos |
+| `node --check` en todos los módulos | 0 errores |
+| Arranque del servidor | Correcto |
+| `GET /api/health` | `200` (no consulta MySQL) |
+| `GET /api/health/ready` | `503` correcto sin base de datos |
+| Rutas públicas que leen MySQL | `500` con mensaje neutro + log del motivo |
+| Ruta inexistente | `404 ROUTE_NOT_FOUND` |
+| Rutas administrativas sin token | `401` en las 5 |
+| Cabeceras de helmet | `nosniff`, `SAMEORIGIN`, `noopen`, `none`, `no-referrer`, CSP completa |
+| `X-Powered-By` | Ausente |
+
+### Despliegue verificado paso a paso
+
+| Paso | Estado |
+|---|---|
+| 1. `npm ci --omit=dev` | Pasa. `knex` instalado, `nodemon` excluido |
+| 2. Variables de entorno | Pasa con `NODE_ENV=production` |
+| 3. CLI de knex con `NODE_ENV=production` | Resuelve `production`; llega al punto de conexión |
+| 4. `create-initial-admin.js` | Lee `INITIAL_ADMIN_*`; llega al punto de conexión |
+| 5. `npm start` | Pasa **con** `.env` y **solo** con variables inyectadas |
+| 6. `GET /api/health` / `/api/health/ready` | Verificados arriba |
+| 7-8. YouTube, ImageKit, humo con datos | **No verificable** sin credenciales y base de datos reales |
+
+### Nota sobre los `500` en las rutas públicas
+
+Con MySQL inaccesible las rutas públicas responden `500 INTERNAL_SERVER_ERROR` con mensaje neutro
+y el motivo real queda solo en el log del servidor. Es el comportamiento correcto y el que hace
+imprescindible apuntar el health check del balanceador a `/api/health/ready`.
+
+---
+
+## 17. Fotos (día a día)
+
+Módulo `photos`. A diferencia del resto de módulos, los archivos usan nombre plural
+(`photos.*`). Las imágenes **no** se suben a este módulo: se suben a ImageKit por el flujo de
+[§10](#10-media-e-imagekit) y aquí solo se guarda la referencia.
+
+### 17.1 DTO público
+
+```json
+{
+  "id": 1,
+  "caption": "Así preparamos el recado hoy",
+  "image": {
+    "id": 12,
+    "url": "https://ik.imagekit.io/...",
+    "altText": "Recado del día",
+    "width": 1200,
+    "height": 900
+  },
+  "createdAt": "2026-09-27T10:00:00.000Z"
+}
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | number | ID interno de la foto, `>= 1`. |
+| `caption` | string \| null | Máximo 500 caracteres. |
+| `image` | object | **Nunca `null`.** Ver [§6](#6-dtos-de-imagen). |
+| `image.id` | number | **Campo nuevo y aditivo.** ID de media, entero `>= 1`. |
+| `image.url` | string | URL HTTPS de ImageKit. |
+| `image.altText` | string \| null | Texto alternativo. |
+| `image.width`, `image.height` | number \| null | Dimensiones. |
+| `createdAt` | string | ISO 8601. |
+
+### 17.2 `image.id` y la reutilización de galería
+
+`image.id` es el mismo valor que hay que enviar como `imageMediaId` para reutilizar esa imagen.
+Sin él el frontend no puede saber qué archivo de la galería está en uso al editar una foto.
+
+Cambio **aditivo y verificado**: antes el DTO devolvía `url`, `altText`, `width` y `height`; ahora
+devuelve además `id` como la **primera** clave del objeto `image`. Los cuatro campos anteriores
+conservan nombre, tipo y valor, y el orden de las claves no es parte del contrato JSON.
+
+- `image.id` es **numérico**, aunque el driver entregue la columna como cadena. Si el `image_id`
+  fuera utilizable, el backend responde `500 INTERNAL_SERVER_ERROR` en lugar de devolver un DTO
+  parcial.
+- El valor es el mismo en el DTO público y en el administrativo, porque ambos comparten la misma
+  función de mapeo.
+- No hay campo `imageMediaId` en ningún DTO de fotos: la referencia se expone ya normalizada como
+  `image.id`.
+
+### 17.3 Visibilidad
+
+Una foto aparece en el listado público solo si:
+
+```text
+p.is_active = 1
+AND m.is_active = 1
+AND m.resource_type = 'IMAGE'
+```
+
+El `INNER JOIN` con `media` significa que **si la media se desactiva o se elimina, la foto desaparece
+del sitio público aunque siga activa**, sin aviso y sin cambio en la fila de `photos`. Es
+deliberado: no se sirven imágenes de un archivo borrado.
+
+`GET /api/photos/:photoId` devuelve la foto si cumple lo mismo; en otro caso `404 PHOTO_NOT_FOUND`.
+
+Orden del listado público:
+
+```text
+createdAt DESC, id DESC
+```
+
+### 17.4 `GET /api/admin/photos`
+
+Roles: `ADMIN`, `EDITOR`.
+
+| Parámetro | Valores | Default |
+|---|---|---|
+| `page` | `>=1` | `1` |
+| `limit` | `1..100` | `20` |
+| `isActive` | `true`, `false` | — |
+| `caption` | búsqueda parcial, máximo 500 | — |
+| `sortBy` | `id`, `caption`, `isActive`, `sortOrder`, `createdAt`, `updatedAt` | `createdAt` |
+| `sortOrder` | `asc`, `desc` | `desc` |
+
+No acepta parámetros desconocidos. A diferencia del listado administrativo, **no filtra por media**:
+el listado administrativo usa `INNER JOIN` sin las condiciones de `media`, así que sí muestra fotos
+ cuya imagen está inactiva.
+
+### 17.5 `POST /api/admin/photos`
+
+```json
+{
+  "caption": "Así preparamos el recado hoy",
+  "imageMediaId": 12,
+  "sortOrder": 0
+}
+```
+
+Reglas:
+
+- `imageMediaId`: **requerido**, entero `>= 1`, y debe apuntar a media activa de tipo `IMAGE`.
+- `caption`: opcional, `null` o string de máximo 500 caracteres.
+- `sortOrder`: default `0`, entero entre `0` y `4_294_967_295`.
+- No acepta campos desconocidos.
+
+Response `201` con el DTO administrativo.
+
+### 17.6 `PATCH /api/admin/photos/:photoId`
+
+Campos permitidos:
+
+```text
+caption, imageMediaId, sortOrder, isActive
+```
+
+- Se debe enviar al menos uno.
+- `imageMediaId` sigue siendo **obligatorio y no admite `null`**: a diferencia de categorías,
+  productos y avisos, una foto no puede quedar sin imagen.
+- Si viene `imageMediaId`, se revalida que la media exista, esté activa y sea de tipo `IMAGE`.
+
+### 17.7 `DELETE /api/admin/photos/:photoId`
+
+Elimina la fila. **No toca el archivo de ImageKit.** Response `200`:
+
+```json
+{
+  "photoId": 1,
+  "deleted": true
+}
+```
+
+Para liberar el archivo hay que ir después a `DELETE /api/admin/media/:mediaId`, que ya no lo
+encontrará referenciado.
+
+### 17.8 DTO administrativo
+
+```json
+{
+  "id": 1,
+  "caption": "Así preparamos el recado hoy",
+  "image": {
+    "id": 12,
+    "url": "https://ik.imagekit.io/...",
+    "altText": "Recado del día",
+    "width": 1200,
+    "height": 900
+  },
+  "createdAt": "2026-09-27T10:00:00.000Z",
+  "isActive": true,
+  "sortOrder": 0,
+  "updatedAt": "2026-09-28T09:00:00.000Z"
+}
+```
+
+El DTO administrativo es el público más `isActive`, `sortOrder` y `updatedAt`, con el **mismo**
+objeto `image` incluido `id`.
+
+### 17.9 Errores de Fotos
+
+| Código | HTTP | Origen |
+|---|---:|---|
+| `INVALID_PHOTO_ID` | 400 | `:photoId` no es un entero `>= 1`. |
+| `INVALID_PHOTO_INPUT` | 400 | Body no objeto, sin `imageMediaId` al crear, o `PATCH` vacío. |
+| `UNEXPECTED_PHOTO_FIELDS` | 400 | Campo no permitido en body o query. |
+| `INVALID_IMAGE_MEDIA_ID` | 400 | `imageMediaId` no es entero `>= 1`, o es `null`. |
+| `INVALID_CAPTION` | 400 | `caption` no es string o excede 500. |
+| `INVALID_SORT_ORDER` | 400 | `sortOrder` fuera de `0..4_294_967_295`. |
+| `INVALID_PHOTO_STATUS` | 400 | `isActive` no es boolean. |
+| `INVALID_PHOTO_LIST_QUERY` | 400 | Query de listado inválida. |
+| `PHOTO_NOT_FOUND` | 404 | No existe o no cumple la visibilidad. |
+| `MEDIA_NOT_FOUND` | 404 | `imageMediaId` no existe. |
+| `MEDIA_INACTIVE` | 409 | La media referida está desactivada. |
+| `INVALID_MEDIA_RESOURCE_TYPE` | 400 | La media referida no es de tipo `IMAGE`. |
+
+Los tres últimos reutilizan los códigos de Media definidos en [§13.3](#133-media-reutilizado-por-entidades).

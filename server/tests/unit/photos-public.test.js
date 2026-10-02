@@ -124,6 +124,7 @@ test("public photo list returns the agreed DTO and ISO creation date", async () 
       id: 1,
       caption: "Así preparamos el recado hoy",
       image: {
+        id: 8,
         url: "https://cdn.example/photo.jpg",
         altText: null,
         width: 1200,
@@ -132,6 +133,74 @@ test("public photo list returns the agreed DTO and ISO creation date", async () 
       createdAt: "2026-09-27T10:00:00.000Z",
     },
   ]);
+});
+
+test("public photo image exposes a numeric media id in list and detail", async () => {
+  mock.method(photosRepository, "listPublicPhotos", async () => [
+    // mysql2 can hand back a bigint column as a string, so the DTO
+    // has to normalize it the same way categories, products and
+    // announcements already do.
+    createPhoto({ image_id: "12" }),
+  ]);
+  mock.method(photosRepository, "findPublicPhotoById", async () =>
+    createPhoto({ image_id: "12" })
+  );
+
+  const list = await request("/api/photos");
+  const detail = await request("/api/photos/1");
+
+  assert.equal(list.status, 200);
+  assert.equal(detail.status, 200);
+
+  for (const image of [
+    list.body.data.photos[0].image,
+    detail.body.data.photo.image,
+  ]) {
+    assert.equal(image.id, 12);
+    assert.equal(typeof image.id, "number");
+    assert.ok(Number.isSafeInteger(image.id));
+    // The previous fields keep their exact name, order and value.
+    assert.deepEqual(Object.keys(image), [
+      "id",
+      "url",
+      "altText",
+      "width",
+      "height",
+    ]);
+    assert.equal(image.url, "https://cdn.example/photo.jpg");
+    assert.equal(image.altText, null);
+    assert.equal(image.width, 1200);
+    assert.equal(image.height, 900);
+  }
+});
+
+test("public photo DTO rejects an unusable media id instead of leaking it", async () => {
+  for (const invalidImageId of [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    "not-a-number",
+    "9007199254740992",
+  ]) {
+    mock.restoreAll();
+    mock.method(photosRepository, "listPublicPhotos", async () => [
+      createPhoto({ image_id: invalidImageId }),
+    ]);
+
+    const result = await request("/api/photos");
+
+    // The invariant violation is a server-side defect, so it must
+    // surface as a neutral 500 and never as a partial DTO.
+    assert.equal(result.status, 500);
+    assert.equal(result.body.success, false);
+    assert.equal(
+      result.body.error.code,
+      "INTERNAL_SERVER_ERROR"
+    );
+    assert.equal(result.body.data, undefined);
+  }
 });
 
 test("public photo detail hides unavailable photos and supports an empty list", async () => {

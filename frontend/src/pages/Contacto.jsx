@@ -31,7 +31,7 @@ export default function Contacto() {
         <p>Escribinos por WhatsApp o visitanos en el local.</p>
       </div>
 
-            <div className="contacto-cards">
+      <div className="contacto-cards">
         {waHref && (
           <div className="contacto-card contacto-card--whatsapp">
             <div className="contacto-card__icon-circle">

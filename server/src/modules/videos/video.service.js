@@ -83,6 +83,11 @@ function toPublicVideo(video) {
     thumbnailUrl: video.thumbnail_url ?? null,
     sortOrder,
     createdAt: toIsoString(video.created_at),
+    // The provider keeps serving the custom thumbnail behind the
+    // same i.ytimg.com URL, so the public client needs a version
+    // signal that changes when the thumbnail is replaced or
+    // restored. createdAt never moves, so it cannot serve that role.
+    updatedAt: toIsoString(video.updated_at),
   };
 }
 

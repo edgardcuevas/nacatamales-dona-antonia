@@ -763,23 +763,36 @@ async function getVideoStatus(videoId) {
       ? remoteVideo.thumbnailUrl
       : current.thumbnail_url;
 
-  try {
-    const updated =
-      await videoRepository.updateVideoProcessingStatus({
-        videoId,
-        uploadStatus,
-        privacyStatus,
-        thumbnailUrl,
-      });
-    if (!updated) {
-      throw new Error("Video disappeared during status update");
+  // Writing updated_at on every poll would move the video's public
+  // updatedAt without any real change, invalidating the thumbnail
+  // cache version for visitors for no reason. The UPDATE is therefore
+  // skipped when the provider reported exactly what is already
+  // stored, and the same DTO is returned either way.
+  const hasProcessingChanges =
+    uploadStatus !== (current.upload_status ?? "READY") ||
+    privacyStatus !== (current.privacy_status ?? "UNLISTED") ||
+    (thumbnailUrl !== undefined &&
+      thumbnailUrl !== (current.thumbnail_url ?? null));
+
+  if (hasProcessingChanges) {
+    try {
+      const updated =
+        await videoRepository.updateVideoProcessingStatus({
+          videoId,
+          uploadStatus,
+          privacyStatus,
+          thumbnailUrl,
+        });
+      if (!updated) {
+        throw new Error("Video disappeared during status update");
+      }
+    } catch {
+      throw createYoutubeError(
+        500,
+        "VIDEO_STATUS_PERSISTENCE_FAILED",
+        "The YouTube video status could not be recorded"
+      );
     }
-  } catch {
-    throw createYoutubeError(
-      500,
-      "VIDEO_STATUS_PERSISTENCE_FAILED",
-      "The YouTube video status could not be recorded"
-    );
   }
 
   return {

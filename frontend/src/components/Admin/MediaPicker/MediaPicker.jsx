@@ -15,21 +15,10 @@ export default function MediaPicker({ image, isBusy }) {
   })
   const [search, setSearch] = useState('')
 
-  // Loaded from the click handler instead of an effect: the gallery is
-  // only fetched when the editor actually opens it, and the list is
-  // cached so reopening it costs nothing.
-  function toggleGallery() {
-    const willOpen = !gallery.isOpen
-    setGallery((current) => ({ ...current, isOpen: willOpen }))
-
-    if (!willOpen || gallery.isLoading) {
-      return
-    }
-
-    if (gallery.items !== null) {
-      return
-    }
-
+    // Loaded from click handlers instead of an effect: the gallery is
+  // only fetched when the editor actually opens it. It is refreshed on
+  // every open, so an image uploaded a moment ago is available to reuse.
+  function loadGallery() {
     setGallery((current) => ({
       ...current,
       isLoading: true,
@@ -54,6 +43,16 @@ export default function MediaPicker({ image, isBusy }) {
         setGallery((current) => ({ ...current, isLoading: false }))
       })
   }
+
+  function toggleGallery() {
+    const willOpen = !gallery.isOpen
+    setGallery((current) => ({ ...current, isOpen: willOpen }))
+
+    if (willOpen && !gallery.isLoading) {
+      loadGallery()
+    }
+  }
+  
 
   function handleFileChange(event) {
     const selected = event.target.files?.[0]
@@ -133,10 +132,7 @@ export default function MediaPicker({ image, isBusy }) {
               <button
                 type="button"
                 className="btn btn--outline"
-                onClick={() => {
-                  setGallery((current) => ({ ...current, items: null }))
-                  toggleGallery()
-                }}
+                onClick={loadGallery}
                 disabled={isBusy}
               >
                 Reintentar

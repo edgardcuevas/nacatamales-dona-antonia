@@ -256,12 +256,12 @@ test("status synchronization does not replace a custom thumbnail with the provid
     })
   );
 
-  let updateInput;
+  const updateCalls = [];
   mock.method(
     videoRepository,
     "updateVideoProcessingStatus",
     async (input) => {
-      updateInput = input;
+      updateCalls.push(input);
       return true;
     }
   );
@@ -271,12 +271,34 @@ test("status synchronization does not replace a custom thumbnail with the provid
     async () => createAdminVideo()
   );
 
-  await youtubeService.getVideoStatus(7);
+  const result = await youtubeService.getVideoStatus(7);
 
-  assert.equal(updateInput.uploadStatus, "READY");
-  // Left undefined on purpose: the repository drops undefined values
-  // from the UPDATE, so the stored custom URL is never rewritten.
-  assert.equal(updateInput.thumbnailUrl, undefined);
+  // The provider reported exactly what is already stored, so the poll
+  // issues no write at all. The custom URL is not merely preserved, it
+  // is never sent to the database, and updated_at stays put so polling
+  // does not churn the public thumbnail cache version.
+  assert.equal(updateCalls.length, 0);
+
+  // Defensive: if a future change does issue the write, the custom
+  // thumbnail must still be left out of it, because the repository
+  // drops undefined values from the UPDATE.
+  for (const input of updateCalls) {
+    assert.equal(input.uploadStatus, "READY");
+    assert.equal(input.thumbnailUrl, undefined);
+  }
+
+  // The provider offered a different frame and the response still
+  // carries the editorial choice.
+  assert.equal(result.uploadStatus, "READY");
+  assert.equal(result.privacyStatus, "UNLISTED");
+  assert.equal(
+    result.video.thumbnailUrl,
+    CUSTOM_THUMBNAIL_URL
+  );
+  assert.equal(
+    result.video.thumbnailSource,
+    "CUSTOM"
+  );
 });
 
 test("status synchronization still refreshes a default thumbnail", async () => {

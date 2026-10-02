@@ -56,11 +56,47 @@ const errorHandler = require("./middlewares/error.middleware");
 
 const {
   successResponse,
+  errorResponse,
 } = require("./shared/http-response");
+
+const env = require("./config/env");
+const pool = require("./database/pool");
 
 const app = express();
 
+// The pool itself has no statement timeout, so a saturated queue would
+// otherwise hang the probe. Racing the query guarantees the endpoint
+// answers in bounded time and lets the orchestrator act on it.
+function withTimeout(promise, timeoutMs) {
+  let timeoutHandle;
+
+  const timeout = new Promise((resolve, reject) => {
+    timeoutHandle = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Readiness check exceeded ${timeoutMs}ms`
+          )
+        ),
+      timeoutMs
+    );
+  });
+
+  return Promise.race([promise, timeout]).finally(() =>
+    clearTimeout(timeoutHandle)
+  );
+}
+
 app.disable("x-powered-by");
+
+// Left unset when TRUST_PROXY is absent so request.ip keeps resolving
+// to the socket address. Behind a reverse proxy it is set to the
+// configured hop count so rate limiters see the real client IP
+// instead of one shared proxy address.
+if (env.trustProxy !== null) {
+  app.set("trust proxy", env.trustProxy);
+}
+
 app.use(helmet());
 
 
@@ -109,6 +145,9 @@ app.use(
   youtubeOAuthRoutes
 );
 
+// Liveness: answers 200 whenever the process can serve HTTP. It never
+// touches the database, so it stays useful while MySQL is down and it
+// must not be used to decide whether the API can actually work.
 app.get("/api/health", (request, response) => {
   return successResponse(
     response,
@@ -118,6 +157,42 @@ app.get("/api/health", (request, response) => {
     },
     "API is running"
   );
+});
+
+// Readiness: proves the database actually answers. A reverse proxy or
+// orchestrator should send traffic here, not to /api/health, otherwise
+// a process whose pool is exhausted or whose credentials stopped
+// working keeps receiving requests it can never fulfil.
+const READINESS_TIMEOUT_MS = 2_000;
+
+app.get("/api/health/ready", async (request, response) => {
+  try {
+    await withTimeout(
+      pool.execute("SELECT 1"),
+      READINESS_TIMEOUT_MS
+    );
+
+    return successResponse(
+      response,
+      200,
+      { status: "READY" },
+      "API and database are ready"
+    );
+  } catch (error) {
+    // The reason is operator-facing and stays in the log. The response
+    // must never expose hostnames, credentials or driver messages.
+    console.error(
+      "Readiness check failed:",
+      error?.message ?? "unknown reason"
+    );
+
+    return errorResponse(
+      response,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The database is not available"
+    );
+  }
 });
 
 app.use(notFoundHandler);

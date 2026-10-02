@@ -10,7 +10,7 @@ const SOURCE_ACCEPT = 'image/png,image/jpeg,image/webp'
 
 const RESIZE_ERRORS = {
   'unsupported-type': 'Elegí una imagen JPG, PNG o WebP.',
-  'source-too-large': 'Esa imagen es demasiado grande. Elegí una másliviana.',
+  'source-too-large': 'Esa imagen es demasiado grande. Elegí una más liviana.',
   unreadable: 'No se pudo leer la imagen. Probá con otra.',
   undecodable: 'El navegador no pudo abrir esa imagen. Probá con una JPG o PNG.',
   'canvas-unavailable': 'Este navegador no permite escalar la imagen. Actualizalo o usá una JPG.',

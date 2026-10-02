@@ -3,7 +3,7 @@ import { useAuth } from '../../../context/AuthContext'
 import './LoginForm.css'
 
 export default function LoginForm() {
-  const { login } = useAuth()
+  const { login, sessionExpired } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState(null)
@@ -21,10 +21,17 @@ export default function LoginForm() {
         setErrorMessage('Correo o contraseña incorrectos.')
       } else if (error.code === 'INVALID_EMAIL' || error.code === 'INVALID_PASSWORD') {
         setErrorMessage('Ingresá tu correo y contraseña.')
+      }
+            if (error.status === 401) {
+        setErrorMessage('Correo o contraseña incorrectos.')
+      } else if (error.code === 'INVALID_EMAIL' || error.code === 'INVALID_PASSWORD') {
+        setErrorMessage('Ingresá tu correo y contraseña.')
+      } else if (error.status === 429) {
+        setErrorMessage('Demasiados intentos. Espera unos minutos e intenta de nuevo.')
       } else {
         setErrorMessage('No se pudo iniciar sesión. Intenta de nuevo.')
-      }
-    } finally {
+      } 
+      } finally {
       setIsSubmitting(false)
     }
   }
@@ -56,6 +63,10 @@ export default function LoginForm() {
             required
           />
         </label>
+
+                {sessionExpired && !errorMessage && (
+          <p className="admin-login__error">Tu sesión expiró. Inicia sesión de nuevo.</p>
+        )}
 
         {errorMessage && <p className="admin-login__error">{errorMessage}</p>}
 

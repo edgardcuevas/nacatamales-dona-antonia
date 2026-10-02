@@ -579,16 +579,18 @@ export default function VideoManager() {
           </div>
         )}
 
-        <div className="admin-field">
-          <span>Miniatura (opcional)</span>
-          <VideoThumbnailField
-            previewUrl={thumbnailPreviewUrl}
-            file={thumbnailFile}
-            onFileSelected={handleThumbnailSelected}
-            onRemove={thumbnailPreviewUrl ? handleThumbnailRemoved : null}
-            isBusy={isBusy}
-          />
-        </div>
+          {!editingId && (
+          <div className="admin-field">
+            <span>Miniatura (opcional)</span>
+            <VideoThumbnailField
+              previewUrl={thumbnailPreviewUrl}
+              file={thumbnailFile}
+              onFileSelected={handleThumbnailSelected}
+              onRemove={thumbnailPreviewUrl ? handleThumbnailRemoved : null}
+              isBusy={isBusy}
+            />
+          </div>
+        )}
 
         <label className="admin-field">
           <span>Título</span>

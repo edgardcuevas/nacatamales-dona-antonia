@@ -60,7 +60,11 @@ export default function Home() {
     }
   }, [])
 
-  const fritangaCategory = categories.find((category) => category.slug === 'fritanga')
+    // Se detecta por slug o por nombre: si el dueño renombra la categoría
+  // ("Fritanga", "Fritangas"...), la franja de portada no desaparece.
+  const fritangaCategory = categories.find((category) =>
+    /fritanga/i.test(`${category.slug} ${category.name}`),
+  )
   const waOrderHref = whatsappHref(
     settings.whatsappNumber,
     `Hola, quiero hacer un pedido de ${settings.businessName}`

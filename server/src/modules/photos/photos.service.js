@@ -54,7 +54,13 @@ function toImage(photo) {
     throw new Error("Invalid photo image record");
   }
 
+  const id = Number(photo.image_id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    throw new Error("Invalid photo image record");
+  }
+
   return {
+    id,
     url: photo.image_url,
     altText: photo.image_alt_text ?? null,
     width: toOptionalDimension(photo.image_width),
