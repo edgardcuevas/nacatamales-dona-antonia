@@ -552,6 +552,27 @@ async function completeAuthorization({
     throw mapYoutubeError(error, "authorization-code");
   }
 
+  const existingConnection =
+    await youtubeConnectionRepository.getConnection();
+  if (existingConnection) {
+    const existingChannelId =
+      typeof existingConnection.channel_id === "string"
+        ? existingConnection.channel_id.trim()
+        : "";
+    const authorizedChannelId =
+      typeof channel.channelId === "string"
+        ? channel.channelId.trim()
+        : "";
+
+    if (
+      existingChannelId.length === 0 ||
+      authorizedChannelId.length === 0 ||
+      existingChannelId !== authorizedChannelId
+    ) {
+      throw createChannelMismatchError();
+    }
+  }
+
   const encryptedRefreshToken =
     encryptRefreshToken(tokenResponse.refreshToken);
   let connection;

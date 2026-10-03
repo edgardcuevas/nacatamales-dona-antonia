@@ -48,6 +48,7 @@ for (const [name, value] of Object.entries(
 const AppError = require("../../src/errors/app-error");
 const {
   youtubeClient,
+  YouTubeApiError,
 } = require("../../src/config/youtube");
 const youtubeConnectionRepository = require(
   "../../src/modules/youtube/youtube-connection.repository"
@@ -227,6 +228,11 @@ test("OAuth callback exchanges the code, verifies the channel, and stores only a
   );
   mock.method(
     youtubeConnectionRepository,
+    "getConnection",
+    async () => null
+  );
+  mock.method(
+    youtubeConnectionRepository,
     "upsertConnection",
     async (input) => {
       calls.upsert = input;
@@ -301,6 +307,71 @@ test("OAuth callback rejects a mismatched state before exchanging a code", async
     }
   );
   assert.equal(exchanged, false);
+});
+
+test("OAuth callback configured channel mismatch does not read or replace the existing connection", async () => {
+  let connectionReads = 0;
+  let upserts = 0;
+  mock.method(
+    youtubeStateRepository,
+    "consumeOAuthState",
+    async () => ({
+      accepted: true,
+      reason: null,
+    })
+  );
+  mock.method(
+    youtubeClient,
+    "exchangeAuthorizationCode",
+    async () => ({
+      accessToken: "short-lived-access-token",
+      refreshToken: "refresh-token-value",
+      expiresIn: 3600,
+      scope: "youtube.upload youtube.readonly",
+    })
+  );
+  mock.method(
+    youtubeClient,
+    "getAuthenticatedChannel",
+    async () => {
+      throw new YouTubeApiError(
+        "channel-mismatch",
+        403
+      );
+    }
+  );
+  mock.method(
+    youtubeConnectionRepository,
+    "getConnection",
+    async () => {
+      connectionReads += 1;
+      return createConnection();
+    }
+  );
+  mock.method(
+    youtubeConnectionRepository,
+    "upsertConnection",
+    async () => {
+      upserts += 1;
+      return createConnection();
+    }
+  );
+
+  await assert.rejects(
+    youtubeService.completeAuthorization({
+      code: "authorization-code",
+      state: "e".repeat(64),
+      stateCookie: "e".repeat(64),
+    }),
+    (error) => {
+      assertAppError(error, 403, "YOUTUBE_CHANNEL_MISMATCH");
+      assert.equal(error.message.includes("UC1234567890123456789012"), false);
+      return true;
+    }
+  );
+
+  assert.equal(connectionReads, 0);
+  assert.equal(upserts, 0);
 });
 
 test("upload refreshes the stored token once, streams the request, and persists an unlisted processing video", async () => {

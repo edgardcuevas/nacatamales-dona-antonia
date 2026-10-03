@@ -136,7 +136,7 @@ function describeThumbnailError(error) {
   return 'No se pudo cambiar la miniatura.'
 }
 
-export default function VideoManager() {
+export default function VideoManager({ navigate = (url) => window.location.assign(url) } = {}) {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState(null)
@@ -147,6 +147,9 @@ export default function VideoManager() {
   const [editingId, setEditingId] = useState(null)
   const [stage, setStage] = useState('idle')
   const isMountedRef = useRef(true)
+  const [isReconnecting, setIsReconnecting] = useState(false)
+  const [reconnectErrorMessage, setReconnectErrorMessage] = useState(null)
+  const reconnectInFlightRef = useRef(false)
 
   // Thumbnail chosen in the form. It is a File already downscaled to
   // 1280x720 JPEG, ready to send once the video reaches READY.
@@ -235,6 +238,49 @@ export default function VideoManager() {
   }, [videos, stage])
 
   const isBusy = stage !== 'idle'
+
+  async function handleReconnectYouTube() {
+    if (reconnectInFlightRef.current) {
+      return
+    }
+
+    reconnectInFlightRef.current = true
+    setIsReconnecting(true)
+    setReconnectErrorMessage(null)
+
+    try {
+      const data = await api.get('/admin/youtube/connect')
+      const authorizationUrl = data?.authorizationUrl
+      if (typeof authorizationUrl !== 'string' || authorizationUrl.trim() === '') {
+        throw new Error('Invalid authorization URL')
+      }
+
+      const parsedUrl = new URL(authorizationUrl)
+      if (
+        parsedUrl.protocol !== 'https:' ||
+        parsedUrl.host !== 'accounts.google.com' ||
+        parsedUrl.username !== '' ||
+        parsedUrl.password !== ''
+      ) {
+        throw new Error('Invalid authorization URL')
+      }
+
+      if (isMountedRef.current) {
+        navigate(authorizationUrl)
+      }
+    } catch {
+      if (isMountedRef.current) {
+        setReconnectErrorMessage(
+          'No se pudo iniciar la reconexión de YouTube. Revisá tu conexión e intentá de nuevo.'
+        )
+      }
+    } finally {
+      reconnectInFlightRef.current = false
+      if (isMountedRef.current) {
+        setIsReconnecting(false)
+      }
+    }
+  }
 
   function releaseThumbnailPreview() {
     releaseObjectUrl(thumbnailObjectUrlRef.current, thumbnailObjectUrlRef)
@@ -570,6 +616,21 @@ export default function VideoManager() {
     <div className="video-manager">
       <form className="video-manager__form" onSubmit={handleSubmit}>
         <h3>{editingId ? 'Editar video' : 'Nuevo video'}</h3>
+        <div className="video-manager__reconnect">
+          <button
+            type="button"
+            className="btn btn--outline"
+            onClick={handleReconnectYouTube}
+            disabled={isBusy || isReconnecting}
+          >
+            {isReconnecting ? 'Conectando…' : 'Reconectar YouTube'}
+          </button>
+          {reconnectErrorMessage && (
+            <p className="admin-error" role="alert">
+              {reconnectErrorMessage}
+            </p>
+          )}
+        </div>
 
         {!editingId && (
           <div className="admin-field">

@@ -17,6 +17,14 @@
   margin-bottom: 14px;
 }
 
+.video-manager__reconnect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 .video-manager__file-info {
   font-size: 12px;
   font-weight: 600;
