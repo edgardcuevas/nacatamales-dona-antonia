@@ -6,6 +6,7 @@ const videoService = require("../videos/video.service");
 const {
   YOUTUBE_DEFAULT_THUMBNAIL_SOURCE,
   CUSTOM_THUMBNAIL_SOURCE,
+  VIDEO_UPLOAD_STATUSES,
 } = require("../videos/video.constants");
 const {
   youtubeClient,
@@ -178,6 +179,114 @@ function createChannelMismatchError() {
     403,
     "YOUTUBE_CHANNEL_MISMATCH",
     "The authorized Google account does not belong to the configured YouTube channel"
+  );
+}
+
+function createRemoteIdInvalidError() {
+  return createYoutubeError(
+    400,
+    "VIDEO_REMOTE_ID_INVALID",
+    "The stored YouTube video ID is not usable"
+  );
+}
+
+function createLocalStateInconsistentError() {
+  return createYoutubeError(
+    409,
+    "VIDEO_LOCAL_STATE_INCONSISTENT",
+    "The stored video state is inconsistent and cannot be deleted"
+  );
+}
+
+function createDeleteNotPermittedError() {
+  return createYoutubeError(
+    409,
+    "YOUTUBE_DELETE_NOT_PERMITTED",
+    "The connected channel is not allowed to delete this video"
+  );
+}
+
+function createDeleteRateLimitedError() {
+  return createYoutubeError(
+    429,
+    "YOUTUBE_DELETE_RATE_LIMITED",
+    "Too many deletion requests were sent to YouTube"
+  );
+}
+
+function createDeleteFailedError() {
+  return createYoutubeError(
+    502,
+    "YOUTUBE_DELETE_FAILED",
+    "The video could not be deleted on YouTube"
+  );
+}
+
+function createRemoteDeletedLocalUpdateFailedError() {
+  return createYoutubeError(
+    500,
+    "YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED",
+    "The video was deleted on YouTube but the local state could not be recorded"
+  );
+}
+
+// Only the 404 is meaningful for this operation, and it is handled by
+// the caller before this mapper runs. Every other provider failure maps
+// to its own stable code so a caller can tell a retryable condition
+// apart from a permanent one.
+function mapRemoteDeleteError(error) {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  if (error instanceof YouTubeApiError) {
+    if (error.status === 401) {
+      return createYoutubeError(
+        409,
+        "YOUTUBE_REAUTH_REQUIRED",
+        "The YouTube channel must be reconnected"
+      );
+    }
+
+    if (
+      error.status === 429 ||
+      error.reason === "quotaExceeded" ||
+      error.reason === "rateLimitExceeded"
+    ) {
+      return createDeleteRateLimitedError();
+    }
+
+    if (error.status === 403) {
+      return createDeleteNotPermittedError();
+    }
+  }
+
+  return createDeleteFailedError();
+}
+
+function normalizeChannelId(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// Compared as trimmed strings, never against the channel title.
+function channelIdsMatch(left, right) {
+  const first = normalizeChannelId(left);
+  const second = normalizeChannelId(right);
+
+  return first !== "" && first === second;
+}
+
+// Operational breadcrumb for an irreversible action. Deliberately
+// limited to the local id, the event and two booleans: no title, url,
+// external id, channel id, token or provider payload ever reaches it.
+function logRemoteDeletionEvent(event, videoId, extra = {}) {
+  const suffix = Object.entries(extra)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+
+  console.log(
+    `[youtube] remote-deletion event=${event} videoId=${videoId}` +
+      (suffix === "" ? "" : ` ${suffix}`)
   );
 }
 
@@ -991,6 +1100,165 @@ async function revertVideoThumbnail(videoId) {
   };
 }
 
+async function deleteRemoteVideo(videoId) {
+  const current =
+    await videoRepository.findVideoById(videoId);
+  if (!current) {
+    throw new AppError(
+      404,
+      "VIDEO_NOT_FOUND",
+      "The requested video does not exist"
+    );
+  }
+
+  // Every local precondition is checked before YouTube is contacted, so
+  // a request that can never succeed costs no provider quota.
+  if (current.provider !== "YOUTUBE") {
+    throw new AppError(
+      400,
+      "VIDEO_PROVIDER_NOT_YOUTUBE",
+      "Only YouTube videos can be checked"
+    );
+  }
+
+  if (
+    typeof current.external_id !== "string" ||
+    current.external_id.trim() === ""
+  ) {
+    throw createRemoteIdInvalidError();
+  }
+
+  if (
+    !VIDEO_UPLOAD_STATUSES.includes(
+      current.upload_status ?? "READY"
+    )
+  ) {
+    throw createLocalStateInconsistentError();
+  }
+
+  if (current.upload_status === "DELETED") {
+    // A DELETED row without a deletion date is inconsistent. The date
+    // is never invented here.
+    if (
+      current.remote_deleted_at === null ||
+      current.remote_deleted_at === undefined
+    ) {
+      throw createLocalStateInconsistentError();
+    }
+
+    // Already marked: a second request is a safe no-op. YouTube is not
+    // contacted and the original date is never replaced.
+    logRemoteDeletionEvent(
+      "already-deleted",
+      videoId
+    );
+
+    return {
+      video: await videoService.getVideoById(
+        videoId
+      ),
+      deleted: true,
+      alreadyDeleted: true,
+      remoteAlreadyMissing: true,
+    };
+  }
+
+  const connection =
+    await getConnectionOrThrow();
+  const accessToken =
+    await getAccessToken();
+
+  let remoteAlreadyMissing = false;
+  let ownerChannelId = null;
+
+  try {
+    const owner =
+      await youtubeClient.getVideoOwner(
+        accessToken,
+        current.external_id
+      );
+    ownerChannelId = owner.channelId;
+  } catch (error) {
+    if (
+      error instanceof YouTubeApiError &&
+      error.status === 404
+    ) {
+      remoteAlreadyMissing = true;
+      logRemoteDeletionEvent(
+        "remote-missing",
+        videoId
+      );
+    } else {
+      throw mapRemoteDeleteError(error);
+    }
+  }
+
+  if (!remoteAlreadyMissing) {
+    if (
+      !channelIdsMatch(
+        ownerChannelId,
+        connection.channel_id
+      )
+    ) {
+      throw createChannelMismatchError();
+    }
+
+    logRemoteDeletionEvent("attempt", videoId);
+
+    try {
+      await youtubeClient.deleteVideo(
+        accessToken,
+        current.external_id
+      );
+    } catch (error) {
+      // The resource disappeared between the probe and the delete.
+      if (
+        error instanceof YouTubeApiError &&
+        error.status === 404
+      ) {
+        remoteAlreadyMissing = true;
+      } else {
+        throw mapRemoteDeleteError(error);
+      }
+    }
+
+    logRemoteDeletionEvent(
+      "remote-success",
+      videoId
+    );
+  }
+
+  // YouTube first, local state second. The two cannot share a
+  // transaction, so a local failure is reported as its own condition:
+  // the remote delete already happened and must never be described as
+  // failed. A retry finds the resource missing and finishes the job.
+  const deletedAt = new Date();
+  try {
+    await videoRepository
+      .markVideoAsRemoteDeleted({
+        videoId,
+        remoteDeletedAt: deletedAt,
+      });
+  } catch {
+    logRemoteDeletionEvent(
+      "local-update-failed",
+      videoId,
+      { remoteAlreadyMissing }
+    );
+
+    throw createRemoteDeletedLocalUpdateFailedError();
+  }
+
+  logRemoteDeletionEvent("local-success", videoId);
+
+  return {
+    video: await videoService.getVideoById(videoId),
+    deleted: true,
+    alreadyDeleted: false,
+    remoteAlreadyMissing,
+  };
+}
+
 module.exports = {
   createAuthorizationRequest,
   completeAuthorization,
@@ -999,8 +1267,11 @@ module.exports = {
   getVideoStatus,
   setVideoThumbnail,
   revertVideoThumbnail,
+  deleteRemoteVideo,
   clearAccessTokenCache,
   mapUploadStatus,
   validateUploadInput,
   mapThumbnailError,
+  mapRemoteDeleteError,
+  channelIdsMatch,
 };

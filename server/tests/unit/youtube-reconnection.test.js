@@ -239,3 +239,100 @@ test("configured channel mismatch keeps the existing rejection before connection
   assert.equal(getConnection.mock.callCount(), 0);
   assert.equal(calls.upsert.length, 0);
 });
+
+test("a reauthorization persists the three granted scopes, force-ssl included", async () => {
+  const {
+    YOUTUBE_SCOPE_UPLOAD,
+    YOUTUBE_SCOPE_READONLY,
+    YOUTUBE_SCOPE_FORCE_SSL,
+  } = require("../../src/config/youtube");
+
+  const granted = [
+    YOUTUBE_SCOPE_UPLOAD,
+    YOUTUBE_SCOPE_READONLY,
+    YOUTUBE_SCOPE_FORCE_SSL,
+  ].join(" ");
+
+  const calls = mockAuthorization({
+    existingConnection: createExistingConnection(),
+    tokenResponse: { scope: granted },
+  });
+
+  await completeAuthorization();
+
+  assert.equal(calls.upsert.length, 1);
+
+  // The callback records what Google granted, not the configured list,
+  // so the stored value is the authoritative one.
+  assert.equal(calls.upsert[0].scopes, granted);
+
+  const persisted = calls.upsert[0].scopes
+    .split(" ")
+    .filter(Boolean);
+
+  assert.equal(persisted.length, 3);
+  assert.equal(new Set(persisted).size, 3);
+  assert.ok(
+    persisted.includes(YOUTUBE_SCOPE_UPLOAD)
+  );
+  assert.ok(
+    persisted.includes(YOUTUBE_SCOPE_READONLY)
+  );
+  assert.ok(
+    persisted.includes(YOUTUBE_SCOPE_FORCE_SSL)
+  );
+});
+
+test("the persisted scope string never travels with a token in the connection DTO", async () => {
+  const {
+    YOUTUBE_SCOPES,
+  } = require("../../src/config/youtube");
+
+  const calls = mockAuthorization({
+    existingConnection: createExistingConnection(),
+    tokenResponse: {
+      scope: YOUTUBE_SCOPES.join(" "),
+    },
+  });
+
+  const logged = [];
+  mock.method(console, "log", (line) => {
+    logged.push(String(line));
+  });
+
+  const connection = await completeAuthorization();
+
+  // The response shape is unchanged and carries no scope field.
+  assert.deepEqual(
+    Object.keys(connection).sort(),
+    [
+      "channelId",
+      "channelTitle",
+      "connected",
+      "connectedAt",
+      "updatedAt",
+    ]
+  );
+  assert.equal(
+    JSON.stringify(connection).includes("googleapis.com/auth"),
+    false
+  );
+
+  // The refresh token is persisted, but no scope appears in any output.
+  assert.ok(
+    calls.upsert[0].encryptedRefreshToken.length > 0
+  );
+  const loggedText = logged.join("\n");
+  assert.equal(
+    loggedText.includes(ACCESS_TOKEN),
+    false
+  );
+  assert.equal(
+    loggedText.includes(REFRESH_TOKEN),
+    false
+  );
+  assert.equal(
+    loggedText.includes("googleapis.com/auth"),
+    false
+  );
+});

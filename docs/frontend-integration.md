@@ -2205,7 +2205,71 @@ No requiere que el canal esté conectado: si el proveedor no responde, se limpia
 }
 ```
 
-## 11.9 `thumbnailSource` y el campo `thumbnailUrl` del PATCH
+## 11.9 `DELETE /api/admin/videos/:videoId`
+
+**Roles:** solo `ADMIN`. `EDITOR` recibe `403 FORBIDDEN`.
+
+Elimina el recurso **remoto** en YouTube y marca el registro local como `DELETED`. `videoId` es el **ID local**, nunca el `externalId`.
+
+Es irreversible. `EDITOR` conserva todos los demás permisos del módulo; solo esta ruta se estrecha.
+
+### Orden de operaciones
+
+1. Se lee el registro local. Si no existe, `404 VIDEO_NOT_FOUND` sin contactar YouTube.
+2. Se validan `provider`, `external_id` y `upload_status` antes de cualquier llamada al proveedor.
+3. Si ya está `DELETED` con `remote_deleted_at`, la respuesta es **idempotente y exitosa** sin contactar YouTube.
+4. Se verifica la existencia y el canal propietario con `videos.list` (`part=snippet`).
+5. Si el `channelId` propietario no coincide con el canal conectado, `403 YOUTUBE_CHANNEL_MISMATCH` y no se borra nada.
+6. Se ejecuta `videos.delete`.
+7. Solo después del éxito remoto se marca el estado local, en una transacción.
+
+**YouTube primero, estado local después.** No hay transacción distribuida: si YouTube borró el recurso y MySQL falla, la respuesta es `500 YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED`, que **no** afirma que el borrado remoto falló. Un segundo intento encuentra el recurso ausente y completa el marcado local.
+
+### Idempotencia
+
+Un recurso remoto ya inexistente es un **éxito**, no un error: si `videos.list` lo devuelve ausente, o si `videos.delete` responde not found, el registro se marca localmente y la operación responde con éxito. No se llama `videos.delete` cuando la verificación ya dijo que no hay nada que borrar.
+
+`VIDEO_REMOTE_DELETED` (410) **no** se usa en esta ruta: ese código sigue reservado para operaciones prohibidas sobre un video ya eliminado (miniaturas, activación). Una segunda solicitud de borrado es segura.
+
+Un registro `DELETED` **sin** `remote_deleted_at` se considera estado inconsistente: `409 VIDEO_LOCAL_STATE_INCONSISTENT`. La fecha nunca se inventa.
+
+### Respuesta
+
+```json
+{
+  "success": true,
+  "message": "The video was deleted from YouTube successfully",
+  "data": {
+    "video": { "id": 3, "uploadStatus": "DELETED", "remoteDeletedAt": "2026-10-04T05:17:51.306Z" },
+    "deleted": true,
+    "alreadyDeleted": false,
+    "remoteAlreadyMissing": false
+  }
+}
+```
+
+- `alreadyDeleted: true` → el registro ya estaba marcado; no se contacting YouTube.
+- `remoteAlreadyMissing: true` → el recurso remoto ya no existía.
+
+El payload se construye campo por campo: el DTO administrativo y esas tres banderas son lo único que sale del servidor. Nunca se devuelven tokens, `channelId` ni la respuesta de Google.
+
+### Alcance del permiso OAuth
+
+`videos.delete` requiere el scope `https://www.googleapis.com/auth/youtube.force-ssl`. La configuración del backend ya lo solicita, junto a los dos que ya tenían consumidores:
+
+| Scope | Habilita |
+|---|---|
+| `youtube.upload` | `videos.insert` |
+| `youtube.readonly` | `channels` y las consultas `videos.list` del sondeo de estado y de la verificación de propiedad |
+| `youtube.force-ssl` | `videos.delete` |
+
+`GET /api/admin/youtube/connect` pide los tres, con `access_type=offline`, `prompt=consent` e `include_granted_scopes=true`.
+
+**La cuenta debe reautorizarse.** Añadir un scope a la configuración no amplía el refresh token ya guardado: Google solo emite los scopes autorizados en el momento del consentimiento, y un token existente sigue teniendo los suyos. Hasta que `GET /api/admin/youtube/connect` se complete de nuevo, la ruta de borrado remoto responderá `409 YOUTUBE_DELETE_NOT_PERMITTED`.
+
+**No pruebes la eliminación remota hasta completar esa nueva autorización.** Marcar registros como `DELETED` de forma local sigue siendo válido e independiente del scope.
+
+## 11.10 `thumbnailSource` y el campo `thumbnailUrl` del PATCH
 
 El DTO administrativo de video expone `thumbnailSource`:
 
@@ -2220,7 +2284,7 @@ El `PATCH /api/admin/videos/:videoId` acepta `thumbnailUrl`, pero endurecido: so
 
 Para cambiar la miniatura de forma soportada conviene usar `PUT /api/admin/videos/:videoId/thumbnail`, que además la aplica dentro de YouTube.
 
-## 11.10 Errores de Videos
+## 11.11 Errores de Videos
 
 | HTTP | Código | Mensaje |
 |---:|---|---|
@@ -2242,6 +2306,7 @@ Para cambiar la miniatura de forma soportada conviene usar `PUT /api/admin/video
 | 400 | `INVALID_VIDEO_FILE_SIZE` | The video file size is not allowed |
 | 400 | `INVALID_VIDEO_UPLOAD_ENCODING` | Encoded video uploads are not accepted |
 | 400 | `VIDEO_PROVIDER_NOT_YOUTUBE` | Only YouTube videos can be checked |
+| 400 | `VIDEO_REMOTE_ID_INVALID` | The stored YouTube video ID is not usable |
 | 400 | `INVALID_VIDEO_THUMBNAIL` | The thumbnail request was rejected by YouTube |
 | 400 | `INVALID_VIDEO_THUMBNAIL_TYPE` | Only JPEG and PNG thumbnails are accepted |
 | 400 | `INVALID_VIDEO_THUMBNAIL_SIZE` | The thumbnail file size is not allowed |
@@ -2249,19 +2314,28 @@ Para cambiar la miniatura de forma soportada conviene usar `PUT /api/admin/video
 | 400 | `VIDEO_THUMBNAIL_SIZE_REQUIRED` | A valid thumbnail file size is required |
 | 400 | `INVALID_VIDEO_THUMBNAIL_ENCODING` | Encoded thumbnail uploads are not accepted |
 | 404 | `VIDEO_NOT_FOUND` | The requested video does not exist |
+| 410 | `VIDEO_REMOTE_DELETED` | The YouTube video is no longer available |
 | 409 | `VIDEO_ALREADY_EXISTS` | A video with this provider and external ID already exists |
 | 409 | `VIDEO_NOT_READY` | The video must finish processing before it can be activated |
 | 409 | `VIDEO_THUMBNAIL_NOT_READY` | The video must finish processing before its thumbnail can be changed |
 | 409 | `YOUTUBE_THUMBNAIL_NOT_PERMITTED` | The connected channel is not allowed to change this thumbnail |
+| 409 | `YOUTUBE_NOT_CONNECTED` | The YouTube channel is not connected |
+| 409 | `YOUTUBE_REAUTH_REQUIRED` | The YouTube channel must be reconnected |
+| 409 | `YOUTUBE_DELETE_NOT_PERMITTED` | The connected channel is not allowed to delete this video |
+| 409 | `VIDEO_LOCAL_STATE_INCONSISTENT` | The stored video state is inconsistent and cannot be deleted |
 | 429 | `YOUTUBE_THUMBNAIL_RATE_LIMITED` | Too many thumbnail changes were requested for this channel |
+| 429 | `YOUTUBE_DELETE_RATE_LIMITED` | Too many deletion requests were sent to YouTube |
 | 500 | `VIDEO_THUMBNAIL_PERSISTENCE_FAILED` | The chosen thumbnail could not be recorded |
+| 500 | `YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED` | The video was deleted on YouTube but the local state could not be recorded |
 | 502 | `YOUTUBE_THUMBNAIL_FAILED` | The video thumbnail could not be updated on YouTube |
+| 502 | `YOUTUBE_DELETE_FAILED` | The video could not be deleted on YouTube |
 
 ### Rate limit de YouTube Video Upload
 
 - 5 requests por IP cada 15 minutos.
-- `GET /status`: 60 requests por IP cada 15 minutos.
+- `GET /status`: 120 requests por IP cada 15 minutos.
 - Miniatura: 20 requests por IP cada 15 minutos, en un store independiente para no consumir el presupuesto de subida.
+- Borrado remoto: 10 requests por IP cada 15 minutos, en un store independiente. Es la acción irreversible, así que tiene su propio presupuesto y no comparte nada con subida ni miniatura.
 - Todos los stores son locales al proceso.
 
 ---
@@ -2388,7 +2462,11 @@ Sin conexión:
 
 ## 12.4 Seguridad OAuth
 
-- Scopes solicitados: `youtube.upload` y `youtube.readonly`.
+- Scopes solicitados: `youtube.upload`, `youtube.readonly` y `youtube.force-ssl`.
+- `youtube.force-ssl` está en la lista para habilitar `videos.delete`. Ampliar la configuración **no** amplía el refresh token guardado: hay que reautorizar el canal, y solo entonces el token nuevo podrá usarlo.
+- `include_granted_scopes=true` obliga a que la lista solicitada sea un superconjunto de lo ya concedido; por eso `force-ssl` se añade sin quitar `upload` ni `readonly`.
+- El scope que Google devuelve en el callback es el que se persiste; la lista configurada solo actúa como respaldo si la respuesta no incluye el campo.
+- Los scopes no se exponen en el DTO de conexión ni en los logs.
 - State generado aleatoriamente.
 - Solo se persiste SHA-256 del state.
 - El state tiene expiración server-side de 10 minutos.

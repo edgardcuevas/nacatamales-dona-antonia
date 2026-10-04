@@ -371,6 +371,65 @@ async function updateVideoProcessingStatus({
   return result.affectedRows === 1;
 }
 
+// The DELETED transition is the only write that must be all or nothing:
+// a partially marked batch would leave the local state disagreeing with
+// YouTube. The transaction is owned here so the service never has to
+// manage a connection.
+//
+// Only upload_status, remote_deleted_at, is_active and updated_at are
+// written. provider, external_id, url, privacy_status,
+// thumbnail_source, thumbnail_url, sort_order and created_at are left
+// untouched: updated_at is set by hand because videos has no
+// ON UPDATE CURRENT_TIMESTAMP and the public cache-busting version
+// depends on it.
+async function markVideoAsRemoteDeleted({
+  videoId,
+  remoteDeletedAt,
+}) {
+  const connection = await pool.getConnection();
+  let committed = false;
+
+  try {
+    await connection.beginTransaction();
+
+    const [result] = await connection.execute(
+      `
+        UPDATE videos
+        SET
+          upload_status = 'DELETED',
+          remote_deleted_at = ?,
+          is_active = 0,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      [remoteDeletedAt, videoId]
+    );
+
+    if (result.affectedRows !== 1) {
+      throw new Error(
+        "Video disappeared during the remote deletion"
+      );
+    }
+
+    await connection.commit();
+    committed = true;
+
+    return true;
+  } catch (error) {
+    if (!committed) {
+      try {
+        await connection.rollback();
+      } catch {
+        // Never let a rollback failure hide the original cause.
+      }
+    }
+
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 module.exports = {
   listPublicVideos,
   findPublicVideoById,
@@ -381,4 +440,5 @@ module.exports = {
   updateVideoStatusById,
   createUploadedVideo,
   updateVideoProcessingStatus,
+  markVideoAsRemoteDeleted,
 };

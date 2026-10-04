@@ -169,6 +169,36 @@ async function revertVideoThumbnailController(
   );
 }
 
+async function deleteRemoteVideoController(
+  request,
+  response
+) {
+  const result =
+    await youtubeService.deleteRemoteVideo(
+      request.videoId
+    );
+
+  const message = result.alreadyDeleted
+    ? "The video was already marked as deleted"
+    : "The video was deleted from YouTube successfully";
+
+  // The payload is built field by field instead of forwarded: whatever
+  // the service returns, only the admin DTO and the three idempotency
+  // flags can leave the server.
+  return successResponse(
+    response,
+    200,
+    {
+      video: result.video,
+      deleted: true,
+      alreadyDeleted: result.alreadyDeleted,
+      remoteAlreadyMissing:
+        result.remoteAlreadyMissing,
+    },
+    message
+  );
+}
+
 module.exports = {
   OAUTH_STATE_COOKIE,
   OAUTH_COOKIE_PATH,
@@ -179,4 +209,5 @@ module.exports = {
   getVideoStatusController,
   setVideoThumbnailController,
   revertVideoThumbnailController,
+  deleteRemoteVideoController,
 };

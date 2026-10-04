@@ -17,7 +17,8 @@
     "test:db:list": "node --env-file=.env.test node_modules/knex/bin/cli.js --env test migrate:list",
     "videos:mark-remote-deleted": "node database/scripts/mark-videos-remote-deleted.js",
     "videos:mark-remote-deleted:test": "node database/scripts/mark-videos-remote-deleted.js --environment test",
-    "test:integration:remote-deletion": "node --env-file=.env.test tests/integration/video-remote-deletion.integration.js"
+    "test:integration:remote-deletion": "node --env-file=.env.test tests/integration/video-remote-deletion.integration.js",
+    "test:integration:remote-delete": "node --env-file=.env.test tests/integration/video-remote-delete.integration.js"
   },
   "dependencies": {
     "@imagekit/nodejs": "^7.12.1",

@@ -30,6 +30,7 @@ const {
   getVideoStatusController,
   setVideoThumbnailController,
   revertVideoThumbnailController,
+  deleteRemoteVideoController,
 } = require("../youtube/youtube.controller");
 const {
   validateVideoUpload,
@@ -40,6 +41,7 @@ const {
   youtubeUploadRateLimiter,
   youtubeStatusRateLimiter,
   youtubeThumbnailRateLimiter,
+  youtubeDeleteRateLimiter,
 } = require("../../middlewares/youtube-rate-limit.middleware");
 
 const router = express.Router();
@@ -47,6 +49,9 @@ const contentAdminOnly = authorizeRoles(
   "ADMIN",
   "EDITOR"
 );
+// Deleting a video on YouTube is irreversible, so it is narrower than
+// the rest of the module: ADMIN only, on top of the router gate.
+const irreversibleAdminOnly = authorizeRoles("ADMIN");
 
 router.use(
   authenticate,
@@ -95,6 +100,17 @@ router.patch(
   "/:videoId/status",
   validateVideoStatus,
   changeVideoStatusController
+);
+// videoId is the local id, never the YouTube external id. The rate
+// limiter runs before the role gate so a burst costs nothing, and the
+// role gate runs before the validator so an unauthorized caller learns
+// nothing about id validation.
+router.delete(
+  "/:videoId",
+  youtubeDeleteRateLimiter,
+  irreversibleAdminOnly,
+  validateVideoStatusId,
+  deleteRemoteVideoController
 );
 router.patch(
   "/:videoId",

@@ -26,9 +26,31 @@ const YOUTUBE_THUMBNAIL_HOSTS = new Set([
   "yt3.ggpht.com",
 ]);
 
+// The order below is stable and asserted by a test, because both the
+// consent screen and the stored scope string are compared against it.
+//
+// - youtube.upload    grants videos.insert
+// - youtube.readonly  grants channels and the videos.list probes used by
+//                     the status poll and the deletion ownership check
+// - youtube.force-ssl grants videos.delete
+//
+// youtube.force-ssl is added without dropping the other two: they have
+// established consumers, and include_granted_scopes=true makes Google
+// reject a request whose scope list is not a superset of what was
+// already granted. Adding a scope does not grant it by itself: the
+// channel has to be reauthorized before a stored refresh token can use
+// videos.delete.
+const YOUTUBE_SCOPE_UPLOAD =
+  "https://www.googleapis.com/auth/youtube.upload";
+const YOUTUBE_SCOPE_READONLY =
+  "https://www.googleapis.com/auth/youtube.readonly";
+const YOUTUBE_SCOPE_FORCE_SSL =
+  "https://www.googleapis.com/auth/youtube.force-ssl";
+
 const YOUTUBE_SCOPES = Object.freeze([
-  "https://www.googleapis.com/auth/youtube.upload",
-  "https://www.googleapis.com/auth/youtube.readonly",
+  YOUTUBE_SCOPE_UPLOAD,
+  YOUTUBE_SCOPE_READONLY,
+  YOUTUBE_SCOPE_FORCE_SSL,
 ]);
 
 function createValidatedVideoStream(
@@ -754,6 +776,17 @@ const youtubeClient = {
   },
 
   async deleteVideo(accessToken, videoId) {
+    // Same preflight as every other call: an unusable identifier never
+    // reaches the network.
+    if (
+      typeof accessToken !== "string" ||
+      accessToken.length === 0 ||
+      typeof videoId !== "string" ||
+      !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)
+    ) {
+      throw new YouTubeApiError("delete-video", 400);
+    }
+
     const response = await fetch(
       `${YOUTUBE_API_URL}/videos?id=${encodeURIComponent(videoId)}`,
       {
@@ -765,6 +798,9 @@ const youtubeClient = {
       }
     );
 
+    // A 404 means the resource is already gone, which is the
+    // idempotent outcome this operation wants, so it is not an error.
+    // The provider answers success with no body.
     if (!response.ok && response.status !== 404) {
       throw new YouTubeApiError(
         "delete-video",
@@ -772,11 +808,67 @@ const youtubeClient = {
       );
     }
   },
+
+  // Existence and ownership probe used before an irreversible delete.
+  // It asks for a single part and returns nothing but the identifiers,
+  // so no title, description or provider payload can reach a log.
+  async getVideoOwner(accessToken, videoId) {
+    if (
+      typeof accessToken !== "string" ||
+      accessToken.length === 0 ||
+      typeof videoId !== "string" ||
+      !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)
+    ) {
+      throw new YouTubeApiError("video-owner", 400);
+    }
+
+    const response = await fetch(
+      `${YOUTUBE_API_URL}/videos?id=${encodeURIComponent(videoId)}&part=snippet`,
+      {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+    const payload = await readProviderJson(
+      response,
+      "video-owner"
+    );
+
+    // An empty items array is how this API reports a resource that does
+    // not exist or is not visible to the token. It must stay
+    // distinguishable from every other provider failure.
+    const item = payload?.items?.[0];
+    if (
+      !item ||
+      typeof item.id !== "string" ||
+      item.id !== videoId
+    ) {
+      throw new YouTubeApiError("video-owner", 404);
+    }
+
+    const channelId = item.snippet?.channelId;
+    if (
+      typeof channelId !== "string" ||
+      !YOUTUBE_CHANNEL_ID_PATTERN.test(channelId)
+    ) {
+      throw new YouTubeApiError("video-owner", 502);
+    }
+
+    return {
+      videoId: item.id,
+      channelId,
+    };
+  },
 };
 
 module.exports = {
   youtubeClient,
   YouTubeApiError,
   YOUTUBE_SCOPES,
+  YOUTUBE_SCOPE_UPLOAD,
+  YOUTUBE_SCOPE_READONLY,
+  YOUTUBE_SCOPE_FORCE_SSL,
   isAllowedThumbnailUrl,
 };
