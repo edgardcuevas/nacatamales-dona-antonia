@@ -743,6 +743,8 @@ async function getVideoStatus(videoId) {
     );
   }
 
+  videoService.assertRemoteVideoAvailable(current);
+
   if (current.provider !== "YOUTUBE") {
     throw new AppError(
       400,
@@ -871,6 +873,8 @@ async function setVideoThumbnail({
     throw createThumbnailUnsupportedProviderError();
   }
 
+  videoService.assertRemoteVideoAvailable(current);
+
   if (
     (current.upload_status ?? "READY") !== "READY"
   ) {
@@ -937,6 +941,8 @@ async function revertVideoThumbnail(videoId) {
   if (current.provider !== "YOUTUBE") {
     throw createThumbnailUnsupportedProviderError();
   }
+
+  videoService.assertRemoteVideoAvailable(current);
 
   // Reverting only needs the provider's own current frame, so it
   // does not require the channel to be connected.

@@ -10,7 +10,14 @@
   "scripts": {
     "dev": "nodemon --env-file=.env src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "test": "node --test \"tests/**/*.test.js\""
+    "test": "node --test \"tests/**/*.test.js\"",
+    "test:db:status": "node --env-file=.env.test node_modules/knex/bin/cli.js --env test migrate:status",
+    "test:db:latest": "node --env-file=.env.test node_modules/knex/bin/cli.js --env test migrate:latest",
+    "test:db:rollback": "node --env-file=.env.test node_modules/knex/bin/cli.js --env test migrate:rollback",
+    "test:db:list": "node --env-file=.env.test node_modules/knex/bin/cli.js --env test migrate:list",
+    "videos:mark-remote-deleted": "node database/scripts/mark-videos-remote-deleted.js",
+    "videos:mark-remote-deleted:test": "node database/scripts/mark-videos-remote-deleted.js --environment test",
+    "test:integration:remote-deletion": "node --env-file=.env.test tests/integration/video-remote-deletion.integration.js"
   },
   "dependencies": {
     "@imagekit/nodejs": "^7.12.1",

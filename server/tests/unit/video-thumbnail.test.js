@@ -440,6 +440,41 @@ test("setting a thumbnail is rejected while the video is still processing", asyn
   );
 });
 
+test("setting a thumbnail on a DELETED video fails before contacting YouTube", async () => {
+  mockConnectedChannel();
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+
+  let providerCalls = 0;
+  mock.method(
+    youtubeClient,
+    "setVideoThumbnail",
+    async () => {
+      providerCalls += 1;
+      return {};
+    }
+  );
+
+  await assert.rejects(
+    youtubeService.setVideoThumbnail(
+      createThumbnailInput()
+    ),
+    (error) => {
+      assertAppError(
+        error,
+        410,
+        "VIDEO_REMOTE_DELETED"
+      );
+      return true;
+    }
+  );
+  assert.equal(providerCalls, 0);
+});
+
 test("setting a thumbnail rejects an unsupported media type and an oversized file", async () => {
   await assert.rejects(
     youtubeService.setVideoThumbnail(
@@ -650,6 +685,49 @@ test("reverting restores the provider frame and the default source", async () =>
     updateInput.thumbnailSource,
     "YOUTUBE_DEFAULT"
   );
+});
+
+test("reverting a thumbnail on a DELETED video fails before reading YouTube or updating locally", async () => {
+  mockConnectedChannel();
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+
+  let providerCalls = 0;
+  let updateCalls = 0;
+  mock.method(
+    youtubeClient,
+    "getVideo",
+    async () => {
+      providerCalls += 1;
+      return {};
+    }
+  );
+  mock.method(
+    videoRepository,
+    "updateVideoProcessingStatus",
+    async () => {
+      updateCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    youtubeService.revertVideoThumbnail(7),
+    (error) => {
+      assertAppError(
+        error,
+        410,
+        "VIDEO_REMOTE_DELETED"
+      );
+      return true;
+    }
+  );
+  assert.equal(providerCalls, 0);
+  assert.equal(updateCalls, 0);
 });
 
 test("reverting still clears the custom marker when the provider is unreachable", async () => {

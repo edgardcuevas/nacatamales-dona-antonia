@@ -65,6 +65,7 @@ function getVideoColumns() {
     is_active,
     upload_status,
     privacy_status,
+    remote_deleted_at,
     created_at,
     updated_at
   `;

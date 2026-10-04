@@ -537,6 +537,32 @@ test("thumbnail service errors are neutral and reach the client unchanged", asyn
   );
 });
 
+test("remote-deleted errors keep their HTTP status and stable code", async () => {
+  state.errors.revertThumbnail = new AppError(
+    410,
+    "VIDEO_REMOTE_DELETED",
+    "The YouTube video is no longer available"
+  );
+
+  const result = await request(
+    "/api/admin/videos/3/thumbnail",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 410);
+  assert.equal(
+    result.body.error.code,
+    "VIDEO_REMOTE_DELETED"
+  );
+  assert.equal(
+    result.body.error.message,
+    "The YouTube video is no longer available"
+  );
+});
+
 test("video admin rejects unknown fields and inactive users", async () => {
   const unknown = await request(
     "/api/admin/videos",

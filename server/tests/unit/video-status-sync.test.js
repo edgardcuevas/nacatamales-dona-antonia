@@ -50,6 +50,7 @@ const videoRepository = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const AppError = require("../../src/errors/app-error");
 const youtubeService = require(
   "../../src/modules/youtube/youtube.service"
 );
@@ -210,6 +211,49 @@ test("the status poll skips the UPDATE and returns the same DTO when nothing cha
     uploadStatus: "READY",
     privacyStatus: "UNLISTED",
   });
+});
+
+test("status synchronization rejects a DELETED video before contacting YouTube", async () => {
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createStoredVideo({ upload_status: "DELETED" })
+  );
+  mock.method(
+    youtubeConnectionRepository,
+    "getConnection",
+    async () => createConnection()
+  );
+  mock.method(
+    youtubeClient,
+    "refreshAccessToken",
+    async () => ({
+      accessToken: "access-token",
+      expiresIn: 3600,
+    })
+  );
+
+  let providerCalls = 0;
+  mock.method(
+    youtubeClient,
+    "getVideo",
+    async () => {
+      providerCalls += 1;
+      return createRemoteVideo();
+    }
+  );
+
+  await assert.rejects(
+    youtubeService.getVideoStatus(7),
+    (error) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 410);
+      assert.equal(error.code, "VIDEO_REMOTE_DELETED");
+      return true;
+    }
+  );
+  assert.equal(providerCalls, 0);
 });
 
 test("the status poll is idempotent across repeated polls", async () => {

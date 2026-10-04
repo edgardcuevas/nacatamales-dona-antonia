@@ -34,6 +34,20 @@ function createVideoNotReadyError() {
   );
 }
 
+function createRemoteDeletedError() {
+  return new AppError(
+    410,
+    "VIDEO_REMOTE_DELETED",
+    "The YouTube video is no longer available"
+  );
+}
+
+function assertRemoteVideoAvailable(video) {
+  if (video.upload_status === "DELETED") {
+    throw createRemoteDeletedError();
+  }
+}
+
 function isActiveRecord(value) {
   return value === true || value === 1;
 }
@@ -119,6 +133,9 @@ function toAdminVideo(video) {
     isActive: isActiveRecord(video.is_active),
     uploadStatus: video.upload_status ?? "READY",
     privacyStatus: video.privacy_status ?? "UNLISTED",
+    remoteDeletedAt: toIsoString(
+      video.remote_deleted_at
+    ),
     createdAt: toIsoString(video.created_at),
     updatedAt: toIsoString(video.updated_at),
   };
@@ -232,6 +249,10 @@ async function updateVideo({
     throw createVideoNotFoundError();
   }
 
+  if (Object.hasOwn(updates, "thumbnailUrl")) {
+    assertRemoteVideoAvailable(current);
+  }
+
   validateYouTubeIdentity({
     provider:
       Object.hasOwn(updates, "provider")
@@ -288,6 +309,10 @@ async function changeVideoStatus({
     throw createVideoNotFoundError();
   }
 
+  if (isActive) {
+    assertRemoteVideoAvailable(current);
+  }
+
   const currentUploadStatus =
     current.upload_status ?? "READY";
   if (
@@ -320,4 +345,5 @@ module.exports = {
   createVideo,
   updateVideo,
   changeVideoStatus,
+  assertRemoteVideoAvailable,
 };

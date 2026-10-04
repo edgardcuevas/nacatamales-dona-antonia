@@ -8,6 +8,7 @@ const VIDEO_UPLOAD_STATUSES = Object.freeze([
   "PROCESSING",
   "READY",
   "FAILED",
+  "DELETED",
 ]);
 
 const VIDEO_PRIVACY_STATUSES = Object.freeze([

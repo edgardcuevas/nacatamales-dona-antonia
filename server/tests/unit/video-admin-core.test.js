@@ -51,6 +51,9 @@ const {
   parseVideoStatusBody,
   validateYouTubeIdentity,
 } = require("../../src/modules/videos/video.validator");
+const {
+  VIDEO_UPLOAD_STATUSES,
+} = require("../../src/modules/videos/video.constants");
 const videoRepository = require(
   "../../src/modules/videos/video.repository"
 );
@@ -256,6 +259,7 @@ test("video repository uses a safe order map and parameterized filters", async (
 
   assert.equal(result.totalItems, 1);
   assert.match(queries[0].sql, /ORDER BY external_id ASC/);
+  assert.match(queries[0].sql, /remote_deleted_at/);
   assert.match(queries[0].sql, /provider = \?/);
   assert.match(queries[0].sql, /title LIKE \?/);
   assert.doesNotMatch(queries[0].sql, /SELECT \*/);
@@ -336,6 +340,7 @@ test("video service creates safe admin DTO and validates update identity togethe
   assert.equal(created.id, 3);
   assert.equal(created.isActive, false);
   assert.equal(created.externalId, "aaaaaaaaaaa");
+  assert.equal(created.remoteDeletedAt, null);
 
   mock.restoreAll();
   mock.method(
@@ -359,6 +364,80 @@ test("video service creates safe admin DTO and validates update identity togethe
       return true;
     }
   );
+});
+
+test("DELETED is recognized and the admin DTO preserves remote identity and deletion time", async () => {
+  const remoteDeletedAt = new Date(
+    "2026-10-03T12:00:00.000Z"
+  );
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({
+        upload_status: "DELETED",
+        remote_deleted_at: remoteDeletedAt,
+        privacy_status: "UNLISTED",
+      })
+  );
+
+  assert.equal(
+    VIDEO_UPLOAD_STATUSES.includes("DELETED"),
+    true
+  );
+
+  const video = await videoService.getVideoById(3);
+
+  assert.equal(video.id, 3);
+  assert.equal(video.provider, "YOUTUBE");
+  assert.equal(video.externalId, "aaaaaaaaaaa");
+  assert.equal(
+    video.url,
+    "https://www.youtube.com/watch?v=aaaaaaaaaaa"
+  );
+  assert.equal(video.privacyStatus, "UNLISTED");
+  assert.equal(video.uploadStatus, "DELETED");
+  assert.equal(
+    video.remoteDeletedAt,
+    "2026-10-03T12:00:00.000Z"
+  );
+});
+
+test("a DELETED video's administrative thumbnail override is blocked", async () => {
+  let updateCalls = 0;
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+  mock.method(
+    videoRepository,
+    "updateVideoById",
+    async () => {
+      updateCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    videoService.updateVideo({
+      videoId: 3,
+      updates: {
+        thumbnailUrl:
+          "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg",
+      },
+    }),
+    (error) => {
+      assertAppError(
+        error,
+        410,
+        "VIDEO_REMOTE_DELETED"
+      );
+      return true;
+    }
+  );
+  assert.equal(updateCalls, 0);
 });
 
 test("processing videos cannot be activated before they are ready", async () => {
@@ -396,6 +475,41 @@ test("processing videos cannot be activated before they are ready", async () => 
   );
   assert.equal(updateCalls, 0);
 });
+
+test("DELETED videos cannot be activated or updated", async () => {
+  let updateCalls = 0;
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+  mock.method(
+    videoRepository,
+    "updateVideoStatusById",
+    async () => {
+      updateCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    videoService.changeVideoStatus({
+      videoId: 3,
+      isActive: true,
+    }),
+    (error) => {
+      assertAppError(
+        error,
+        410,
+        "VIDEO_REMOTE_DELETED"
+      );
+      return true;
+    }
+  );
+  assert.equal(updateCalls, 0);
+});
+
 test("video status changes are idempotent", async () => {
   let updateCalls = 0;
   mock.method(
