@@ -346,4 +346,5 @@ module.exports = {
   updateVideo,
   changeVideoStatus,
   assertRemoteVideoAvailable,
+  createRemoteDeletedError,
 };

@@ -371,6 +371,92 @@ async function updateVideoProcessingStatus({
   return result.affectedRows === 1;
 }
 
+// Re-reads the row under a row lock and applies the thumbnail state only
+// if it still matches what the caller verified. Returns a status instead
+// of throwing, so a concurrent change is reported rather than silently
+// overwritten.
+//
+// Only thumbnail_url, thumbnail_source and updated_at are written.
+async function reconcileThumbnailState({
+  videoId,
+  thumbnailUrl,
+  expectedThumbnailSource,
+  expectedUploadStatus,
+}) {
+  const connection = await pool.getConnection();
+  let committed = false;
+
+  try {
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      `
+        SELECT
+          upload_status,
+          thumbnail_source
+        FROM videos
+        WHERE id = ?
+        FOR UPDATE
+      `,
+      [videoId]
+    );
+
+    const row = rows[0];
+
+    if (!row) {
+      await connection.rollback();
+      return { status: "NOT_FOUND" };
+    }
+
+    if (row.upload_status === "DELETED") {
+      await connection.rollback();
+      return { status: "DELETED" };
+    }
+
+    if (
+      row.upload_status !== expectedUploadStatus ||
+      row.thumbnail_source !== expectedThumbnailSource
+    ) {
+      await connection.rollback();
+      return { status: "STATE_CHANGED" };
+    }
+
+    const [result] = await connection.execute(
+      `
+        UPDATE videos
+        SET
+          thumbnail_url = ?,
+          thumbnail_source = 'CUSTOM',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      [thumbnailUrl, videoId]
+    );
+
+    if (result.affectedRows !== 1) {
+      await connection.rollback();
+      return { status: "STATE_CHANGED" };
+    }
+
+    await connection.commit();
+    committed = true;
+
+    return { status: "RECONCILED" };
+  } catch (error) {
+    if (!committed) {
+      try {
+        await connection.rollback();
+      } catch {
+        // Never let a rollback failure hide the original cause.
+      }
+    }
+
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 // The DELETED transition is the only write that must be all or nothing:
 // a partially marked batch would leave the local state disagreeing with
 // YouTube. The transaction is owned here so the service never has to
@@ -441,4 +527,5 @@ module.exports = {
   createUploadedVideo,
   updateVideoProcessingStatus,
   markVideoAsRemoteDeleted,
+  reconcileThumbnailState,
 };

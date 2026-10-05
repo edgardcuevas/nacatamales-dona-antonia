@@ -18,7 +18,8 @@
     "videos:mark-remote-deleted": "node database/scripts/mark-videos-remote-deleted.js",
     "videos:mark-remote-deleted:test": "node database/scripts/mark-videos-remote-deleted.js --environment test",
     "test:integration:remote-deletion": "node --env-file=.env.test tests/integration/video-remote-deletion.integration.js",
-    "test:integration:remote-delete": "node --env-file=.env.test tests/integration/video-remote-delete.integration.js"
+    "test:integration:remote-delete": "node --env-file=.env.test tests/integration/video-remote-delete.integration.js",
+    "test:integration:thumbnail-reconcile": "node --env-file=.env.test tests/integration/thumbnail-reconcile.integration.js"
   },
   "dependencies": {
     "@imagekit/nodejs": "^7.12.1",

@@ -556,6 +556,123 @@ test("provider thumbnail failures are neutral and do not leak the provider paylo
   );
 });
 
+test("an unusable success response maps to a distinct code per condition", () => {
+  const cases = [
+    {
+      operation: "thumbnail-response-empty",
+      code: "YOUTUBE_THUMBNAIL_RESPONSE_EMPTY",
+    },
+    {
+      operation: "thumbnail-response-unparseable",
+      code: "YOUTUBE_THUMBNAIL_RESPONSE_UNPARSEABLE",
+    },
+    {
+      operation: "thumbnail-response-invalid",
+      code: "YOUTUBE_THUMBNAIL_RESPONSE_INVALID",
+    },
+    {
+      operation: "thumbnail-url-rejected",
+      code: "YOUTUBE_THUMBNAIL_URL_REJECTED",
+    },
+  ];
+
+  for (const { operation, code } of cases) {
+    const mapped = youtubeService.mapThumbnailError(
+      new YouTubeApiError(operation, 502)
+    );
+    assertAppError(mapped, 502, code);
+    assert.equal(
+      mapped.message.includes("http"),
+      false,
+      "the public message must not carry a URL"
+    );
+  }
+});
+
+test("a real nested provider response reaches the local record as CUSTOM", async () => {
+  mockConnectedChannel();
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () => createRawVideo()
+  );
+
+  // The real adapter, not a replaced client: this is the path that was
+  // never covered and that produced the false failure.
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          kind: "youtube#thumbnailSetResponse",
+          items: [
+            {
+              default: {
+                url: "https://i.ytimg.com/vi/aaaaaaaaaaa/default.jpg",
+                width: 120,
+                height: 90,
+              },
+              high: {
+                url: CUSTOM_THUMBNAIL_URL,
+                width: 480,
+                height: 360,
+              },
+            },
+          ],
+        });
+      },
+      async json() {
+        throw new Error("json must not be used");
+      },
+    };
+  };
+
+  let updateInput;
+  mock.method(
+    videoRepository,
+    "updateVideoProcessingStatus",
+    async (input) => {
+      updateInput = input;
+      return true;
+    }
+  );
+  mock.method(
+    videoService,
+    "getVideoById",
+    async () =>
+      createAdminVideo({
+        thumbnailSource: "CUSTOM",
+        thumbnailUrl: CUSTOM_THUMBNAIL_URL,
+      })
+  );
+
+  try {
+    const result =
+      await youtubeService.setVideoThumbnail(
+        createThumbnailInput()
+      );
+
+    assert.equal(calls.length, 1);
+    assert.equal(result.thumbnailUrl, CUSTOM_THUMBNAIL_URL);
+    assert.equal(result.video.thumbnailSource, "CUSTOM");
+
+    // Only the two authorized fields move.
+    assert.deepEqual(
+      Object.keys(updateInput).sort(),
+      ["thumbnailSource", "thumbnailUrl", "videoId"]
+    );
+    assert.equal(updateInput.thumbnailUrl, CUSTOM_THUMBNAIL_URL);
+    assert.equal(updateInput.thumbnailSource, "CUSTOM");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider rate limiting and invalid images map to stable codes", () => {
   const rateLimited = new YouTubeApiError(
     "set-thumbnail",

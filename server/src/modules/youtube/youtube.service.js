@@ -8,6 +8,10 @@ const {
   CUSTOM_THUMBNAIL_SOURCE,
   VIDEO_UPLOAD_STATUSES,
 } = require("../videos/video.constants");
+
+// Single source of truth for the DELETED guard, shared with the video
+// service so the reconciliation cannot drift from it.
+const { createRemoteDeletedError } = videoService;
 const {
   youtubeClient,
   YouTubeApiError,
@@ -125,12 +129,43 @@ function createThumbnailUnsupportedProviderError() {
   );
 }
 
+function createThumbnailResponseError(code, message) {
+  return createYoutubeError(502, code, message);
+}
+
 function mapThumbnailError(error) {
   if (error instanceof AppError) {
     return error;
   }
 
   if (error instanceof YouTubeApiError) {
+    // A successful provider response that cannot be used is reported
+    // per condition instead of collapsing into one opaque failure.
+    switch (error.operation) {
+      case "thumbnail-response-empty":
+        return createThumbnailResponseError(
+          "YOUTUBE_THUMBNAIL_RESPONSE_EMPTY",
+          "YouTube returned an empty thumbnail response"
+        );
+      case "thumbnail-response-unparseable":
+        return createThumbnailResponseError(
+          "YOUTUBE_THUMBNAIL_RESPONSE_UNPARSEABLE",
+          "The thumbnail response from YouTube could not be read"
+        );
+      case "thumbnail-response-invalid":
+        return createThumbnailResponseError(
+          "YOUTUBE_THUMBNAIL_RESPONSE_INVALID",
+          "The thumbnail response from YouTube carried no usable thumbnail"
+        );
+      case "thumbnail-url-rejected":
+        return createThumbnailResponseError(
+          "YOUTUBE_THUMBNAIL_URL_REJECTED",
+          "The thumbnail URL returned by YouTube was rejected"
+        );
+      default:
+        break;
+    }
+
     if (error.reason === "invalidImage") {
       return createYoutubeError(
         400,
@@ -228,6 +263,84 @@ function createRemoteDeletedLocalUpdateFailedError() {
     "YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED",
     "The video was deleted on YouTube but the local state could not be recorded"
   );
+}
+
+function createRemoteVideoNotFoundError() {
+  return createYoutubeError(
+    409,
+    "VIDEO_REMOTE_NOT_FOUND",
+    "The video no longer exists on YouTube"
+  );
+}
+
+function createRemoteThumbnailUnavailableError() {
+  return createYoutubeError(
+    409,
+    "REMOTE_THUMBNAIL_UNAVAILABLE",
+    "YouTube returned no usable thumbnail for this video"
+  );
+}
+
+function createReconciliationStateChangedError() {
+  return createYoutubeError(
+    409,
+    "RECONCILIATION_STATE_CHANGED",
+    "The stored video state changed during the reconciliation"
+  );
+}
+
+function createRemoteQueryFailedError() {
+  return createYoutubeError(
+    502,
+    "YOUTUBE_REMOTE_QUERY_FAILED",
+    "The current YouTube thumbnail could not be read"
+  );
+}
+
+function mapRemoteThumbnailQueryError(error) {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  if (error instanceof YouTubeApiError) {
+    if (error.status === 404) {
+      return createRemoteVideoNotFoundError();
+    }
+
+    if (error.status === 401) {
+      return createYoutubeError(
+        409,
+        "YOUTUBE_REAUTH_REQUIRED",
+        "The YouTube channel must be reconnected"
+      );
+    }
+
+    if (
+      error.status === 429 ||
+      error.reason === "quotaExceeded" ||
+      error.reason === "rateLimitExceeded"
+    ) {
+      return createYoutubeError(
+        429,
+        "YOUTUBE_REMOTE_QUERY_RATE_LIMITED",
+        "Too many YouTube queries were sent for this channel"
+      );
+    }
+  }
+
+  return createRemoteQueryFailedError();
+}
+
+function mapReconciliationStatus(status) {
+  if (status === "NOT_FOUND") {
+    return createThumbnailNotFoundError();
+  }
+
+  if (status === "DELETED") {
+    return createRemoteDeletedError();
+  }
+
+  return createReconciliationStateChangedError();
 }
 
 // Only the 404 is meaningful for this operation, and it is handled by
@@ -1259,6 +1372,110 @@ async function deleteRemoteVideo(videoId) {
   };
 }
 
+// One-shot maintenance repair for a remote and local divergence. It
+// never writes to YouTube: a single read confirms what the channel
+// currently serves, and only then the local thumbnail marker is
+// corrected. This closes the window left by a remote success followed by
+// a local failure.
+async function reconcileRemoteThumbnail({ videoId }) {
+  const current =
+    await videoRepository.findVideoById(videoId);
+  if (!current) {
+    throw createThumbnailNotFoundError();
+  }
+
+  if (current.provider !== "YOUTUBE") {
+    throw createThumbnailUnsupportedProviderError();
+  }
+
+  if (current.upload_status === "DELETED") {
+    throw createRemoteDeletedError();
+  }
+
+  if (
+    typeof current.external_id !== "string" ||
+    current.external_id.trim() === ""
+  ) {
+    throw createRemoteIdInvalidError();
+  }
+
+  const connection =
+    await getConnectionOrThrow();
+  const accessToken =
+    await getAccessToken();
+
+  let remote;
+  try {
+    remote =
+      await youtubeClient.getVideoThumbnailState(
+        accessToken,
+        current.external_id
+      );
+  } catch (error) {
+    throw mapRemoteThumbnailQueryError(error);
+  }
+
+  if (
+    !channelIdsMatch(
+      remote.channelId,
+      connection.channel_id
+    )
+  ) {
+    throw createChannelMismatchError();
+  }
+
+  // The adapter already drops any variant outside the allowed hosts, so
+  // a null here means the channel serves no usable thumbnail.
+  if (
+    typeof remote.thumbnailUrl !== "string" ||
+    remote.thumbnailUrl === "" ||
+    !isAllowedThumbnailUrl(remote.thumbnailUrl)
+  ) {
+    throw createRemoteThumbnailUnavailableError();
+  }
+
+  const expectedUploadStatus =
+    current.upload_status ?? "READY";
+
+  // Reconciling means repairing a divergence: the channel serves the
+  // custom frame while the row still says the provider frame. The
+  // expected marker is therefore a fixed precondition, not the value
+  // just read, so a concurrent change is actually detectable instead of
+  // comparing the row with itself.
+  const expectedThumbnailSource =
+    YOUTUBE_DEFAULT_THUMBNAIL_SOURCE;
+
+  let outcome;
+  try {
+    outcome =
+      await videoRepository.reconcileThumbnailState({
+        videoId,
+        thumbnailUrl: remote.thumbnailUrl,
+        expectedUploadStatus,
+        expectedThumbnailSource,
+      });
+  } catch {
+    throw createYoutubeError(
+      500,
+      "VIDEO_THUMBNAIL_PERSISTENCE_FAILED",
+      "The current thumbnail could not be recorded"
+    );
+  }
+
+  if (outcome.status !== "RECONCILED") {
+    throw mapReconciliationStatus(outcome.status);
+  }
+
+  return {
+    video: await videoService.getVideoById(
+      videoId
+    ),
+    reconciled: true,
+    remoteThumbnailVariant:
+      remote.thumbnailVariant ?? null,
+  };
+}
+
 module.exports = {
   createAuthorizationRequest,
   completeAuthorization,
@@ -1268,6 +1485,7 @@ module.exports = {
   setVideoThumbnail,
   revertVideoThumbnail,
   deleteRemoteVideo,
+  reconcileRemoteThumbnail,
   clearAccessTokenCache,
   mapUploadStatus,
   validateUploadInput,

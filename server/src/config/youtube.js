@@ -261,24 +261,67 @@ function isAllowedThumbnailUrl(value) {
   }
 }
 
-function pickThumbnail(snippet) {
-  const thumbnails = snippet?.thumbnails ?? {};
-  const preferredKeys = [
-    "maxres",
-    "standard",
-    "high",
-    "medium",
-    "default",
-  ];
+// Highest quality first. The order is fixed, so the result never
+// depends on the property order of the provider payload, and a missing
+// variant simply falls through to the next one.
+const THUMBNAIL_VARIANT_PREFERENCE = Object.freeze([
+  "maxres",
+  "standard",
+  "high",
+  "medium",
+  "default",
+]);
 
-  for (const key of preferredKeys) {
-    const url = thumbnails[key]?.url;
-    if (isAllowedThumbnailUrl(url)) {
-      return url;
+// Both thumbnail-bearing payloads are composite resources with nested
+// variants: the video snippet (snippet.thumbnails) and the item returned
+// by thumbnails.set, which carries the variants directly.
+function selectThumbnailVariant(resource) {
+  for (const key of THUMBNAIL_VARIANT_PREFERENCE) {
+    const variant = resource?.[key];
+    if (!variant || typeof variant !== "object") {
+      continue;
     }
+
+    const url = variant.url;
+    if (typeof url !== "string" || url === "") {
+      continue;
+    }
+
+    if (!isAllowedThumbnailUrl(url)) {
+      continue;
+    }
+
+    return {
+      key,
+      url,
+      width: Number.isSafeInteger(variant.width)
+        ? variant.width
+        : null,
+      height: Number.isSafeInteger(variant.height)
+        ? variant.height
+        : null,
+    };
   }
 
   return null;
+}
+
+function hasAnyVariantUrl(resource) {
+  return THUMBNAIL_VARIANT_PREFERENCE.some(
+    (key) => {
+      const url = resource?.[key]?.url;
+      return (
+        typeof url === "string" && url !== ""
+      );
+    }
+  );
+}
+
+function pickThumbnail(snippet) {
+  return (
+    selectThumbnailVariant(snippet?.thumbnails)
+      ?.url ?? null
+  );
 }
 
 function normalizeVideo(
@@ -354,27 +397,59 @@ async function readThumbnailErrorResponse(
   return error;
 }
 
-function normalizeThumbnailSetResponse(payload) {
-  const thumbnail = payload?.items?.[0];
+// Distinct operations so an unusable success response is never
+// reported as the same opaque 502. The public codes live in
+// mapThumbnailError; none of these carry the payload or the URL.
+const THUMBNAIL_RESPONSE_OPERATIONS = Object.freeze({
+  EMPTY: "thumbnail-response-empty",
+  UNPARSEABLE: "thumbnail-response-unparseable",
+  INVALID: "thumbnail-response-invalid",
+  URL_REJECTED: "thumbnail-url-rejected",
+});
 
-  if (
-    !thumbnail ||
-    !isAllowedThumbnailUrl(thumbnail.url)
-  ) {
+// A successful thumbnails.set returns a composite resource whose
+// variants are nested (default, medium, high, standard, maxres). It has
+// no top-level url, so reading payload.items[0].url rejects every real
+// response with a false failure.
+function normalizeThumbnailSetResponse(payload) {
+  if (!payload || typeof payload !== "object") {
     throw new YouTubeApiError(
-      "set-thumbnail",
+      THUMBNAIL_RESPONSE_OPERATIONS.INVALID,
+      502
+    );
+  }
+
+  if (!Array.isArray(payload.items)) {
+    throw new YouTubeApiError(
+      THUMBNAIL_RESPONSE_OPERATIONS.INVALID,
+      502
+    );
+  }
+
+  const item = payload.items[0];
+  if (!item || typeof item !== "object") {
+    throw new YouTubeApiError(
+      THUMBNAIL_RESPONSE_OPERATIONS.INVALID,
+      502
+    );
+  }
+
+  const selected = selectThumbnailVariant(item);
+  if (selected === null) {
+    // A variant carrying a URL that the host and protocol rules reject
+    // is a different condition from a resource with no variants at all.
+    throw new YouTubeApiError(
+      hasAnyVariantUrl(item)
+        ? THUMBNAIL_RESPONSE_OPERATIONS.URL_REJECTED
+        : THUMBNAIL_RESPONSE_OPERATIONS.INVALID,
       502
     );
   }
 
   return {
-    thumbnailUrl: thumbnail.url,
-    width: Number.isSafeInteger(thumbnail.width)
-      ? thumbnail.width
-      : null,
-    height: Number.isSafeInteger(thumbnail.height)
-      ? thumbnail.height
-      : null,
+    thumbnailUrl: selected.url,
+    width: selected.width,
+    height: selected.height,
   };
 }
 
@@ -739,11 +814,23 @@ const youtubeClient = {
     }
 
     let payload;
+    // Read as text first so an empty body and a malformed body stay
+    // distinguishable instead of collapsing into one 502.
+    const body = await response
+      .text()
+      .catch(() => "");
+    if (body.trim() === "") {
+      throw new YouTubeApiError(
+        THUMBNAIL_RESPONSE_OPERATIONS.EMPTY,
+        502
+      );
+    }
+
     try {
-      payload = await response.json();
+      payload = JSON.parse(body);
     } catch {
       throw new YouTubeApiError(
-        "set-thumbnail",
+        THUMBNAIL_RESPONSE_OPERATIONS.UNPARSEABLE,
         502
       );
     }
@@ -773,6 +860,72 @@ const youtubeClient = {
     }
 
     return normalizeVideo(payload);
+  },
+
+  // Minimal read for maintenance reconciliation. snippet carries the
+  // owning channel and the current thumbnail variants, so nothing else
+  // is requested: no statistics, no comments, no processing details.
+  async getVideoThumbnailState(accessToken, videoId) {
+    if (
+      typeof accessToken !== "string" ||
+      accessToken.length === 0 ||
+      typeof videoId !== "string" ||
+      !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)
+    ) {
+      throw new YouTubeApiError(
+        "thumbnail-state",
+        400
+      );
+    }
+
+    const response = await fetch(
+      `${YOUTUBE_API_URL}/videos?id=${encodeURIComponent(videoId)}&part=snippet`,
+      {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+    const payload = await readProviderJson(
+      response,
+      "thumbnail-state"
+    );
+
+    const item = payload?.items?.[0];
+    if (
+      !item ||
+      typeof item.id !== "string" ||
+      item.id !== videoId
+    ) {
+      throw new YouTubeApiError(
+        "thumbnail-state",
+        404
+      );
+    }
+
+    const channelId = item.snippet?.channelId;
+    if (
+      typeof channelId !== "string" ||
+      !YOUTUBE_CHANNEL_ID_PATTERN.test(channelId)
+    ) {
+      throw new YouTubeApiError(
+        "thumbnail-state",
+        502
+      );
+    }
+
+    const selected = selectThumbnailVariant(
+      item.snippet?.thumbnails
+    );
+
+    return {
+      videoId: item.id,
+      channelId,
+      // A variant outside the allowed hosts never reaches the caller.
+      thumbnailUrl: selected?.url ?? null,
+      thumbnailVariant: selected?.key ?? null,
+    };
   },
 
   async deleteVideo(accessToken, videoId) {
@@ -870,5 +1023,7 @@ module.exports = {
   YOUTUBE_SCOPE_UPLOAD,
   YOUTUBE_SCOPE_READONLY,
   YOUTUBE_SCOPE_FORCE_SSL,
+  THUMBNAIL_RESPONSE_OPERATIONS,
+  THUMBNAIL_VARIANT_PREFERENCE,
   isAllowedThumbnailUrl,
 };
