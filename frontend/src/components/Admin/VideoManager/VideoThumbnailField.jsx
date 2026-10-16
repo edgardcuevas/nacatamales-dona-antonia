@@ -4,6 +4,7 @@ import {
   THUMBNAIL_LIMITS,
   resizeImageForThumbnail,
 } from '../../../utils/imageResize'
+import ThumbnailImage from '../../ThumbnailImage/ThumbnailImage'
 import './VideoThumbnailField.css'
 
 const SOURCE_ACCEPT = 'image/png,image/jpeg,image/webp'
@@ -89,7 +90,17 @@ export default function VideoThumbnailField({
     <div className="video-thumbnail-field">
       <div className="video-thumbnail-field__row">
         <div className={`video-thumbnail-field__preview ${previewUrl ? 'video-thumbnail-field__preview--filled' : ''}`}>
-          {previewUrl && <img src={previewUrl} alt="Vista previa de la miniatura" />}
+          {previewUrl && (
+            // Cuando el archivo viene de la fila, previewUrl es la URL de
+            // YouTube y puede ser una variante que no existe. ThumbnailImage
+            // la degrada y, si tampoco, deja el contenedor con su fondo en
+            // lugar de pintar el icono de imagen rota.
+            <ThumbnailImage
+              key={previewUrl}
+              src={previewUrl}
+              alt="Vista previa de la miniatura"
+            />
+          )}
         </div>
 
         <div className="video-thumbnail-field__actions">

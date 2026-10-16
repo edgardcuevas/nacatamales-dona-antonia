@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import AnnouncementsBanner from '../components/AnnouncementsBanner/AnnouncementsBanner'
+import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
 import './../styles/Home.css'
@@ -192,9 +193,12 @@ export default function Home() {
                   // replaces the bytes behind the identical i.ytimg.com
                   // URL, so without a version the teaser keeps serving
                   // the previous frame while the full page already
-                  // shows the new one.
-                  <img
+                  // shows the new one. ThumbnailImage degrada sola si esa
+                  // variante no existe, en lugar de dejar una imagen rota.
+                  <ThumbnailImage
+                    key={item.thumbnailUrl || item.imageUrl}
                     src={withCacheBuster(item.thumbnailUrl || item.imageUrl, item.thumbnailVersion)}
+                    placeholderClassName="video-thumb__placeholder"
                     alt={item.title || item.caption || 'Publicación'}
                   />
                 ) : (

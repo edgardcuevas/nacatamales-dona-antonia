@@ -16,7 +16,7 @@ Dead ends: root `README.md` is empty, `frontend/README.md` is the untouched Vite
 # server (always cd server first)
 npm run dev      # nodemon --env-file=.env src/server.js, port 3000
 npm start        # node --env-file-if-exists=.env src/server.js
-npm test         # node --test "tests/**/*.test.js" -> 371 tests, no MySQL needed
+npm test         # node --test "tests/**/*.test.js" -> 546 tests, no MySQL needed
 node --test tests/unit/auth.me.test.js          # single file
 node --test --test-name-pattern="stale" tests/unit/auth.me.test.js
 node --env-file=.env node_modules/knex/bin/cli.js migrate:latest   # knex CLI (see env note)
@@ -25,13 +25,15 @@ node --env-file=.env src/database/test-connection.js
 
 # frontend (always cd frontend first)
 npm run dev      # proxies /api -> http://localhost:3000 (vite.config.js)
-npm run build
+npm run build    # minifies CSS with lightningcss; see the CSS comment gotcha
 npm run lint
+npm test         # vitest run -> 34 tests in 3 files, no browser needed
 ```
 
 - `start` uses `--env-file-if-exists` (Node ≥24) so it boots **both** with a `.env` file and with variables injected by systemd/Docker/PM2. `dev` and `test` are unchanged and still hard-require `.env`.
-- There is **no** lint/format/typecheck script for the server, and **no** test runner for the frontend.
+- There is **no** lint/format/typecheck script for the server. The frontend has **vitest** (`@testing-library/react` + `jsdom`, declared per file with `// @vitest-environment jsdom`); `npm test` is the runner. jsdom does not load images, so a broken thumbnail is simulated with `fireEvent.error(img)`.
 - `frontend/npm run lint` **currently fails with 8 pre-existing errors** (`react-hooks/set-state-in-effect` in 5 Admin managers + `pages/Menu.jsx`, `react-refresh/only-export-components` in `context/AuthContext.jsx` and `context/SettingsContext.jsx`). Baseline is red — don't treat it as your regression, and don't refactor those files unless asked.
+- **CSS comments must use `/* */`.** A `//` comment in a `.css` file compiles under Vite's dev transform but kills `npm run build` with `lightningcss minify: Invalid empty selector`, because lightningcss does not accept the non-standard syntax. This is the one failure mode where dev passes and prod does not, so always run `npm run build` after touching a stylesheet.
 - No npm script exists for migrations or `database/scripts/*`; use the `node --env-file=.env` forms above.
 
 ## Environment gotchas
@@ -65,7 +67,7 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 - Naming is inconsistent on purpose: `modules/photos/photos.*` is plural while every other module is singular (`announcement.*`, `category.*`, `media.*`, `video.*`, `settings.*`, `user.*`). Use the singular pattern for new modules.
 - **Video thumbnails (`videos.thumbnail_source`)**: `YOUTUBE_DEFAULT` vs `CUSTOM`. This is what stops the `GET /admin/videos/:videoId/status` poll from reverting a hand-picked thumbnail: when it is `CUSTOM` the service passes `thumbnailUrl: undefined` and the repository drops it from the `UPDATE`. Any administrative `thumbnailUrl` override flips the marker to `CUSTOM` automatically. `PUT /api/admin/videos/:videoId/thumbnail` (raw `image/jpeg`/`image/png` body, max 10 MiB) and `DELETE` to restore YouTube's own. The persisted URL comes from the `thumbnails.set` **response**, never a follow-up read, because of provider propagation delay. The `youtube.upload` scope already covers this, so no new OAuth consent.
 - YouTube rejects **WebP** in `thumbnails.set` even though the ImageKit pipeline accepts it. The browser must emit JPEG.
-- Migrations: timestamped CommonJS files in `server/database/migrations/`, tracked in a `knex_migrations` table. 16 files currently. Never edit an applied migration — add a new one.
+- Migrations: timestamped CommonJS files in `server/database/migrations/`, tracked in a `knex_migrations` table. 17 files currently. Never edit an applied migration — add a new one.
 
 ## Frontend architecture and conventions
 
@@ -75,6 +77,7 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 - Nothing in the frontend resizes **ImageKit** images; only video thumbnails are downscaled (see `imageResize.js` below).
 - `api.upload` is POST-only. `PUT` of a raw binary body (the YouTube thumbnail route) goes through `api.putBinary`. Both send `Content-Type: file.type` and the browser sets `Content-Length`, so never set it by hand.
 - Video thumbnails live in **YouTube**, not ImageKit. `src/utils/imageResize.js` downscales any browser-decodable image to a centre-cropped 1280x720 JPEG before upload, because the provider rejects WebP and an oversized original is wasted bytes. Never send the picked file untouched; you never control which format a phone produces.
+- **`components/ThumbnailImage/` is the only image renderer for a YouTube thumbnail.** `i.ytimg.com` has no `maxresdefault.jpg` for a video YouTube never rendered at 720p, and one set through `thumbnails.set` answers 404 until the CDN publishes it. The component degrades `maxresdefault` -> `hqdefault` -> a placeholder div, and it is the single reason the codebase has no `<img onError>`. Callers must pass `key={baseUrl}` so a changed thumbnail remounts and retries. Two invariants: the degrade is driven by an attempt **counter**, not a boolean (a boolean cannot go from "degraded" to "gave up"), and the variant regex uses a **lookahead** (`(?=\?|$)`) because a consuming pattern would eat the `?` of the `?v=` cache-buster query.
 - `VideoThumbnailField` owns the resize + preview and takes a ready `File`; `VideoManager` owns the request. A custom thumbnail can only be applied once `uploadStatus === 'READY'`, so on a fresh upload it is sent after `waitUntilReady()` resolves and a failure there must not block publishing the video.
 - `src/utils/cacheBuster.js` appends a version query to provider image URLs. A custom YouTube thumbnail replaces the bytes behind the *same* `i.ytimg.com` URL, so without it visitors keep seeing the previous frame from cache. The public video DTO has no `updatedAt`, so `mergeFeed` passes `createdAt` as the version signal.
 - `MediaPicker` (in `components/Admin/MediaPicker/`) is the single image field for categories, products, announcements and day-to-day photos. It takes the `useStagedImage()` object as a prop (`image={image} isBusy={...}`) and offers three sources: none, an existing file from `/admin/media`, or a new local upload. It loads the gallery from its toggle click handler, not an effect, and caches the result — don't "fix" that into a `useEffect`, it reintroduces the `react-hooks/set-state-in-effect` error.
@@ -88,7 +91,8 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 - `server/tests/unit/*.test.js` uses `node:test` + `node:assert/strict` only (no dev test framework). It runs without MySQL because every file declares its own `TEST_ENVIRONMENT` object, assigns it into `process.env` **before** requiring `src/app`, and mocks `src/database/pool`.
 - Naming: `*-public.test.js`, `*-admin-core.test.js` (service-level), `*-admin-routes.test.js` (HTTP-level), plus one file per middleware.
 - Route tests `app.listen(0)` and hit the real app over `fetch`.
-- New endpoints ship with a matching public/admin test; new error codes get a test. Full suite is ~8s, so run it before claiming done.
+- New endpoints ship with a matching public/admin test; new error codes get a test. Full suite is ~10s (546 tests), so run it before claiming done.
+- `frontend` tests are vitest colocated next to the component (`VideoManager.test.jsx`, `VideoThumbnailField.test.jsx`, `ThumbnailImage.test.jsx`). They `vi.mock('../../../api/client')` wholesale, so any new `api.*` call a component makes must be added to the mock or the test sees `undefined`. Fake timers drive the polling loops: assert on *which paths were requested*, counting `/admin/videos/:id/status` separately from the `PATCH` of the same name, or a duplicated poll can pass unnoticed.
 
 ## Docs
 
@@ -96,6 +100,11 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 
 ## Operational gotchas
 
+- **`DELETED` is terminal and must never be polled.** `videos.upload_status` also carries `DELETED` (set by the remote-deletion tooling), `listVideos` does not filter it, so it reaches the admin panel. Its status endpoint answers `410 VIDEO_REMOTE_DELETED` forever, so `VideoManager` filters with `isPollableStatus()` (`TERMINAL_UPLOAD_STATUSES = {READY, DELETED}`) and hides every action that waits on YouTube. **Never write a `uploadStatus !== 'READY'` filter** — that is what produced an unbounded 410 loop that kept the refresh timer alive forever and burned quota no other video could use. `STATUS_LABELS` must carry a Spanish label for every enum member, or the raw English value leaks into the UI.
+- **Publishing a video requires `uploadStatus === 'READY'`, and only hiding is always allowed.** `changeVideoStatus` throws `410 VIDEO_REMOTE_DELETED` when activating a deleted row and `409 VIDEO_NOT_READY` when activating anything that is not READY, so both conditions collapse to `isReady`. The publish button renders under `video.isActive || isReady`: a `DELETED` or `PROCESSING` row still offers *Ocultar* if it is currently active (that is a legitimate local operation), but never offers *Publicar* for a request the server is guaranteed to refuse. `togglePublished` maps both codes through `describePublishError` instead of one generic message.
+- **The status refresh loop polls ONE row per tick, round-robin.** It used to fan out with `Promise.all` over every pending row, which multiplied the per-window cost by the backlog: with 3 pending rows plus one upload that had already burned its 60 `MAX_POLLS`, the 15-minute window peaked at 132 against the 120 ceiling and the *next* upload ate the 429. The cursor lives in a `useRef` because `loadVideos()` recreates the effect on every tick, so an effect-local cursor would reset to zero and always ask about the first row. The budget is now flat (74/120) whether there is 1 pending row or 10. Don't restore the fan-out, and don't lower `POLL_INTERVAL_MS` / `MAX_POLLS` / `MAX_CONSECUTIVE_POLL_FAILURES` to "save quota": how long the panel takes to say "Listo" is a UX decision, and `waitUntilReady` alone can already spend 60 of the 120.
+- **A sustained refresh failure must be visible, but a single one must not.** The status loop counts consecutive failures in `refreshFailuresRef` and only reports at `MAX_REFRESH_FAILURES_BEFORE_REPORTING`; a lone blip self-heals on the next tick and would only be noise. Two traps: the counter must be reset in the `.then(onOk, onError)` pair, **not** in a trailing `.then`, because a `.catch` that returns `null` leaves the promise fulfilled and a trailing reset would also run after a failure, so the threshold would never be reached; and a `410` means the row is terminal *for this session* (`remotelyGoneIdsRef`), so stop asking about it — `mapYoutubeError` never emits 410, the only source is `assertRemoteVideoAvailable` reading `DELETED` from the database, so the answer can never change. Otherwise the row stays `PROCESSING` in the list and the loop re-asks forever, which is the DELETED-loop bug wearing a different hat.
+- **Guard the two expensive requests with an in-flight ref, not only with `isBusy`.** `disabled={isBusy}` depends on a re-render, so submits dispatched in the same tick slip through. `handleReconnectYouTube` already did this with `reconnectInFlightRef`; `handleUploadSubmit` and `handleRowThumbnailSubmit` use `uploadInFlightRef` / `rowThumbnailInFlightRef` for the same reason. A 2 GB upload or a `thumbnails.set` call is too expensive to lose to a double click.
 - `videos.thumbnail_source` (`YOUTUBE_DEFAULT` / `CUSTOM`) was added by migration `20260928093000`. Dropping that column is a **partial rollback**: the status poll would start overwriting hand-picked thumbnails again. Revert the code and the column together, never one alone.
 - `videos.thumbnail_source` is a knex-managed ENUM. Changing the allowed values means `changeTable` with the new enum definition, and MySQL recreates the column type.
 - The thumbnail route has a per-IP request limit but no per-IP byte limit, so 10 MiB × 20 requests is the worst case per window. Fine for authenticated admins; worth remembering before exposing it more widely.

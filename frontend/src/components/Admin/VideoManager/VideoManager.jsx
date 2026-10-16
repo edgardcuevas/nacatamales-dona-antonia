@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { uploadVideoThumbnail, revertVideoThumbnail } from '../../../utils/mediaUpload'
+import ThumbnailImage from '../../ThumbnailImage/ThumbnailImage'
 import VideoThumbnailField from './VideoThumbnailField'
 import './VideoManager.css'
 
@@ -18,6 +19,9 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 3
 // Cadence used to advance upload_status on rows the browser is not
 // actively polling.
 const STATUS_REFRESH_INTERVAL_MS = 20000
+// Fallos seguidos del refresco antes de avisarle al admin. Uno suelto se
+// reintenta solo en el siguiente tic y solo haria ruido.
+const MAX_REFRESH_FAILURES_BEFORE_REPORTING = 3
 
 // Revokes a preview URL only when it is the one currently tracked, so
 // clearing the form can never revoke a newer preview.
@@ -35,6 +39,17 @@ const STATUS_LABELS = {
   PROCESSING: 'Procesando en YouTube',
   READY: 'Listo',
   FAILED: 'Falló',
+  DELETED: 'Eliminado de YouTube',
+}
+
+// READY is the only other terminal state. DELETED means the remote
+// resource is gone, so the status endpoint answers 410 VIDEO_REMOTE_DELETED
+// for good: polling it again could never succeed and would keep spending
+// the quota that a video still processing needs.
+const TERMINAL_UPLOAD_STATUSES = new Set(['READY', 'DELETED'])
+
+function isPollableStatus(uploadStatus) {
+  return !TERMINAL_UPLOAD_STATUSES.has(uploadStatus)
 }
 
 const EMPTY_FORM = {
@@ -136,6 +151,35 @@ function describeThumbnailError(error) {
   return 'No se pudo cambiar la miniatura.'
 }
 
+// Publicar exige dos cosas en el servidor: isActive=true lanza 410 si el
+// recurso remoto ya no existe y 409 si el video aun no esta READY. Ocultar,
+// en cambio, siempre se acepta.
+function describePublishError(error) {
+  if (error.code === 'VIDEO_REMOTE_DELETED') {
+    return 'Ese video ya no existe en YouTube, así que no se puede publicar.'
+  }
+  if (error.code === 'VIDEO_NOT_READY') {
+    return 'YouTube todavía está procesando el video. Podés publicarlo cuando aparezca "Listo".'
+  }
+  if (error instanceof TypeError) {
+    return 'Se cortó la conexión al cambiar el estado del video. Revisá tu internet.'
+  }
+  return 'No se pudo cambiar el estado del video.'
+}
+
+function describeRefreshError(error, video) {
+  if (error.code === 'VIDEO_REMOTE_DELETED') {
+    return `"${video.title}" ya no existe en YouTube. Dejamos de consultarlo hasta que actualices la página.`
+  }
+  if (error.status === 429) {
+    return 'YouTube está limitando las consultas de estado. La lista se sigue actualizando, pero más despacio.'
+  }
+  if (error instanceof TypeError) {
+    return 'Se cortó la conexión al consultar el estado de los videos. Revisá tu internet.'
+  }
+  return `No se pudo consultar el estado de "${video.title}" en YouTube. La lista se sigue actualizando.`
+}
+
 export default function VideoManager({ navigate = (url) => window.location.assign(url) } = {}) {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -147,6 +191,26 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   const [editingId, setEditingId] = useState(null)
   const [stage, setStage] = useState('idle')
   const isMountedRef = useRef(true)
+  // Vive fuera del efecto porque cada loadVideos() vuelve a crear el
+  // intervalo: un cursor local al efecto reiniciaría en cero y siempre
+  // preguntaría por la misma primera fila.
+  const pendingCursorRef = useRef(0)
+  // Fallos consecutivos del refresco automatico. El bucle no se detiene
+  // por uno suelto (eso se reintenta solo en el siguiente tic), pero un
+  // 410 o un 429 sostenidos tienen que verse: sin esto el admin mira una
+  // fila congelada en "Procesando en YouTube" sin ninguna pista.
+  const refreshFailuresRef = useRef(0)
+  // Filas que el servidor ya declaro perdidas durante esta sesion. Un 410
+  // no viene del proveedor (mapYoutubeError nunca lo produce) sino del
+  // estado DELETED en la base, asi que la respuesta no va a cambiar: la
+  // fila se deja de consultar igual que una ya marcada DELETED.
+  const remotelyGoneIdsRef = useRef(new Set())
+  // Guardas de reentrada para las dos peticiones caras. El boton ya se
+  // deshabilita con isBusy, pero eso depende de un re-render; el ref
+  // cierra la ventana entre el clic y ese re-render, igual que ya hace
+  // reconnectInFlightRef para la reconexion de YouTube.
+  const uploadInFlightRef = useRef(false)
+  const rowThumbnailInFlightRef = useRef(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
   const [reconnectErrorMessage, setReconnectErrorMessage] = useState(null)
   const reconnectInFlightRef = useRef(false)
@@ -170,6 +234,26 @@ export default function VideoManager({ navigate = (url) => window.location.assig
       releaseObjectUrl(rowThumbnailObjectUrlRef.current, rowThumbnailObjectUrlRef)
     }
   }, [])
+
+  // Declara antes del efecto que la invoca: el hoisting de las funciones
+  // lo resolveria en runtime, pero el lint lo marca como acceso antes de
+  // declaracion, y ademas su ubicacion aqui es lo natural porque forma
+  // parte del bucle de refresco.
+  function reportRefreshFailure(error, video) {
+    refreshFailuresRef.current += 1
+
+    if (error.code === 'VIDEO_REMOTE_DELETED') {
+      remotelyGoneIdsRef.current.add(video.id)
+    }
+
+    if (
+      refreshFailuresRef.current < MAX_REFRESH_FAILURES_BEFORE_REPORTING
+    ) {
+      return
+    }
+
+    setErrorMessage(describeRefreshError(error, video))
+  }
 
   function loadVideos() {
     api
@@ -198,18 +282,31 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   // The row badge renders upload_status straight from the database, and
   // "Cambiar miniatura" only appears once the video is READY. Without
   // this the row would sit on "Procesando en YouTube" forever whenever
-  // the upload poll ends before YouTube finishes. Only pending videos
+  // the upload poll ends before YouTube finishes. Only pollable videos
   // are polled, so the loop stops on its own once nothing is in flight.
+  //
+  // DELETED is excluded here and not merely after the fact: its status
+  // endpoint answers 410 for good, so a DELETED row would otherwise keep
+  // this timer alive forever, refreshing a list that can never change
+  // and spending quota no other video can use.
   //
   // It stays paused while an upload is in progress: waitUntilReady is
   // already polling that same video every 10s, and running both loops
   // would spend 135 requests per window against a 120 ceiling.
+  //
+  // Both loops share the single status rate-limit store (120 per 15 min),
+  // and waitUntilReady can already spend 60 of them, so this one spends a
+  // flat amount whatever the backlog is. POLL_INTERVAL_MS, MAX_POLLS and
+  // MAX_CONSECUTIVE_POLL_FAILURES stay where they are: how long the panel
+  // takes to say "Listo" is a UX decision, not a quota one.
   useEffect(() => {
-    const pendingIds = videos
-      .filter((video) => video.uploadStatus !== 'READY')
-      .map((video) => video.id)
+    const pendingVideos = videos.filter(
+      (video) =>
+        isPollableStatus(video.uploadStatus) &&
+        !remotelyGoneIdsRef.current.has(video.id)
+    )
 
-    if (pendingIds.length === 0 || stage !== 'idle') {
+    if (pendingVideos.length === 0 || stage !== 'idle') {
       return
     }
 
@@ -220,15 +317,40 @@ export default function VideoManager({ navigate = (url) => window.location.assig
         return
       }
 
-      Promise.all(
-        pendingIds.map((videoId) =>
-          api.get(`/admin/videos/${videoId}/status`).catch(() => null)
+      // Una sola fila por tic, en round-robin, y no todas a la vez.
+      // Preguntar a todas multiplicaba el gasto por el número de
+      // pendientes: con tres filas esperando y una subida que ya había
+      // agotado sus 60 intentos, la ventana de 15 minutos se pasaba del
+      // techo de 120 y la siguiente subida se comía el 429. Con una fila
+      // por tic el gasto deja de depender de cuántas haya, y ninguna fila
+      // se queda sin revisar porque el cursor es circular.
+      const video = pendingVideos[pendingCursorRef.current % pendingVideos.length]
+      pendingCursorRef.current += 1
+
+      // El.then de exito y el de fallo van en la misma llamada para que el
+      // contador se reinicie SOLO cuando la consulta fue bien. Poner la
+      // reiniciacion en un .then aparte la ejecutaria tambien tras un
+      // fallo (el catch devuelve null y deja la promesa resuelta), y el
+      // contador jamas llegaria al umbral.
+      api
+        .get(`/admin/videos/${video.id}/status`)
+        .then(
+          () => {
+            refreshFailuresRef.current = 0
+          },
+          (error) => {
+            if (isMountedRef.current) {
+              reportRefreshFailure(error, video)
+            }
+          }
         )
-      ).then(() => {
-        if (!cancelled && isMountedRef.current) {
-          loadVideos()
-        }
-      })
+        .then(() => {
+          // La lista se recarga igual: el fallo fue del status, no del
+          // listado, y el resto de las filas pudo haber cambiado.
+          if (!cancelled && isMountedRef.current) {
+            loadVideos()
+          }
+        })
     }, STATUS_REFRESH_INTERVAL_MS)
 
     return () => {
@@ -352,11 +474,12 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   }
 
   async function handleRowThumbnailSubmit() {
-    if (!rowThumbnail?.pendingFile) {
+    if (rowThumbnailInFlightRef.current || !rowThumbnail?.pendingFile) {
       return
     }
 
     const videoId = rowThumbnail.id
+    rowThumbnailInFlightRef.current = true
     setErrorMessage(null)
     setInfoMessage(null)
     setStage('saving')
@@ -373,6 +496,7 @@ export default function VideoManager({ navigate = (url) => window.location.assig
         setErrorMessage(describeThumbnailError(error))
       }
     } finally {
+      rowThumbnailInFlightRef.current = false
       if (isMountedRef.current) {
         setStage('idle')
       }
@@ -485,6 +609,10 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   }
 
   async function handleUploadSubmit() {
+    if (uploadInFlightRef.current) {
+      return
+    }
+
     if (!file) {
       setErrorMessage('Elegí un video en formato MP4.')
       return
@@ -493,6 +621,7 @@ export default function VideoManager({ navigate = (url) => window.location.assig
     const title = form.title.trim()
     const description = form.description.trim()
 
+    uploadInFlightRef.current = true
     setInfoMessage(null)
     setErrorMessage(null)
     setStage('uploading')
@@ -576,6 +705,7 @@ export default function VideoManager({ navigate = (url) => window.location.assig
         setErrorMessage(describeUploadError(error))
       }
     } finally {
+      uploadInFlightRef.current = false
       if (isMountedRef.current) {
         setStage('idle')
       }
@@ -597,13 +727,22 @@ export default function VideoManager({ navigate = (url) => window.location.assig
     try {
       await api.patch(`/admin/videos/${video.id}/status`, { isActive: !video.isActive })
       loadVideos()
-    } catch {
-      setErrorMessage('No se pudo cambiar el estado del video.')
+    } catch (error) {
+      setErrorMessage(describePublishError(error))
     }
   }
 
   async function refreshStatus(video) {
     setErrorMessage(null)
+
+    // The button is already hidden for a terminal row, but the handler is
+    // the second consumer of that same rule and it must not be reachable
+    // for a video whose remote resource no longer exists.
+    if (!isPollableStatus(video.uploadStatus)) {
+      setErrorMessage('Ese video ya no está pendiente, así que no hay estado que consultar.')
+      return
+    }
+
     try {
       await api.get(`/admin/videos/${video.id}/status`)
       loadVideos()
@@ -732,10 +871,20 @@ export default function VideoManager({ navigate = (url) => window.location.assig
 
         {videos.map((video) => {
           const isReady = video.uploadStatus === 'READY'
+          // A deleted row is terminal, so every action that waits on
+          // YouTube stays hidden: its status endpoint would only ever
+          // answer 410 and its thumbnail is already gone.
+          const isPending = isPollableStatus(video.uploadStatus)
           return (
             <div className="video-row" key={video.id}>
               <div className="video-row__thumb">
-                {video.thumbnailUrl && <img src={video.thumbnailUrl} alt={video.title} />}
+                {video.thumbnailUrl && (
+                  <ThumbnailImage
+                    key={video.thumbnailUrl}
+                    src={video.thumbnailUrl}
+                    alt={video.title}
+                  />
+                )}
               </div>
               <div className="video-row__body">
                 <strong>{video.title}</strong>
@@ -751,10 +900,12 @@ export default function VideoManager({ navigate = (url) => window.location.assig
                 <button type="button" className="btn-link" onClick={() => startEdit(video)}>
                   Editar
                 </button>
-                <button type="button" className="btn-link" onClick={() => togglePublished(video)}>
-                  {video.isActive ? 'Ocultar' : 'Publicar'}
-                </button>
-                {!isReady && (
+                {(video.isActive || isReady) && (
+                  <button type="button" className="btn-link" onClick={() => togglePublished(video)}>
+                    {video.isActive ? 'Ocultar' : 'Publicar'}
+                  </button>
+                )}
+                {isPending && (
                   <button type="button" className="btn-link" onClick={() => refreshStatus(video)}>
                     Actualizar estado
                   </button>

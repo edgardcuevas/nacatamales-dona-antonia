@@ -1,0 +1,7 @@
+/* El placeholder reemplaza a la imagen dentro de un contenedor que ya
+   tiene su propia forma (16/9 con gradiente de fondo), asi que solo
+   necesita ocupar el espacio que la imagen ocupaba. */
+.thumbnail-image__placeholder {
+  width: 100%;
+  height: 100%;
+}

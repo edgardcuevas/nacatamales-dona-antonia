@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
+import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
 import '../styles/DiaADia.css'
@@ -77,9 +78,13 @@ export default function DiaADia() {
                   {item.thumbnailUrl ? (
                     // A custom thumbnail replaces the bytes behind the same
                     // i.ytimg.com URL, so the cache key has to change or
-                    // visitors keep seeing the previous frame.
-                    <img
+                    // visitors keep seeing the previous frame. ThumbnailImage
+                    // cae a hqdefault si esa variante no existe, de modo que
+                    // un 404 de maxresdefault no quede como imagen rota.
+                    <ThumbnailImage
+                      key={item.thumbnailUrl}
                       src={withCacheBuster(item.thumbnailUrl, item.thumbnailVersion)}
+                      placeholderClassName="dia-post__placeholder"
                       alt={item.title}
                     />
                   ) : (
