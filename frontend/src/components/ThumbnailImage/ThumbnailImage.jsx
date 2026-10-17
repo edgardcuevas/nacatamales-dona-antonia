@@ -6,7 +6,7 @@ import './ThumbnailImage.css'
 // administrador con thumbnails.set responde 404 hasta que la CDN la
 // publica. hqdefault existe para todo video publico, asi que la imagen
 // degrada una sola vez en lugar de quedar en el icono de imagen rota.
-// Lookahead en vez de grupo: el `?v=` del cache buster va justo despues
+// Lookahead en vez de grupo: el `?cb=` del cache buster va justo despues
 // del nombre de archivo, y un patron que lo consumiera se lo llevaria
 // puesto al reemplazar.
 const MAXRES_VARIANT = /maxresdefault\.jpg(?=\?|$)/i

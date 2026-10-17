@@ -83,7 +83,7 @@ export default function Home() {
               className="hero__eyebrow"
             />
             <h1>
-              ¡Si de un buen <em>nacatamal</em> quieres disfrutar,<br />a nosotros debes visitar!
+              ¡Si de un buen <em>Nacatamal</em> quieres disfrutar,<br />a nosotros debes visitar!
             </h1>
             <p className="hero__lead">{settings.tagline}</p>
             <div className="hero__actions">

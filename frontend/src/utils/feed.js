@@ -6,9 +6,11 @@ export function mergeFeed(videos = [], photos = []) {
     title: video.title,
     caption: video.description,
     thumbnailUrl: video.thumbnailUrl,
-    // The public DTO has no updatedAt, so createdAt is the version
-    // signal used to bust the browser cache after a thumbnail change.
-    thumbnailVersion: video.createdAt,
+    // updatedAt is the version signal that busts the browser cache
+    // after a thumbnail change. createdAt never moves once the row
+    // exists, so it would produce the same URL before and after the
+    // admin replaced the frame and the visitor would keep the old one.
+    thumbnailVersion: video.updatedAt,
     externalId: video.externalId,
   }))
 
