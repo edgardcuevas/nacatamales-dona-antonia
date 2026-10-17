@@ -5,15 +5,15 @@
 }
 
 .photo-manager__form {
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 14px;
   padding: 20px;
 }
 
 .photo-manager__form h3 {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-md);
+  color: var(--color-tinta);
   margin-bottom: 14px;
 }
 
@@ -36,8 +36,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 12px;
   padding: 12px;
   flex-wrap: wrap;
@@ -48,7 +48,7 @@
   height: 56px;
   border-radius: 8px;
   overflow: hidden;
-  background: #f2e5d1;
+  background: var(--color-crema-alt);
   flex: none;
 }
 
@@ -67,8 +67,8 @@
 }
 
 .photo-row__body strong {
-  font-size: 13.5px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-sm);
+  color: var(--color-tinta);
   display: -webkit-box;
   line-clamp: 2;
   -webkit-line-clamp: 2;
@@ -77,8 +77,8 @@
 }
 
 .photo-row__body span {
-  font-size: 12px;
-  color: #a08b76;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
 }
 
 .photo-row__actions {

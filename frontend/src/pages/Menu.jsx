@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useSettings } from '../context/SettingsContext'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
+import Reveal from '../components/Reveal/Reveal'
+import { formatPrice } from '../utils/price'
 import '../styles/Menu.css'
 
 function whatsappHref(whatsappNumber, productName) {
@@ -126,7 +128,11 @@ export default function Menu() {
       {errorMessage && <p className="menu-page__error">{errorMessage}</p>}
 
       {!isLoadingCategories && categories.length === 0 && !errorMessage && (
-        <p className="menu-page__empty">Todavía no hay categorías cargadas en el menú.</p>
+        <div className="empty-state">
+          <Icon name="tamal" />
+          <strong>Todavía no hay categorías en el menú</strong>
+          <p>Estamos organizando la carta. Pregunta por WhatsApp qué hay hoy y te lo preparo.</p>
+        </div>
       )}
 
       {categories.length > 0 && (
@@ -146,21 +152,36 @@ export default function Menu() {
         </div>
       )}
 
-      {isLoadingProducts && <p className="menu-page__loading">Cargando…</p>}
+      {isLoadingProducts && (
+        <div className="menu-grid" aria-hidden="true">
+          {[0, 1, 2].map((index) => (
+            <div className="skeleton skeleton--card" key={index} />
+          ))}
+        </div>
+      )}
 
       {!isLoadingProducts && activeSlug && products.length === 0 && (
-        <p className="menu-page__empty">Todavía no hay productos en esta categoría.</p>
+        <div className="empty-state">
+          <Icon name="tamal" />
+          <strong>Todavía no hay productos en esta categoría</strong>
+          <p>Estamos envolviendo más. Vuelve en un rato o pregunta por WhatsApp qué hay hoy.</p>
+        </div>
       )}
 
       {!isLoadingProducts && activeSlug && products.length > 0 && (
-        <div className="menu-grid">
+        <Reveal className="menu-grid">
           {products.map((product) => {
             const waHref = whatsappHref(settings.whatsappNumber, product.name)
             return (
               <div className="menu-card" key={product.id}>
                 <div className="menu-card__thumb">
                   {product.image?.url ? (
-                    <img src={product.image.url} alt={product.image.altText || product.name} />
+                    <img
+                      src={product.image.url}
+                      alt={product.image.altText || product.name}
+                      loading="lazy"
+                      decoding="async"
+                    />
                   ) : (
                     <Icon name="tamal" />
                   )}
@@ -170,7 +191,10 @@ export default function Menu() {
                   <h3>{product.name}</h3>
                   {product.description && <p>{product.description}</p>}
                   <div className="menu-card__footer">
-                    <span className="price-pill">C$ {product.price}</span>
+                    <span className="price">
+                      <span className="price__currency">C$</span>
+                      {formatPrice(product.price)}
+                    </span>
                     {waHref && product.isAvailable && (
                       <a
                         className="menu-card__order"
@@ -187,7 +211,7 @@ export default function Menu() {
               </div>
             )
           })}
-        </div>
+        </Reveal>
       )}
     </div>
   )

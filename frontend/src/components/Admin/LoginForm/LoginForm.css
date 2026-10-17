@@ -3,71 +3,66 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px 16px;
+  padding: var(--sp-7) var(--gutter);
 }
 
 .admin-login__card {
   width: 100%;
   max-width: 360px;
-  background: #fff;
-  border: 1px solid #f2e5d1;
-  border-radius: 16px;
-  padding: 28px 22px;
-  box-shadow: 0 14px 30px rgba(74, 48, 37, 0.1);
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
+  padding: var(--sp-7) var(--sp-5);
+  box-shadow: var(--shadow-3);
 }
 
 .admin-login__card h1 {
-  font-size: 22px;
+  font-size: var(--fs-lg);
   color: var(--color-rojo);
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-2);
 }
 
 .admin-login__card p {
-  font-size: 13.5px;
-  color: #7a6553;
-  margin: 0 0 22px;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
+  margin: 0 0 var(--sp-5);
+  line-height: var(--lh-cuerpo);
 }
 
 .admin-login__field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-cafe-oscuro);
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-tinta-2);
 }
 
 .admin-login__field input {
-  font-family: 'Montserrat', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
   padding: 11px 13px;
-  border-radius: 10px;
-  border: 1.5px solid #e6d6be;
-  outline: none;
-}
-
-.admin-login__field input:focus {
-  border-color: var(--color-rojo);
+  border-radius: var(--r-chip);
+  border: 1.5px solid var(--color-linea-fuerte);
+  background: var(--color-blanco);
+  color: var(--color-tinta);
 }
 
 .admin-login__error {
-  background: #fbeceb;
-  color: #a4302b;
-  font-size: 13px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
+  background: var(--color-rojo-claro);
+  color: var(--color-rojo);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3);
+  border-radius: var(--r-chip);
+  margin-bottom: var(--sp-4);
 }
 
 .admin-login__submit {
   width: 100%;
-  border: none;
-  cursor: pointer;
 }
 
 .admin-login__submit:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: default;
 }

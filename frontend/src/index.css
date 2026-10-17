@@ -1,48 +1,252 @@
-@import url('https://fonts.googleapis.com/css2?family=Bree+Serif&family=Montserrat:wght@400;500;600;700;800&display=swap');
+/* ============================================================
+   Nacatamales de Doña Antonia — Fundaciones del sistema visual
+   ------------------------------------------------------------
+   Fase 1. Base crema #FFF4DC (identidad, no se modifica).
+
+   REGLA DE USO: los comentarios de este archivo usan solo la
+   sintaxis de bloque CSS. Un comentario de linea con dos barras
+   compila en dev pero rompe npm run build con lightningcss
+   (Invalid empty selector). Ojo tambien al escribir la sintaxis
+   de bloque aqui dentro: cerraria el comentario antes de tiempo.
+   ============================================================ */
 
 :root {
-  --color-rojo: #B5262D;
-  --color-rojo-dark: #8a1c22;
-  --color-amarillo: #E5A928;
-  --color-cafe-oscuro: #4A3025;
-  --color-cafe-oscuro2: #3a251c;
-  --color-cafe-claro: #BA6250;
-  --color-verde: #526B4A;
-  --color-verde-dark: #3c4f36;
-  --color-crema: #FFF4DC;
-  --color-blanco: #FFFFFF;
-  font-family: 'Montserrat', sans-serif;
+  /* --- Base y superficies ---------------------------------- */
+  --color-crema: #FFF4DC;          /* Fondo de pagina. Identidad. */
+  --color-crema-alt: #F5EBDC;     /* Secciones alternas */
+  --color-blanco: #FFFFFF;         /* Superficie de tarjetas */
+
+  /* --- Tinta (texto) --------------------------------------- */
+  --color-tinta: #2B1D15;          /* Texto principal     14.91 / crema */
+  --color-tinta-2: #55402F;        /* Texto secundario     9.04 / crema */
+  --color-tinta-3: #6E5747;        /* Metadatos 13-14px    6.17 / crema */
+  --color-tinta-4: #98826C;        /* Decorativo, lineas   3.35 / crema */
+  /* Inverso: texto sobre superficies oscuras (hero, footer, cita).
+     La tinta no sirve ahi, asi que hace falta un tono claro propio.
+     12.39 / carbon */
+  --color-crema-tenue: #E9DCC9;
+
+  /* --- Acentos -------------------------------------------- */
+  --color-rojo: #9E2B25;           /* ACHIOTE - primario.   6.80 / crema */
+  --color-rojo-dark: #7A1E1A;      /* Presionado           10.35 con blanco */
+  --color-amarillo: #96590D;       /* Masa tostada. 5.15/crema 5.63/blanco
+                                    4.76/amarillo-claro. Con #9C6111 daba
+                                    4.30 sobre su propio tinte y fallaba. */
+  --color-masa-solido: #C4841C;    /* Relleno calido. Tinta encima 5.17 */
+  --color-verde: #3F5D45;          /* SOLO semantica        7.33 con blanco */
+  --color-cafe-claro: #8C4A32;     /* Relleno calido neutro 6.69 con blanco */
+  --color-cafe-oscuro: #2A1A12;    /* Carbon. Fondo oscuro. 16.73 con blanco */
+  /* Tono profundo del gradiente del hero. Antes se llamaba
+     --color-cafe-oscuro2; se renombra para que sea par de
+     --color-cafe-oscuro y no un token suelto de la paleta vieja. */
+  --color-cafe-oscuro-2: #1A0F0A;
+
+  /* @deprecated Fase 3: se elimina. Solo queda viva hasta que los
+     gradientes verdes de fallback se reemplacen por --color-crema-alt.
+     Referencias: Home.css:207, Menu.css:115, DiaADia.css:78 */
+  --color-verde-dark: #2F4433;
+
+  /* --- Tintes de estado ------------------------------------ */
+  --color-rojo-claro: #F3E3E0;     /* Tinta: --color-rojo    5.97 */
+  --color-amarillo-claro: #F7EBD3; /* Tinta: --color-tinta  13.79 */
+  --color-verde-claro: #E6EEE4;    /* Tinta: --color-verde   6.19 */
+
+  /* --- Bordes ---------------------------------------------- */
+  --color-linea: #E8DAC5;          /* Decorativo             1.26 / crema */
+  --color-linea-fuerte: #A0835F;   /* Controles interactivos 3.26 / crema */
+
+  /* --- Tipografia ------------------------------------------
+     Fraunces para display: es la unica serif del mercado con voz
+     realmente artesanal (variable, con ejes opsz/SOFT/WONK).
+     Karla para texto y UI: humanista y legible a 13-14px, donde
+     Montserrat 700 era la voz corporativa que queriamos dejar. */
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: 'Karla', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --fs-xs: 12px;   /* Piso absoluto. Solo metadata. */
+  --fs-sm: 14px;   /* Minimo en sitio publico */
+  --fs-base: 16px;
+  --fs-md: 19px;
+  --fs-lg: 24px;
+  --fs-xl: 31px;
+  --fs-2xl: clamp(30px, 4.2vw, 39px);
+  --fs-3xl: clamp(34px, 6vw, 60px);
+
+  /* Angulo de tracking por rol. ElTracking nunca se aplica al cuerpo. */
+  --tr-display: -0.015em;
+  --tr-eyebrow: 0.06em;
+  --tr-micro: 0.02em;
+
+  --lh-display: 1.05;
+  --lh-titulo: 1.2;
+  --lh-denso: 1.4;
+  --lh-cuerpo: 1.55;
+
+  /* --- Espaciado (base 4) ---------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --sp-9: 96px;
+  --sp-10: 128px;
+
+  --container: 1200px;
+  --gutter: clamp(16px, 5vw, 32px);
+
+  /* Ancho de lectura para prosa. 65ch a Karla 16 es la medida comoda;
+     los 640px/430px que se usaban a ojo no se adaptan al tamano de letra. */
+  --reading: 65ch;
+  --reading-tight: 42ch;
+
+  /* --- Radios (3 valores) ---------------------------------- */
+  --r-chip: 8px;
+  --r-card: 14px;
+  --r-pill: 999px;
+
+  /* --- Sombras ---------------------------------------------
+     Dos capas, desviadas abajo-derecha: la luz cae sobre una
+     hoja de platano, nunca de frente. */
+  --shadow-1: 0 1px 1px rgba(43, 29, 21, 0.03),
+              0 2px 4px rgba(43, 29, 21, 0.04),
+              0 10px 28px rgba(43, 29, 21, 0.07);
+  --shadow-2: 0 2px 3px rgba(43, 29, 21, 0.04),
+              0 6px 10px rgba(43, 29, 21, 0.06),
+              0 20px 44px rgba(43, 29, 21, 0.11);
+  --shadow-3: 0 4px 8px rgba(43, 29, 21, 0.06),
+              0 12px 18px rgba(43, 29, 21, 0.08),
+              0 28px 56px rgba(43, 29, 21, 0.15);
+
+  /* --- Movimiento ------------------------------------------
+     "Vapor": las cosas se asientan, no rebotan. Sin bounce. */
+  --dur-1: 120ms;   /* Hover, presion */
+  --dur-2: 220ms;   /* Entrada */
+  --dur-3: 420ms;   /* Revelado */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+
+  font-family: var(--font-body);
+}
+
+/* --- Papel artesanal + La Red -------------------------------
+   CUATRO capas, y el orden es la decision que importa:
+
+     1. LA RED   - la red organica, generada por scripts/generate-red.js.
+                   Va PRIMERA, debajo de todo. Es lo que hace que se lea
+                   como un grabado en la hoja y no como una pegatina
+                   encima: la fibra de papel pasa POR ENCIMA del dibujo.
+     2. fibra fina    - ruido de alta frecuencia, el grano de la fibra
+     3. manchado     - ruido de baja frecuencia, las nubes de pulpado
+     4. vineta       - luz que cae de arriba sobre una hoja en la mesa
+
+   Con una sola capa el crema se leia como un plano de color liso: la
+   fibra a 0.035 era literalmente invisible.
+
+   La red se genera una sola vez y se sirve como archivo aparte, no como
+   data URI: se cachea por separado y no infla el CSS. No se mosaica, se
+   dibuja una vez y cubre el viewport (background-size: cover).
+
+   La red organica se prototypo y se descarto: ninguna de las tres
+   variantes fue aprobada y se elimino del proyecto por completo. No
+   queda ninguna referencia a ella ni en el CSS ni en public/.
+
+   Contraste verificado en el peor caso acumulativo (las 3 capas a la vez
+   en la esquina): --color-tinta-3 sobre #E8DAC0 = 4.88. */
+html {
+  background-color: var(--color-crema);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='0.075'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='420' height='420' filter='url(%23m)' opacity='0.07'/%3E%3C/svg%3E"),
+    radial-gradient(120% 85% at 50% 0%, transparent 35%, rgba(196, 146, 74, 0.12) 100%);
+  background-size: 200px 200px, 420px 420px, cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-tinta);
 }
 
 * {
   box-sizing: border-box;
 }
 
-html,
-body {
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-titulo);
+  letter-spacing: var(--tr-display);
+  text-wrap: balance;
   margin: 0;
-  padding: 0;
-  background: var(--color-crema);
-  color: var(--color-cafe-oscuro);
+  color: var(--color-tinta);
 }
 
-h1, h2, h3 {
-  font-family: 'Bree Serif', serif;
-  font-weight: 400;
-  margin: 0;
+p {
+  line-height: var(--lh-cuerpo);
+}
+
+/* Los precios van en cifras tabulares: sin esto el digito cambia de
+   ancho entre columnas y la comparacion de precios engaña. */
+.price,
+.contacto-card__cta {
+  font-variant-numeric: tabular-nums;
 }
 
 a {
   color: inherit;
 }
 
-.page {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 60px 24px;
+/* --- Reset ------------------------------------------------
+   Solo lo que arregla defectos reales. Un reset agresivo
+   (background/border en button) dejaria invisibles los botones
+   sin clase .btn y aun no es seguro aplicarlo. */
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
 }
 
-.btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+button {
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+}
+
+/* .page y .btn:disabled se retiraron de aqui: ninguna pagina usaba
+   .page, y el estado deshabilitado vive con las demas primitivas en
+   styles/base.css. */
+
+/* --- Accesibilidad de movimiento --------------------------
+   Toda animacion futura debe respetar esto. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Con contraste alto el grano desaparece: compite con el texto */
+@media (prefers-contrast: more) {
+  html {
+    background-image: none;
+  }
 }

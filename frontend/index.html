@@ -2,12 +2,52 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Nacatamales de Doña Antonia</title>
+    <title>Nacatamales de Doña Antonia</title>
     <meta
       name="description"
       content="Nacatamales y fritanga tradicional de Doña Antonia. Mira el menú, el horario y cómo contactarnos."
+    />
+
+    <!-- Crema de marca: la barra del navegador en iOS y Android -->
+    <meta name="theme-color" content="#FFF4DC" />
+
+    <!-- Iconos. El favicon anterior era el logo por defecto de Vite. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Doña Antonia" />
+
+    <!--
+      Open Graph. El canal principal de este negocio es WhatsApp, y sin
+      esto cada enlace compartido se renderizaba como una URL desnuda.
+      og:image es relativa a proposito: al publicar, conviene convertirla
+      en absoluta (https://<dominio>/og-image.png) porque algunos
+      rastreadores no resuelven rutas relativas.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Nacatamales de Doña Antonia" />
+    <meta property="og:locale" content="es_NI" />
+    <meta property="og:title" content="Nacatamales de Doña Antonia" />
+    <meta
+      property="og:description"
+      content="Nacatamales y fritanga tradicional, envueltos a mano en hoja de plátano y cocidos a fuego lento. Mira el menú y el horario."
+    />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Sello circular con un nacatamal envuelto en hoja de plátano sobre fondo crema" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Fuentes por <link> y no con @import en el CSS: el @import encadena
+      CSS -> CSS-de-fuente -> archivo-de-fuente y bloquea el primer
+      pintado. preconnect abre el socket antes de que se pida nada.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Karla:wght@400;500;600;700&display=swap"
     />
   </head>
   <body>

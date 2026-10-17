@@ -53,6 +53,10 @@ export default function ThumbnailImage({
       className={className}
       src={resolved}
       alt={alt}
+      /* Solo se usa en el feed, siempre bajo el pliegue. decoding async
+         deja el pintado del texto para despues. */
+      loading="lazy"
+      decoding="async"
       onError={() =>
         setAttempts((value) => Math.min(value + 1, MAX_ATTEMPTS))
       }

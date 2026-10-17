@@ -1,0 +1,434 @@
+/* ============================================================
+   Primitivas globales.
+   ------------------------------------------------------------
+   Estas clases se usan desde publicas, del panel de administracion
+   y de componentes. Antes vivian dentro de styles/Home.css, que solo
+   se importa desde pages/Home.jsx: por eso .btn la usaban 12 archivos
+   mas y funcionaba unicamente porque Vite concatena todo el CSS.
+   Borrar Home.css dejaba sin estilo todos los botones del panel.
+
+   REGLA: una primitiva compartida se define aqui, nunca en la hoja
+   de una pagina. Regla de comentarios: solo sintaxis de bloque CSS.
+
+   Orden: reset -> foco -> boton -> superficie de tarjeta -> pill ->
+   seccion -> formulario -> carga y vacio -> utilidad.
+   ============================================================ */
+
+/* --- Reset de controles ----------------------------------
+   .btn declara su propio borde porque un <button> con clase .btn
+   sin esto hereda el bisel 3D del navegador en todos los botones
+   primarios del panel. */
+.btn,
+.site-header__toggle {
+  font-family: var(--font-body);
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-denso);
+  min-height: 44px;
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--r-chip);
+  text-decoration: none;
+  /* Los datos no se animan: un precio no parpadea. */
+  transition: background-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
+}
+
+.btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.btn--primary {
+  background: var(--color-rojo);
+  color: #fff;
+  box-shadow: var(--shadow-1);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--color-crema-tenue);
+  border: 1.5px solid rgba(233, 220, 201, 0.45);
+}
+
+.btn--ghost-light {
+  background: transparent;
+  color: #fff;
+  border: 1.5px solid #fff;
+}
+
+.btn--outline {
+  background: transparent;
+  color: var(--color-rojo);
+  border: 1.5px solid var(--color-rojo);
+}
+
+.btn:hover {
+  /* "Se asienta, no rebota": oscurece y baja 1px, sin rebote. */
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn--primary:hover {
+  background: var(--color-rojo-dark);
+  box-shadow: var(--shadow-2);
+}
+
+.btn--outline:hover {
+  background: var(--color-rojo-claro);
+}
+
+.btn--ghost:hover,
+.btn--ghost-light:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* --- Foco -------------------------------------------------
+   Un solo anillo para todo el sitio. Sustituye a los tres
+   :focus que solo cambiaban el color del borde: esos se disparaban
+   tambien con clic de raton y el indicador era un borde de 1.5px
+   sin anillo ni separacion. */
+:focus-visible {
+  outline: 2px solid var(--color-rojo);
+  outline-offset: 2px;
+}
+
+/* --- Superficie de tarjeta -------------------------------
+   Una sola receta. Los nombres de clase semanticos se conservan
+   porque un producto y un aviso no son el mismo componente; lo que
+   se unifica es la RECETA, que antes estaba copiada 6 veces y ya
+   habia divergido entre radios de 14 y 16px.
+
+   El borde NO es un filo plano de 1px sino un degradado de 1px que va
+   de claro arriba a sombra abajo: es el bisel de una hoja de papel
+   Vista de canto, y es lo que da asiento a la tarjeta. Un 1px solido
+   de --color-linea daba 1.38 de contraste y se perdia. */
+.card,
+.product-card,
+.menu-card,
+.dia-post,
+.nosotros-value,
+.contacto-card,
+.announcement {
+  background-color: var(--color-blanco);
+  background-image:
+    linear-gradient(var(--color-blanco), var(--color-blanco)),
+    linear-gradient(170deg, #f3ead9 0%, #dcc9ad 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-1);
+}
+
+/* Elevacion solo donde el elemento realmente es interactivo.
+   Ponerla en todas haria creer pulsables a los bloques estaticos. */
+.product-card,
+.menu-card,
+.contacto-card {
+  transition: transform var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out);
+}
+
+.product-card:hover,
+.menu-card:hover,
+.contacto-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-2);
+  border-color: transparent;
+  background-image:
+    linear-gradient(var(--color-blanco), var(--color-blanco)),
+    linear-gradient(170deg, #f7f0e2 0%, #cbb391 100%);
+}
+
+/* --- Pill -------------------------------------------------
+   "Agotado" vivia en cuatro sitios con tres tratamientos: .sold-out-pill,
+   .menu-card__sold-out, .status-pill y .announcement--sold_out. Una sola
+   receta y variantes por tono. El precio ya NO es una pill: es .price. */
+.pill,
+.sold-out-pill,
+.menu-card__sold-out,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tr-micro);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
+.pill--neutro,
+.sold-out-pill,
+.status-pill {
+  background: var(--color-crema-alt);
+  color: var(--color-tinta-3);
+}
+
+.pill--activo,
+.status-pill--active {
+  background: var(--color-verde-claro);
+  color: var(--color-verde);
+}
+
+.pill--destacado {
+  background: var(--color-amarillo-claro);
+  color: var(--color-amarillo);
+}
+
+/* .menu-card__sold-out va sobre foto: necesita fondo oscuro. */
+.menu-card__sold-out {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  background: rgba(43, 29, 21, 0.85);
+  color: #fff;
+}
+
+/* --- Precio ------------------------------------------------
+   El precio es un dato, no un estado. Dentro de una pastilla roja
+   compite visualmente con el boton de "Hacer pedido". */
+.price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--color-rojo);
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.price__currency {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--color-tinta-3);
+}
+
+/* --- Cabecera de seccion ---------------------------------
+   La comparten Menu, Contacto, DiaADia y Nosotros. */
+.section-head {
+  text-align: center;
+  max-width: var(--reading);
+  margin: 0 auto var(--sp-7);
+  padding: 0 var(--sp-4);
+}
+
+.section-head__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--color-rojo);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+}
+
+.section-head__tag svg {
+  width: 16px;
+  height: 16px;
+}
+
+.section-head__tag--left {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+
+.section-head h2 {
+  font-size: var(--fs-xl);
+  margin-top: var(--sp-2);
+  color: var(--color-rojo);
+}
+
+.section-head p {
+  color: var(--color-tinta-3);
+  font-size: var(--fs-base);
+  margin-top: var(--sp-2);
+  line-height: var(--lh-cuerpo);
+}
+
+/* --- Formulario -------------------------------------------
+   Reemplaza el parche de outline:none + border-color en :focus que
+   repetian tres archivos. El anillo global hace ese trabajo. */
+.field label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-tinta-2);
+  margin-bottom: var(--sp-1);
+}
+
+.field input,
+.field textarea,
+.field select,
+.admin-field input,
+.admin-field textarea,
+.admin-field select {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  padding: var(--sp-3);
+  border-radius: var(--r-chip);
+  border: 1.5px solid var(--color-linea-fuerte);
+  background: var(--color-blanco);
+  color: var(--color-tinta);
+  resize: vertical;
+}
+
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-tinta-2);
+}
+
+/* --- Carga y vacio ---------------------------------------
+   Antes eran el literal "Cargando..." y una linea gris. El esqueleto
+   tiene la misma silueta que el contenido real, asi que la pagina no
+   salta cuando llegan los datos. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-crema-alt);
+  border-radius: var(--r-chip);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: skeleton-shimmer 1.2s var(--ease-out) infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton--text {
+  height: 1em;
+  margin-bottom: var(--sp-2);
+}
+
+.skeleton--title {
+  height: 1.4em;
+  width: 60%;
+}
+
+.skeleton--card {
+  height: 320px;
+  border-radius: var(--r-card);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  text-align: center;
+  padding: var(--sp-8) var(--sp-4);
+  color: var(--color-tinta-3);
+}
+
+.empty-state svg {
+  width: 56px;
+  height: 56px;
+  opacity: 0.3;
+}
+
+.empty-state strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--color-tinta-2);
+}
+
+/* --- Detalle de hoja de platano --------------------------
+   Nervadura con hoja al centro. ORNAMENTO, NO CONTENIDO: aparece tres
+   veces en todo el sitio (filete del footer, marca de agua del hero y
+   cita de Nosotros) y en ningun otro lado. Repetirlo por seccion lo
+   convierte en decoracion de wallpaper, que es justo lo que hay que
+   evitar: la hoja debe ser un acento, no un fondo. */
+.leaf-rule {
+  height: 34px;
+  margin-bottom: var(--sp-5);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 34'%3E%3Cg fill='none' stroke='%23C4841C' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M0 17h88M152 17h88' stroke-opacity='.45'/%3E%3Cpath d='M102 17c5-9 31-9 36 0-5 9-31 9-36 0z'/%3E%3Cpath d='M105 17h30' stroke-opacity='.5'/%3E%3C/g%3E%3C/svg%3E") no-repeat center / 240px 34px;
+}
+
+/* --- Revelado al entrar en pantalla -----------------------
+   "Vapor": las cosas se asientan, no rebotan. Entrada de 420ms con 8px
+   de recorrido y opacidad; el escalonado lo pone elRetraso inline.
+
+   Sin transform en el estado inicial de quien NO usa .reveal: el hook
+   solo anade la clase, asi que todo lo que no lo use se queda visible.
+   Ese es el punto: si el JS falla, el contenido aparece igual. */
+.reveal {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--dur-3) var(--ease-settle),
+              transform var(--dur-3) var(--ease-settle);
+}
+
+.reveal--visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Con prefers-reduced-motion el bloque global de index.css ya anula las
+   transiciones, pero sin esto el elemento se quedaria en opacidad 0. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Utilidad -------------------------------------------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

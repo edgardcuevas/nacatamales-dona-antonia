@@ -1,57 +1,61 @@
 .admin-loading {
   text-align: center;
-  padding: 80px 16px;
-  color: #7a6553;
+  padding: var(--sp-9) var(--sp-4);
+  color: var(--color-tinta-3);
 }
 
 .admin-dashboard {
-  max-width: 1180px;
+  max-width: var(--container);
   margin: 0 auto;
-  padding: 32px 16px 60px;
+  padding: var(--sp-6) var(--gutter) var(--sp-9);
 }
 
 .admin-dashboard__header {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 28px;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-7);
 }
 
 .admin-dashboard__header h1 {
-  font-size: 24px;
+  font-size: var(--fs-xl);
   color: var(--color-rojo);
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-1);
 }
 
 .admin-dashboard__header p {
-  font-size: 13px;
-  color: #7a6553;
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
 }
 
 .admin-dashboard__header-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
-.admin-dashboard__header-actions button {
-  cursor: pointer;
-}
-
+/* El cursor:y el borde de este <button> los resuelve el reset global
+   y la primitiva .btn. No volver a parchearlos aqui. */
 .admin-dashboard__grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: var(--sp-4);
 }
 
 .admin-dashboard__card {
-  background: #fff;
-  border: 1px solid #f2e5d1;
-  border-radius: 14px;
-  padding: 20px;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
+  padding: var(--sp-5);
   position: relative;
   text-align: left;
-  cursor: pointer;
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-body);
+  transition: transform var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
+}
+
+.admin-dashboard__card:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
 }
 
 .admin-dashboard__card:disabled {
@@ -60,99 +64,74 @@
 }
 
 .admin-dashboard__card h3 {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
-  margin-bottom: 6px;
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-2);
 }
 
 .admin-dashboard__card p {
-  font-size: 13px;
-  color: #83705f;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
+  line-height: var(--lh-cuerpo);
   margin: 0;
 }
 
 .admin-dashboard__soon {
   display: inline-block;
-  margin-top: 10px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--color-cafe-claro);
-  background: #fdf3e0;
-  padding: 4px 10px;
-  border-radius: 20px;
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--color-amarillo);
+  background: var(--color-amarillo-claro);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-pill);
 }
 
-/* Clases compartidas por los formularios/listas de administración */
-.admin-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-cafe-oscuro);
-}
-
-.admin-field input,
-.admin-field textarea {
-  font-family: 'Montserrat', sans-serif;
-  font-size: 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1.5px solid #e6d6be;
-  outline: none;
-  resize: vertical;
-}
-
-.admin-field input:focus,
-.admin-field textarea:focus {
-  border-color: var(--color-rojo);
-}
+/* .admin-field vive en styles/base.css junto a los inputs: son el
+   mismo par label+campo y no debian estar en archivos distintos. */
 
 .admin-error {
-  background: #fbeceb;
-  color: #a4302b;
-  font-size: 13px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 14px;
+  background: var(--color-rojo-claro);
+  color: var(--color-rojo);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3);
+  border-radius: var(--r-chip);
+  margin-bottom: var(--sp-4);
 }
 
 .admin-loading-inline,
 .admin-empty-inline {
   text-align: center;
-  color: #7a6553;
-  font-size: 13.5px;
-  padding: 16px 0;
+  color: var(--color-tinta-3);
+  font-size: var(--fs-sm);
+  padding: var(--sp-4) 0;
 }
 
 .status-pill {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 20px;
-  background: #eee;
-  color: #7a6553;
   flex: none;
 }
 
 .status-pill--active {
-  background: #eef6ec;
-  color: #33502c;
+  background: var(--color-verde-claro);
+  color: var(--color-verde);
 }
 
 .btn-link {
   border: none;
   background: none;
   color: var(--color-rojo);
-  font-weight: 700;
-  font-size: 12.5px;
-  cursor: pointer;
+  font-family: var(--font-body);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
   padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-@media (min-width: 660px) {
+.btn-link:hover {
+  color: var(--color-rojo-dark);
+}
+
+@media (min-width: 640px) {
   .admin-dashboard__header {
     flex-direction: row;
     align-items: center;

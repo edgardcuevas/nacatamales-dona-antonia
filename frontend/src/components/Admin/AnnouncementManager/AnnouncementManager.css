@@ -5,16 +5,16 @@
 }
 
 .announcement-manager__form {
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 14px;
   padding: 20px;
 }
 
 .announcement-manager__form h3,
 .announcement-manager__list-title {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-md);
+  color: var(--color-tinta);
   margin-bottom: 14px;
 }
 
@@ -29,8 +29,8 @@
 }
 
 .announcement-manager__hint {
-  font-size: 12px;
-  color: #a08b76;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
   margin: -6px 0 14px;
 }
 
@@ -39,9 +39,9 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 14px;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--color-cafe-oscuro);
+  color: var(--color-tinta);
 }
 
 .announcement-manager__preview {
@@ -50,9 +50,9 @@
 
 .announcement-manager__preview-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  color: #7a6553;
+  color: var(--color-tinta-3);
   margin-bottom: 8px;
 }
 
@@ -75,8 +75,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 12px;
   padding: 12px;
   flex-wrap: wrap;
@@ -87,7 +87,7 @@
   height: 42px;
   border-radius: 8px;
   overflow: hidden;
-  background: #f2e5d1;
+  background: var(--color-crema-alt);
   flex: none;
 }
 
@@ -106,13 +106,13 @@
 }
 
 .announcement-row__body strong {
-  font-size: 14px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-sm);
+  color: var(--color-tinta);
 }
 
 .announcement-row__body span {
-  font-size: 12px;
-  color: #a08b76;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
 }
 
 .announcement-row__actions {
@@ -121,11 +121,11 @@
 }
 
 .status-pill--scheduled {
-  background: #fdf3e0;
-  color: #7a5410;
+  background: var(--color-amarillo-claro);
+  color: var(--color-amarillo);
 }
 
-@media (min-width: 660px) {
+@media (min-width: 640px) {
   .announcement-manager__dates {
     grid-template-columns: 1fr 1fr;
   }

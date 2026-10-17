@@ -169,7 +169,12 @@ export default function MediaPicker({ image, isBusy }) {
                       onClick={() => chooseFromGallery(item)}
                       disabled={isBusy}
                     >
-                      <img src={item.secureUrl} alt={item.altText || 'Imagen de la galería'} />
+                      <img
+                        src={item.secureUrl}
+                        alt={item.altText || 'Imagen de la galería'}
+                        loading="lazy"
+                        decoding="async"
+                      />
                       {item.altText && <span>{item.altText}</span>}
                     </button>
                   ))}

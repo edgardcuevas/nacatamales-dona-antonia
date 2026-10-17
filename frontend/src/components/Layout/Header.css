@@ -2,86 +2,109 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  background: var(--color-blanco);
-  border-bottom: 3px solid var(--color-amarillo);
+  background: var(--color-crema);
+  /* Antes era un filete de 3px en var(--color-amarillo). Ese token paso
+     de #E5A928 a #9C6111, y una banda de 3px en tono oscuro pesa
+     demasiado en una cabecera. El separador nuevo es un pelo. */
+  border-bottom: 1px solid var(--color-linea);
 }
 
 .site-header__bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  max-width: 1180px;
+  gap: var(--sp-3);
+  max-width: var(--container);
   margin: 0 auto;
+  padding: var(--sp-2) var(--gutter);
   position: relative;
 }
 
 .site-header__brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-2);
   text-decoration: none;
   min-width: 0;
 }
 
 .site-header__badge {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex: none;
 }
 
 .site-header__name {
-  font-family: 'Bree Serif', serif;
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-md);
   line-height: 1.1;
+  letter-spacing: var(--tr-display);
   color: var(--color-rojo);
   white-space: nowrap;
 }
 
+/* "DE DOÑA ANTONIA". Excepcion documentada al piso de 12px: en
+   versalitas con tracking 0.14em sigue siendo legible, que es lo que
+   hacian aceptable el 8.5px del diseño anterior. */
 .site-header__name span {
   display: block;
-  font-family: 'Montserrat', sans-serif;
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
-  color: var(--color-cafe-oscuro);
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.14em;
+  color: var(--color-tinta-2);
   margin-top: 2px;
 }
 
+/* Boton de menu en movil. El area tactil se queda en 44x44 (objetivo
+   comodo con el pulgar, y por debajo de 44 el toque falla); lo que se
+   ajusta es el DIBUJO interior, que antes eran tres lineas que ocupaban
+   los 42px de la caja: una proporcion de 21:1 que se leia como tres
+   rayas, no como un menu.
+
+   El `align-items: center` va antes de acortar las lineas y no es
+   cosmetico: el contenedor no lo declaraba, asi que los <span> se
+   estiraban al ancho completo por defecto (align-items: stretch). Con un
+   width fijo, `stretch` deja de aplicar y las tres lineas se alinearian a
+   la IZQUIERDA. El centro hay que pedirlo explicitamente. */
 .site-header__toggle {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
   gap: 5px;
-  width: 38px;
-  height: 38px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-linea);
+  background: var(--color-blanco);
+  border-radius: var(--r-chip);
   padding: 0;
 }
 
+/* 22 x 2.5px sobre una caja de 44: la mitad de ancho y una proporcion de
+   ~9:1, que es donde el simbolo se lee como menu. Un 2px en lineas de
+   22 queda flaco; un 3px pesa en un header por lo demas sobrio. */
 .site-header__toggle span {
   display: block;
   height: 2.5px;
-  width: 100%;
-  background: var(--color-cafe-oscuro);
+  width: 22px;
+  background: var(--color-tinta-2);
   border-radius: 2px;
 }
 
 .site-header__menu {
   display: none;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   position: absolute;
   top: 100%;
   left: 0;
   right: 0;
-  background: var(--color-blanco);
-  border-bottom: 3px solid var(--color-amarillo);
-  padding: 12px 16px 18px;
-  box-shadow: 0 12px 20px rgba(74, 48, 37, 0.12);
+  background: var(--color-crema);
+  border-bottom: 1px solid var(--color-linea);
+  padding: var(--sp-3) var(--gutter) var(--sp-5);
+  box-shadow: var(--shadow-2);
 }
 
 .site-header__menu--open {
@@ -89,70 +112,95 @@
 }
 
 .site-header__link {
-  padding: 10px 4px;
-  border-bottom: 1px solid rgba(74, 48, 37, 0.08);
-  color: var(--color-cafe-oscuro);
+  display: block;
+  padding: var(--sp-3) var(--sp-1);
+  border-bottom: 1px solid var(--color-linea);
+  color: var(--color-tinta-2);
   text-decoration: none;
-  font-weight: 700;
-  font-size: 14.5px;
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-denso);
+}
+
+/* Se diferencia por peso y color, no por tamano: un enlace utilitario
+   de 12px es ilegible y ademas rompia el piso del sitio publico. */
+.site-header__admin {
+  padding: var(--sp-3) var(--sp-1);
+  color: var(--color-tinta-3);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-sm);
+  text-decoration: none;
 }
 
 .site-header__link--active {
   color: var(--color-rojo);
+  font-weight: var(--fw-semibold);
 }
 
-.site-header__admin {
-  padding: 10px 4px;
-  color: var(--color-cafe-claro);
-  font-weight: 600;
-  font-size: 13px;
-  text-decoration: none;
+/* En escritorio el subrayado crece desde la izquierda en vez de
+   aparecer de golpe: el mismo "se asienta, no rebota". */
+@media (min-width: 960px) {
+  .site-header__link {
+    background-image: linear-gradient(var(--color-rojo), var(--color-rojo));
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 0% 2px;
+    transition: background-size var(--dur-1) var(--ease-out),
+                color var(--dur-1) var(--ease-out);
+  }
+
+  .site-header__link:hover,
+  .site-header__link--active {
+    background-size: 100% 2px;
+    color: var(--color-rojo);
+  }
 }
 
 .site-header__wa {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  background: var(--color-verde);
+  gap: var(--sp-2);
+  background: var(--color-rojo);
   color: #fff;
-  border-radius: 24px;
-  padding: 10px 18px;
-  font-weight: 700;
-  font-size: 13px;
+  border-radius: var(--r-pill);
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-5);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
   text-decoration: none;
   white-space: nowrap;
 }
 
 .site-header__wa svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .site-header__wa--inline {
-  margin-top: 10px;
+  margin-top: var(--sp-3);
 }
 
 .site-header__wa--desktop {
   display: none;
 }
 
-@media (min-width: 880px) {
+@media (min-width: 960px) {
   .site-header__bar {
-    padding: 11px 24px;
+    padding: var(--sp-3) var(--gutter);
   }
 
   .site-header__badge {
-    width: 44px;
-    height: 44px;
+    width: 48px;
+    height: 48px;
   }
 
   .site-header__name {
-    font-size: 15px;
+    font-size: var(--fs-lg);
   }
 
   .site-header__name span {
-    font-size: 9.5px;
+    font-size: var(--fs-sm);
   }
 
   .site-header__toggle {
@@ -168,26 +216,19 @@
     border: none;
     box-shadow: none;
     padding: 0;
-    gap: 26px;
+    gap: var(--sp-6);
     width: auto;
   }
 
-  .site-header__link {
-    padding: 4px 0;
-    border-bottom: 2px solid transparent;
-    font-size: 13.5px;
-  }
-
-  .site-header__link--active,
-  .site-header__link:hover {
-    border-color: var(--color-rojo);
-    color: var(--color-rojo);
-  }
-
+  .site-header__link,
   .site-header__admin {
-    padding: 0;
-    font-size: 12.5px;
-    opacity: 0.8;
+    padding: var(--sp-1) 0;
+    border-bottom: 2px solid transparent;
+    font-size: var(--fs-sm);
+  }
+
+  .site-header__link--active {
+    border-color: var(--color-rojo);
   }
 
   .site-header__wa--inline {

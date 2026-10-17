@@ -1,100 +1,78 @@
 .hero {
-  background: linear-gradient(180deg, var(--color-cafe-oscuro) 0%, var(--color-cafe-oscuro2) 100%);
-  color: var(--color-crema);
-  padding: 32px 16px 32px;
+  background: linear-gradient(180deg, var(--color-cafe-oscuro) 0%, var(--color-cafe-oscuro-2) 100%);
+  color: var(--color-crema-tenue);
+  padding: var(--sp-7) var(--gutter);
   overflow: hidden;
 }
 
 .hero__inner {
-  max-width: 1180px;
+  max-width: var(--container);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--sp-7);
   align-items: center;
   text-align: center;
 }
 
 .hero__eyebrow {
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-4);
 }
 
+/* El badge de fritanga va sobre la banda achiote. La variante clara la
+   resuelve ScheduleBadge con la prop onDark; antes se forzaba desde aqui
+   con !important, que gana a cualquier override posterior. */
 .fritanga-band__schedule {
-  margin-top: 6px;
-  background: rgba(255, 255, 255, 0.16) !important;
-  color: #fff !important;
+  margin-top: var(--sp-2);
 }
 
+/* Tamano continuo. Antes saltaba de 32px a 52px en el breakpoint de
+   880px, un escalon del 62% que en pantallas de 900px desbordaba. */
 .hero h1 {
-  font-size: 32px;
-  line-height: 1.15;
+  font-size: var(--fs-3xl);
+  line-height: var(--lh-display);
   color: #fff;
 }
 
 .hero h1 em {
   font-style: normal;
-  color: var(--color-amarillo);
+  color: var(--color-masa-solido);
 }
 
 .hero__lead {
-  font-size: 15px;
-  line-height: 1.6;
-  color: #e9dcc9;
-  margin: 16px 0 24px;
+  font-size: var(--fs-md);
+  line-height: var(--lh-cuerpo);
+  color: var(--color-crema-tenue);
+  max-width: var(--reading);
+  margin: var(--sp-4) 0 var(--sp-6);
 }
 
 .hero__actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
   width: 100%;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 14.5px;
-  padding: 14px 22px;
-  border-radius: 10px;
-  text-decoration: none;
-}
-
-.btn svg {
-  width: 15px;
-  height: 15px;
-}
-
-.btn--primary {
-  background: var(--color-rojo);
-  color: #fff;
-  box-shadow: 0 4px 0 var(--color-rojo-dark);
-}
-
-.btn--ghost {
-  background: transparent;
-  color: var(--color-crema);
-  border: 1.5px solid rgba(255, 244, 220, 0.4);
-}
-
-.btn--ghost-light {
-  background: transparent;
-  color: #fff;
-  border: 1.5px solid #fff;
-}
-
-.btn--outline {
-  background: transparent;
-  color: var(--color-rojo);
-  border: 1.5px solid var(--color-rojo);
 }
 
 .hero__art {
   position: relative;
   width: 220px;
   height: 220px;
+}
+
+/* Hoja de platano como marca de agua. Medido, no estimado:
+     0.05 daba 1.13 de contraste contra el carbon (casi nada), 0.13 daba
+     1.39 (perceptible) y 0.16 da 1.52, que ya se lee a simple vista
+     sin competir con el nacatamal: es un trazo de contorno, no una masa.
+   Es la segunda de las tres apariciones del ornamento en el sitio. */
+.hero__art::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 280'%3E%3Cg fill='none' stroke='%23E9DCC9' stroke-width='3'%3E%3Cpath d='M100 10c52 34 78 96 78 136 0 52-34 96-78 118-44-22-78-66-78-118C22 106 48 44 100 10z'/%3E%3Cpath d='M100 16v248'/%3E%3Cpath d='M100 92l40 22M100 92L60 114M100 152l48 26M100 152l-48 26M100 210l36 20M100 210l-36 20' stroke-width='2'/%3E%3C/g%3E%3C/svg%3E") no-repeat center / contain;
+  opacity: 0.16;
+  transform: rotate(-10deg);
+  pointer-events: none;
 }
 
 .hero__plate {
@@ -107,104 +85,75 @@
 
 .hero__tamal {
   position: absolute;
-  inset: 24%;
+  inset: 18%;
   filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.35));
 }
 
 .hero__strip {
-  margin-top: 32px;
-  background: var(--color-amarillo);
+  margin-top: var(--sp-8);
+  background: var(--color-masa-solido);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  max-width: 1180px;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  max-width: var(--container);
   margin-left: auto;
   margin-right: auto;
-  border-radius: 16px;
+  border-radius: var(--r-card);
 }
 
 .hero__strip-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: var(--color-cafe-oscuro);
-  font-weight: 700;
-  font-size: 13px;
+  gap: var(--sp-3);
+  color: var(--color-tinta);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-denso);
 }
 
 .hero__strip-item svg {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex: none;
 }
 
-.section-head {
-  text-align: center;
-  max-width: 560px;
-  margin: 0 auto 28px;
-  padding: 0 16px;
-}
-
-.section-head__tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-rojo);
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.05em;
-}
-
-.section-head__tag svg {
-  width: 15px;
-  height: 15px;
-}
-
-.section-head__tag--left {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.section-head h2 {
-  font-size: 26px;
-  margin-top: 8px;
-  color: var(--color-rojo);
-}
-
-.section-head p {
-  color: #7a6553;
-  font-size: 14px;
-  margin-top: 8px;
-  line-height: 1.6;
-}
+/* .section-head vive en styles/base.css: la comparten Menu, Contacto,
+   DiaADia y Nosotros, no solo esta pagina. */
 
 .menu-teaser {
-  padding: 48px 16px;
+  padding: var(--sp-8) var(--gutter);
 }
 
 .menu-teaser__cards {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1180px;
+  gap: var(--sp-4);
+  max-width: var(--container);
   margin: 0 auto;
 }
 
+/* La receta de tarjeta vive en base.css; aqui solo lo propio. */
 .product-card {
-  background: #fff;
-  border-radius: 16px;
   overflow: hidden;
-  border: 1px solid #f2e5d1;
-  box-shadow: 0 10px 22px rgba(74, 48, 37, 0.08);
 }
 
 .product-card__thumb {
-  height: 140px;
+  position: relative;
+  height: 168px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(150deg, var(--color-verde) 0%, var(--color-verde-dark) 100%);
+  background:
+    radial-gradient(120% 100% at 50% 0%, #fdf6e9 0%, var(--color-crema-alt) 55%, #ead9bd 100%);
+}
+
+.product-card__thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 -20px 24px -18px rgba(43, 29, 21, 0.28);
+  pointer-events: none;
 }
 
 .product-card__thumb img {
@@ -214,103 +163,87 @@
 }
 
 .product-card__thumb svg {
-  width: 70px;
-  height: 70px;
+  width: 84px;
+  height: 84px;
 }
 
 .product-card__body {
-  padding: 16px 18px 18px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
 }
 
 .product-card__body h3 {
-  font-size: 17px;
-  margin-bottom: 6px;
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-2);
 }
 
 .product-card__body p {
-  font-size: 13px;
-  color: #83705f;
-  line-height: 1.5;
-  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
+  line-height: var(--lh-cuerpo);
+  margin: 0 0 var(--sp-3);
 }
 
 .product-card__price-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
-.price-pill {
-  background: var(--color-rojo);
-  color: #fff;
-  font-weight: 700;
-  font-size: 12.5px;
-  padding: 6px 12px;
-  border-radius: 20px;
-}
-
-.sold-out-pill {
-  background: #eee;
-  color: #7a6553;
-  font-weight: 700;
-  font-size: 11.5px;
-  padding: 6px 12px;
-  border-radius: 20px;
-}
+/* .price y .sold-out-pill viven en base.css */
 
 .section-cta {
   text-align: center;
-  margin-top: 24px;
+  margin-top: var(--sp-6);
 }
 
 .fritanga-band {
-  background: linear-gradient(120deg, var(--color-rojo) 0%, #9c2027 100%);
+  background: var(--color-rojo);
   color: #fff;
-  padding: 32px 20px;
+  padding: var(--sp-7) var(--sp-5);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
-  margin: 24px 16px;
-  border-radius: 20px;
+  gap: var(--sp-4);
+  margin: var(--sp-8) auto;
+  border-radius: var(--r-card);
 }
 
 .fritanga-band__icon {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   background: rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
-  padding: 8px;
+  border-radius: var(--r-chip);
+  padding: var(--sp-2);
 }
 
 .fritanga-band h2 {
-  font-size: 21px;
+  font-size: var(--fs-lg);
 }
 
 .fritanga-band p {
-  font-size: 13.5px;
-  color: #f6d9d6;
-  margin-top: 6px;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  color: var(--color-rojo-claro);
+  margin-top: var(--sp-2);
+  line-height: var(--lh-cuerpo);
 }
 
 .dia-a-dia-teaser {
-  padding: 48px 16px;
-  background: #fffaf1;
+  padding: var(--sp-8) var(--gutter);
+  background: var(--color-crema-alt);
 }
 
 .dia-a-dia-teaser__grid {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 1180px;
+  gap: var(--sp-4);
+  max-width: var(--container);
   margin: 0 auto;
 }
 
 .video-thumb {
   position: relative;
   display: block;
-  border-radius: 14px;
+  border-radius: var(--r-card);
   overflow: hidden;
   text-decoration: none;
   aspect-ratio: 16 / 9;
@@ -326,7 +259,7 @@
 .video-thumb__placeholder {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, var(--color-verde), var(--color-verde-dark));
+  background: var(--color-crema-alt);
 }
 
 .video-thumb__play {
@@ -334,8 +267,8 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
 }
 
 .video-thumb__title {
@@ -343,61 +276,54 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 8px 10px;
+  padding: var(--sp-2) var(--sp-3);
   background: linear-gradient(0deg, rgba(0, 0, 0, 0.7), transparent);
   color: #fff;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .historia-teaser {
-  padding: 48px 16px 60px;
+  padding: var(--sp-8) var(--gutter) var(--sp-9);
 }
 
 .historia-teaser__copy {
-  max-width: 640px;
+  max-width: var(--reading);
   margin: 0 auto;
   text-align: center;
 }
 
 .historia-teaser__copy h2 {
-  font-size: 24px;
+  font-size: var(--fs-xl);
   color: var(--color-rojo);
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 
 .historia-teaser__copy p {
-  font-size: 14.5px;
-  line-height: 1.7;
-  color: #5a4a3e;
-  margin-bottom: 20px;
+  font-size: var(--fs-base);
+  line-height: var(--lh-cuerpo);
+  color: var(--color-tinta-2);
+  margin-bottom: var(--sp-5);
 }
 
-@media (min-width: 880px) {
-    .hero {
-    padding: 60px 24px 60px;
+@media (min-width: 960px) {
+  .hero {
+    padding: var(--sp-9) var(--gutter);
   }
 
   .hero__inner {
     flex-direction: row;
     text-align: left;
-    gap: 40px;
+    gap: var(--sp-8);
   }
 
   .hero__copy {
     flex: 1.1;
   }
 
-  .hero h1 {
-    font-size: 52px;
-  }
-
-  .hero__lead {
-    max-width: 430px;
-  }
-
   .hero__actions {
     flex-direction: row;
+    justify-content: flex-start;
   }
 
   .hero__art {
@@ -411,7 +337,7 @@
   .hero__strip {
     flex-direction: row;
     justify-content: space-between;
-    padding: 18px 24px;
+    padding: var(--sp-5) var(--sp-6);
   }
 
   .menu-teaser__cards {
@@ -425,9 +351,8 @@
   .fritanga-band {
     flex-direction: row;
     align-items: center;
-    padding: 40px 32px;
-    max-width: 1180px;
-    margin: 32px auto;
+    padding: var(--sp-8) var(--sp-7);
+    max-width: calc(var(--container) - var(--gutter) * 2);
   }
 
   .fritanga-band > div {

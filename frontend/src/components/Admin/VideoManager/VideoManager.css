@@ -5,15 +5,15 @@
 }
 
 .video-manager__form {
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 14px;
   padding: 20px;
 }
 
 .video-manager__form h3 {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-md);
+  color: var(--color-tinta);
   margin-bottom: 14px;
 }
 
@@ -26,9 +26,9 @@
 }
 
 .video-manager__file-info {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #7a6553;
+  color: var(--color-tinta-3);
 }
 
 .video-manager__checkbox {
@@ -36,13 +36,13 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 14px;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--color-cafe-oscuro);
+  color: var(--color-tinta);
 }
 
 .video-manager__progress {
-  background: #fdf3e0;
+  background: var(--color-amarillo-claro);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 14px;
@@ -50,16 +50,16 @@
 
 .video-manager__progress p {
   margin: 8px 0 0;
-  font-size: 13px;
-  color: #7a5410;
-  line-height: 1.5;
+  font-size: var(--fs-sm);
+  color: var(--color-amarillo);
+  line-height: var(--lh-cuerpo);
 }
 
 .video-manager__progress-bar {
   position: relative;
   height: 6px;
   border-radius: 6px;
-  background: #f2dfae;
+  background: var(--color-amarillo-claro);
   overflow: hidden;
 }
 
@@ -92,9 +92,9 @@
 }
 
 .video-manager__info {
-  background: #eef6ec;
-  color: #33502c;
-  font-size: 13px;
+  background: var(--color-verde-claro);
+  color: var(--color-verde);
+  font-size: var(--fs-sm);
   padding: 10px 12px;
   border-radius: 8px;
   margin-bottom: 14px;
@@ -119,8 +119,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 12px;
   padding: 12px;
   flex-wrap: wrap;
@@ -150,13 +150,13 @@
 }
 
 .video-row__body strong {
-  font-size: 13.5px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-sm);
+  color: var(--color-tinta);
 }
 
 .video-row__body span {
-  font-size: 12px;
-  color: #a08b76;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
 }
 
 .video-row__actions {
@@ -167,7 +167,7 @@
 
 .video-row__thumbnail-editor {
   flex-basis: 100%;
-  border-top: 1px solid #f2e5d1;
+  border-top: 1px solid var(--color-linea);
   padding-top: 12px;
   margin-top: 4px;
   display: flex;

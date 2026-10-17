@@ -96,7 +96,12 @@ export default function MediaLibrary() {
           return (
             <div className="media-card" key={item.id}>
               <div className="media-card__thumb">
-                <img src={item.secureUrl} alt={item.altText || 'Imagen subida'} />
+                <img
+                  src={item.secureUrl}
+                  alt={item.altText || 'Imagen subida'}
+                  loading="lazy"
+                  decoding="async"
+                />
               </div>
               <div className="media-card__body">
                 {usage ? (

@@ -6,8 +6,11 @@ import { Icon } from '../components/icons/Icons'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import AnnouncementsBanner from '../components/AnnouncementsBanner/AnnouncementsBanner'
 import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
+import Reveal from '../components/Reveal/Reveal'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
+import useOpenNow from '../hooks/useOpenNow'
+import { formatPrice } from '../utils/price'
 import './../styles/Home.css'
 
 function whatsappHref(whatsappNumber, message) {
@@ -20,6 +23,9 @@ function whatsappHref(whatsappNumber, message) {
 
 export default function Home() {
   const { settings } = useSettings()
+  // El hero es el mejor sitio para el estado abierto/cerrado: es lo primero
+  // que mira el que esta decidiendo si viene a comer.
+  const estaAbierto = useOpenNow(settings.scheduleText)
   const [categories, setCategories] = useState([])
   const [featuredProducts, setFeaturedProducts] = useState([])
   const [feedItems, setFeedItems] = useState([])
@@ -77,10 +83,11 @@ export default function Home() {
         <div className="hero__inner">
           <div className="hero__copy">
             <ScheduleBadge
-              icon="leaf"
+              icon="reloj"
               text={settings.scheduleText}
               color={settings.scheduleColor}
               className="hero__eyebrow"
+              isOpen={estaAbierto}
             />
             <h1>
               ¡Si de un buen <em>Nacatamal</em> quieres disfrutar,<br />a nosotros debes visitar!
@@ -104,7 +111,7 @@ export default function Home() {
         </div>
         <div className="hero__strip">
           <div className="hero__strip-item">
-            <Icon name="leaf" /> Ingredientes frescos cada día
+            <Icon name="hoja" /> Ingredientes frescos cada día
           </div>
           <div className="hero__strip-item">
             <Icon name="pot" /> Receta tradicional de familia
@@ -118,7 +125,7 @@ export default function Home() {
       <AnnouncementsBanner />
 
       {featuredProducts.length > 0 && (
-        <section className="menu-teaser">
+        <Reveal as="section" className="menu-teaser">
           <div className="section-head">
             <span className="section-head__tag">
               <Icon name="corn" /> Nuestro menú
@@ -131,7 +138,12 @@ export default function Home() {
               <div className="product-card" key={product.id}>
                 <div className="product-card__thumb">
                   {product.image?.url ? (
-                    <img src={product.image.url} alt={product.image.altText || product.name} />
+                    <img
+                      src={product.image.url}
+                      alt={product.image.altText || product.name}
+                      loading="lazy"
+                      decoding="async"
+                    />
                   ) : (
                     <Icon name="tamal" />
                   )}
@@ -140,7 +152,10 @@ export default function Home() {
                   <h3>{product.name}</h3>
                   {product.description && <p>{product.description}</p>}
                   <div className="product-card__price-row">
-                    <span className="price-pill">C$ {product.price}</span>
+                    <span className="price">
+                      <span className="price__currency">C$</span>
+                      {formatPrice(product.price)}
+                    </span>
                     {!product.isAvailable && <span className="sold-out-pill">Agotado</span>}
                   </div>
                 </div>
@@ -152,11 +167,11 @@ export default function Home() {
               Ver menú completo
             </Link>
           </div>
-        </section>
+        </Reveal>
       )}
 
       {fritangaCategory && (
-        <section className="fritanga-band">
+        <Reveal as="section" className="fritanga-band" delay={60}>
           <Icon name="grill" className="fritanga-band__icon" />
           <div>
             <h2>También hacemos fritanga</h2>
@@ -166,6 +181,7 @@ export default function Home() {
                 text={settings.fritangaScheduleText}
                 color={settings.fritangaScheduleColor}
                 className="fritanga-band__schedule"
+                onDark
               />
             ) : (
               <p>Algunos días encendemos la cocina para ofrecer nuestra fritanga tradicional.</p>
@@ -174,11 +190,11 @@ export default function Home() {
           <Link className="btn btn--ghost-light" to={`/menu?category=${fritangaCategory.slug}`}>
             Ver fritanga
           </Link>
-        </section>
+        </Reveal>
       )}
 
       {feedItems.length > 0 && (
-        <section className="dia-a-dia-teaser">
+        <Reveal as="section" className="dia-a-dia-teaser" delay={120}>
           <div className="section-head">
             <span className="section-head__tag">
               <Icon name="play" /> Día a día
@@ -214,10 +230,10 @@ export default function Home() {
               Ver todo
             </Link>
           </div>
-        </section>
+        </Reveal>
       )}
 
-      <section className="historia-teaser">
+      <Reveal as="section" className="historia-teaser" delay={180}>
         <div className="historia-teaser__copy">
           <span className="section-head__tag section-head__tag--left">Nuestra historia</span>
           <h2>Tradición y sabor casero</h2>
@@ -229,7 +245,7 @@ export default function Home() {
             Conocer más
           </Link>
         </div>
-      </section>
+      </Reveal>
     </div>
   )
 }

@@ -5,52 +5,43 @@
 }
 
 .product-manager__form {
-  background: #fff;
-  border: 1px solid #f2e5d1;
-  border-radius: 14px;
-  padding: 20px;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
+  padding: var(--sp-5);
 }
 
 .product-manager__form h3 {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
-  margin-bottom: 14px;
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-4);
 }
 
-.admin-field select,
+/* Los inputs los resuelve base.css. Aqui solo el filtro, que no es
+   un campo de formulario: va suelto en la cabecera de la lista. */
 .product-manager__filter {
-  font-family: 'Montserrat', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1.5px solid #e6d6be;
-  background: #fff;
-  outline: none;
-}
-
-.admin-field select:focus,
-.product-manager__filter:focus {
-  border-color: var(--color-rojo);
+  border-radius: var(--r-chip);
+  border: 1.5px solid var(--color-linea-fuerte);
+  background: var(--color-blanco);
+  color: var(--color-tinta);
 }
 
 .product-manager__checkbox {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--color-cafe-oscuro);
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-tinta-2);
 }
 
 .product-manager__form-actions {
   display: flex;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.product-manager__form-actions button {
-  cursor: pointer;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
 }
 
 .product-manager__list-header {
@@ -62,8 +53,8 @@
 }
 
 .product-manager__list-header h3 {
-  font-size: 16px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-md);
+  color: var(--color-tinta);
 }
 
 .product-manager__list {
@@ -76,8 +67,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
-  border: 1px solid #f2e5d1;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
   border-radius: 12px;
   padding: 12px;
   flex-wrap: wrap;
@@ -88,7 +79,7 @@
   height: 46px;
   border-radius: 8px;
   overflow: hidden;
-  background: #f2e5d1;
+  background: var(--color-crema-alt);
   flex: none;
 }
 
@@ -107,13 +98,13 @@
 }
 
 .product-row__body strong {
-  font-size: 14px;
-  color: var(--color-cafe-oscuro);
+  font-size: var(--fs-sm);
+  color: var(--color-tinta);
 }
 
 .product-row__body span {
-  font-size: 12px;
-  color: #a08b76;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
 }
 
 .product-row__pills {
@@ -129,7 +120,7 @@
   width: 100%;
 }
 
-@media (min-width: 880px) {
+@media (min-width: 960px) {
   .product-row__actions {
     width: auto;
   }

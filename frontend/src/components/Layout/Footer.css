@@ -1,54 +1,59 @@
 .site-footer {
-  background: var(--color-cafe-oscuro2);
-  color: #e9dcc9;
-  padding: 44px 0 26px;
+  background: var(--color-cafe-oscuro);
+  color: var(--color-tinta-4);
+  padding: var(--sp-8) 0 var(--sp-6);
 }
 
 .site-footer__inner {
-  max-width: 1180px;
+  max-width: var(--container);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--gutter);
 }
 
 .site-footer__grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr 1fr;
-  gap: 30px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  gap: var(--sp-6);
+  padding-bottom: var(--sp-6);
+  border-bottom: 1px solid rgba(255, 244, 220, 0.12);
 }
 
 .site-footer__grid h4 {
-  font-family: 'Bree Serif', serif;
-  color: var(--color-amarillo);
-  font-size: 16px;
-  margin-bottom: 10px;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  color: var(--color-masa-solido);
+  font-size: var(--fs-base);
+  line-height: var(--lh-titulo);
+  margin-bottom: var(--sp-2);
 }
 
 .site-footer__grid p {
-  font-size: 13.5px;
-  line-height: 1.85;
-  color: #d9c9b6;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--color-tinta-4);
   margin: 0;
 }
 
 .site-footer__schedule-secondary {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 
 .site-footer__bottom {
   display: flex;
   justify-content: space-between;
-  padding-top: 18px;
-  font-size: 12px;
-  color: #a4917d;
+  padding-top: var(--sp-5);
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
-@media (max-width: 880px) {
+/* Antes era max-width: 880px. La convencion del proyecto es min-width
+   en todas las media queries; esta se invierte y se alinea al mismo
+   breakpoint que la cabecera. */
+@media (max-width: 960px) {
   .site-footer__grid {
     grid-template-columns: 1fr;
-    gap: 22px;
+    gap: var(--sp-5);
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
+import Reveal from '../components/Reveal/Reveal'
 import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
@@ -47,16 +48,39 @@ export default function DiaADia() {
 
       {errorMessage && <p className="dia-page__error">{errorMessage}</p>}
 
-      {!isLoading && items.length === 0 && !errorMessage && (
-        <p className="dia-page__empty">Todavía no hay publicaciones.</p>
+      {isLoading && (
+        <div aria-hidden="true">
+          {[0, 1].map((index) => (
+            <div className="dia-post-skeleton" key={index}>
+              <div className="skeleton skeleton--dia-media" />
+              <div className="dia-post-skeleton__body">
+                <div className="skeleton skeleton--title" />
+                <div className="skeleton skeleton--text" />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
-      <div className="dia-feed">
+      {!isLoading && items.length === 0 && !errorMessage && (
+        <div className="empty-state">
+          <Icon name="tamal" />
+          <strong>Todavía no hay publicaciones</strong>
+          <p>Aquí vas a ver cómo se cocina todo: el vapor, el local, el día a día.</p>
+        </div>
+      )}
+
+      <Reveal className="dia-feed">
         {items.map((item) => (
           <article className="dia-post" key={item.id}>
             <div className="dia-post__media">
               {item.type === 'photo' && item.imageUrl && (
-                <img src={item.imageUrl} alt={item.altText || item.caption || 'Foto del local'} />
+                <img
+                  src={item.imageUrl}
+                  alt={item.altText || item.caption || 'Foto del local'}
+                  loading="lazy"
+                  decoding="async"
+                />
               )}
 
               {item.type === 'video' && playingId === item.id && (
@@ -103,7 +127,7 @@ export default function DiaADia() {
             )}
           </article>
         ))}
-      </div>
+      </Reveal>
     </div>
   )
 }

@@ -1,77 +1,86 @@
 .announcements {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-width: 1180px;
+  gap: var(--sp-3);
+  max-width: var(--container);
   margin: 0 auto;
-  padding: 16px;
+  padding: var(--sp-5) var(--gutter);
 }
 
 .announcement {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 13.5px;
-  border: 1px solid transparent;
+  gap: var(--sp-3);
+  border-radius: var(--r-card);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-cuerpo);
+  /* Sin border propio: el borde lo pone la receta de tarjeta en
+     base.css y las variantes solo le cambian el color. */
 }
 
 .announcement__image {
   flex: none;
   width: 64px;
   height: 64px;
-  border-radius: 10px;
+  border-radius: var(--r-chip);
   object-fit: cover;
 }
 
 .announcement__tag {
   flex: none;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  padding: 4px 9px;
-  border-radius: 20px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-pill);
   background: rgba(0, 0, 0, 0.08);
 }
 
 .announcement__body strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
   margin-bottom: 2px;
 }
 
 .announcement__body p {
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--lh-cuerpo);
   opacity: 0.9;
 }
 
 .announcement--available {
-  background: #eef6ec;
-  color: #33502c;
-  border-color: #cfe6c8;
+  background: var(--color-verde-claro);
+  color: var(--color-verde);
+  border-color: var(--color-verde-claro);
 }
 
+/* Agotado: neutro y recesivo. Es "no hay nada", asi que el texto
+   baja un tono para que el cliente lo lea sin que parezca alerta. */
 .announcement--sold_out {
-  background: #f1efec;
-  color: #5a4a3e;
-  border-color: #ddd6cc;
+  background: var(--color-crema-alt);
+  color: var(--color-tinta-3);
+  border-color: var(--color-linea);
 }
 
 .announcement--promotion {
-  background: #fdf3e0;
-  color: #7a5410;
-  border-color: #f2dfae;
+  background: var(--color-amarillo-claro);
+  color: var(--color-amarillo);
+  border-color: var(--color-amarillo-claro);
 }
 
+/* Info: mismo fondo que agotado pero texto a tono completo, para que se
+   lea como "esto hay que saber" y no como "no hay". Sin azul en la
+   paleta, la distincion va por jerarquia de tinta. */
 .announcement--info {
-  background: #eaf1f6;
-  color: #2c4f63;
-  border-color: #cfe0ea;
+  background: var(--color-crema-alt);
+  color: var(--color-tinta);
+  border-color: var(--color-linea);
 }
 
-@media (min-width: 880px) {
+@media (min-width: 960px) {
   .announcements {
     flex-direction: row;
     flex-wrap: wrap;

@@ -1,49 +1,72 @@
 .dia-page {
   max-width: 640px;
   margin: 0 auto;
-  padding: 40px 16px 60px;
+  padding: var(--sp-7) var(--gutter) var(--sp-9);
 }
 
 .dia-page__header {
   text-align: center;
-  margin: 0 auto 28px;
+  margin: 0 auto var(--sp-7);
 }
 
 .dia-page__header h1 {
-  font-size: 26px;
+  font-size: var(--fs-2xl);
   color: var(--color-rojo);
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 
 .dia-page__header p {
-  color: #7a6553;
-  font-size: 14px;
-  margin-top: 8px;
-  line-height: 1.6;
+  color: var(--color-tinta-3);
+  font-size: var(--fs-base);
+  margin-top: var(--sp-2);
+  line-height: var(--lh-cuerpo);
 }
 
-.dia-page__error,
-.dia-page__empty {
+.dia-page__error {
   text-align: center;
-  color: #7a6553;
-  font-size: 14px;
-  padding: 20px 0;
+  color: var(--color-rojo);
+  font-size: var(--fs-base);
+  line-height: var(--lh-cuerpo);
+  padding: var(--sp-5) 0;
 }
 
 .dia-feed {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--sp-5);
 }
 
-.dia-post {
-  background: #fff;
-  border-radius: 16px;
+/* Esqueleto con la MISMA silueta que la publicacion real: si no, la
+   pagina salta de alto cuando llegan los datos. */
+.dia-post-skeleton {
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
   overflow: hidden;
-  border: 1px solid #f2e5d1;
-  box-shadow: 0 10px 22px rgba(74, 48, 37, 0.08);
+  margin-bottom: var(--sp-5);
 }
 
+.skeleton--dia-media {
+  aspect-ratio: 4 / 5;
+  border-radius: 0;
+}
+
+.dia-post-skeleton__body {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Receta de tarjeta en base.css. */
+.dia-post {
+  overflow: hidden;
+}
+
+/* El feed "dia a dia" conserva su estetica actual: es contenido real
+   y el formato vertical 4/5 es parte de su ritmo. Solo se le actualiza
+   el marco (radio, borde, sombra) para que conviva con las tarjetas
+   de producto. */
 .dia-post__media {
   position: relative;
   width: 100%;
@@ -75,7 +98,7 @@
 .dia-post__placeholder {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, var(--color-verde), var(--color-verde-dark));
+  background: var(--color-crema-alt);
 }
 
 .dia-post__play-icon {
@@ -83,28 +106,27 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
 }
 
 .dia-post__body {
-  padding: 14px 16px 16px;
+  padding: var(--sp-4) var(--sp-4) var(--sp-5);
 }
 
 .dia-post__body h3 {
-  font-size: 15px;
-  color: var(--color-cafe-oscuro);
-  margin-bottom: 4px;
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-1);
 }
 
 .dia-post__body p {
-  font-size: 13.5px;
-  color: #7a6553;
-  line-height: 1.55;
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
+  line-height: var(--lh-cuerpo);
   margin: 0;
 }
 
-@media (min-width: 880px) {
+@media (min-width: 960px) {
   .dia-page {
     max-width: 700px;
   }

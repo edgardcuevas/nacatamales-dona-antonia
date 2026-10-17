@@ -10,12 +10,12 @@
 }
 
 .feed-tab {
-  border: 1.5px solid #e6d6be;
-  background: #fff;
-  color: var(--color-cafe-oscuro);
-  font-family: 'Montserrat', sans-serif;
+  border: 1.5px solid var(--color-linea-fuerte);
+  background: var(--color-blanco);
+  color: var(--color-tinta);
+  font-family: var(--font-body);
   font-weight: 700;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   padding: 10px 22px;
   border-radius: 24px;
   cursor: pointer;

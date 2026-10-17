@@ -1,6 +1,8 @@
 import { useSettings } from '../context/SettingsContext'
 import { Icon } from '../components/icons/Icons'
+import Reveal from '../components/Reveal/Reveal'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
+import useOpenNow from '../hooks/useOpenNow'
 import { formatWhatsappNumber } from '../utils/phone'
 import '../styles/Contacto.css'
 
@@ -22,6 +24,9 @@ export default function Contacto() {
   const { settings } = useSettings()
   const waHref = whatsappHref(settings.whatsappNumber)
   const mapSrc = mapEmbedSrc(settings.latitude, settings.longitude)
+  // En la pagina de contacto el estado abierto/cerrado evita el viaje en
+  // vano, que es justo lo que el visitante viene a comprobar.
+  const estaAbierto = useOpenNow(settings.scheduleText)
 
   return (
     <div className="contacto-page">
@@ -31,7 +36,7 @@ export default function Contacto() {
         <p>Escribinos por WhatsApp o visitanos en el local.</p>
       </div>
 
-      <div className="contacto-cards">
+      <Reveal className="contacto-cards">
         {waHref && (
           <div className="contacto-card contacto-card--whatsapp">
             <div className="contacto-card__icon-circle">
@@ -69,7 +74,12 @@ export default function Contacto() {
           <Icon name="pot" />
           <div>
             <strong>Horario general</strong>
-            <ScheduleBadge icon="pot" text={settings.scheduleText} color={settings.scheduleColor} />
+            <ScheduleBadge
+              icon="reloj"
+              text={settings.scheduleText}
+              color={settings.scheduleColor}
+              isOpen={estaAbierto}
+            />
           </div>
         </div>
 
@@ -92,17 +102,17 @@ export default function Contacto() {
             </div>
           </div>
         )}
-      </div>
+      </Reveal>
 
       {mapSrc && (
-        <div className="contacto-map">
+        <Reveal className="contacto-map" delay={120}>
           <iframe
             src={mapSrc}
             title="Ubicación de Nacatamales de Doña Antonia"
             loading="lazy"
             referrerPolicy="no-referrer-when-downgrade"
           />
-        </div>
+        </Reveal>
       )}
     </div>
   )

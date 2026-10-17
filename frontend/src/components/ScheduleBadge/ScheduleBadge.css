@@ -1,16 +1,60 @@
 .schedule-badge {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 7px 14px;
-  border-radius: 20px;
-  line-height: 1.3;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tr-micro);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  line-height: var(--lh-denso);
+  /* Tinte, no pastilla solida. El horario ya no repinta la pagina. */
+  transition: background-color var(--dur-2) var(--ease-out),
+              color var(--dur-2) var(--ease-out);
 }
 
 .schedule-badge svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   flex: none;
+}
+
+.schedule-badge--on-dark {
+  backdrop-filter: blur(2px);
+}
+
+/* --- Pulso "abierto ahora" ---------------------------------
+   Se activa solo cuando useOpenNow confirma que el negocio esta
+   abierto ahora. Es el unico elemento del sitio que se mueve sin
+   que el usuario lo provoque, y por eso va contenido: opacidad
+   1 -> 0.6 -> 1 sobre un badge pequeno.
+
+   Opacidad y nunca transform. Un scale (aunque sea minimo) se
+   percepta como rebote, y los rebotes estan prohibidos por la
+   guia de movimiento. Tampoco hay box-shadow animado: repinta
+   area en cada frame y en un badge de 30px se nota el coste.
+
+   ease-in-out en vez de un token: --ease-out y --ease-settle son
+   curvas de entrada, y ninguna de las dos respira. Un pulso
+   necesita subir y bajar al mismo ritmo.
+
+   Con prefers-reduced-motion el bloque global de index.css deja la
+   animacion en una iteracion de 0.01ms, asi que el badge queda
+   estatico en opacidad 1. No hace falta una excepcion aqui: el
+   unico requisito es no dejar el elemento en un fotograma a medio
+   camino, y el keyframe 0% ya es opacidad 1. */
+@keyframes schedule-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.schedule-badge--open {
+  animation: schedule-badge-pulse 2.8s ease-in-out infinite;
 }
