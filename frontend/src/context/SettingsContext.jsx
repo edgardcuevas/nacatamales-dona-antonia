@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, withSettingsFallback } from '../api/client'
-
-const SettingsContext = createContext(null)
+import { SettingsContext } from './settings-context'
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(withSettingsFallback(null))
@@ -31,11 +30,19 @@ export function SettingsProvider({ children }) {
     }
   }, [])
 
+  // Lo usa el panel de administración después de guardar: la caché del
+  // cliente ya se vació con la mutación, así que esto trae lo recién
+  // publicado y todo el sitio se actualiza sin recargar la página.
+  const refreshSettings = useCallback(async () => {
+    const data = await api.get('/settings')
+    setSettings(withSettingsFallback(data.settings))
+  }, [])
+
   // An inline value object would hand every consumer a new reference on
   // each provider render and re-render all six of them for nothing.
   const value = useMemo(
-    () => ({ settings, isLoading }),
-    [settings, isLoading]
+    () => ({ settings, isLoading, refreshSettings }),
+    [settings, isLoading, refreshSettings]
   )
 
   return (
@@ -43,12 +50,4 @@ export function SettingsProvider({ children }) {
       {children}
     </SettingsContext.Provider>
   )
-}
-
-export function useSettings() {
-  const context = useContext(SettingsContext)
-  if (!context) {
-    throw new Error('useSettings debe usarse dentro de <SettingsProvider>')
-  }
-  return context
 }

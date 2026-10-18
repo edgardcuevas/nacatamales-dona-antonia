@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/useAuth'
 import LoginForm from '../components/Admin/LoginForm/LoginForm'
 import CategoryManager from '../components/Admin/CategoryManager/CategoryManager'
 import ProductManager from '../components/Admin/ProductManager/ProductManager'
 import AnnouncementManager from '../components/Admin/AnnouncementManager/AnnouncementManager'
 import FeedManager from '../components/Admin/FeedManager/FeedManager'
 import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
+import SettingsManager from '../components/Admin/SettingsManager/SettingsManager'
 import '../styles/Administracion.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 const SECTIONS = [
   { key: 'categories', label: 'Categorías', description: 'Organiza el menú por secciones.', available: true },
@@ -23,7 +25,7 @@ const SECTIONS = [
     key: 'settings',
     label: 'Configuración del sitio',
     description: 'Horario, WhatsApp, redes y ubicación.',
-    available: false,
+    available: true,
   },
 ]
 
@@ -33,9 +35,11 @@ const SECTION_COMPONENTS = {
   announcements: AnnouncementManager,
   feed: FeedManager,
   media: MediaLibrary,
+  settings: SettingsManager,
 }
 
 export default function Administracion() {
+  usePageTitle('Administración')
   const { isAuthenticated, isLoading, user, logout } = useAuth()
   const [activeSection, setActiveSection] = useState(null)
 

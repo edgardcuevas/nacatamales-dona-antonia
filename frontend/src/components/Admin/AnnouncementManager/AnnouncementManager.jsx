@@ -79,17 +79,21 @@ export default function AnnouncementManager() {
   const [isSaving, setIsSaving] = useState(false)
   const image = useStagedImage()
 
-  function loadAnnouncements() {
-    setIsLoading(true)
-    api
+  function fetchAnnouncements() {
+    return api
       .get('/admin/announcements?limit=100&sortBy=createdAt&sortOrder=desc')
       .then((data) => setAnnouncements(data.announcements || []))
       .catch(() => setErrorMessage('No se pudieron cargar los anuncios.'))
       .finally(() => setIsLoading(false))
   }
 
+  function loadAnnouncements() {
+    setIsLoading(true)
+    fetchAnnouncements()
+  }
+
   useEffect(() => {
-    loadAnnouncements()
+    fetchAnnouncements()
   }, [])
 
   function resetForm() {

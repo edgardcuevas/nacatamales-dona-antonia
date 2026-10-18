@@ -29,17 +29,21 @@ export default function CategoryManager() {
   const [isSaving, setIsSaving] = useState(false)
   const image = useStagedImage()
 
-  function loadCategories() {
-    setIsLoading(true)
-    api
+    function fetchCategories() {
+    return api
       .get('/admin/categories?limit=100')
       .then((data) => setCategories(data.categories || []))
       .catch(() => setErrorMessage('No se pudieron cargar las categorías.'))
       .finally(() => setIsLoading(false))
   }
 
+  function loadCategories() {
+    setIsLoading(true)
+    fetchCategories()
+  }
+
   useEffect(() => {
-    loadCategories()
+    fetchCategories()
   }, [])
 
   function resetForm() {

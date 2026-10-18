@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { useSettings } from '../../context/SettingsContext'
+import { useSettings } from '../../context/useSettings'
 import { Icon } from '../icons/Icons'
 import './Header.css'
 

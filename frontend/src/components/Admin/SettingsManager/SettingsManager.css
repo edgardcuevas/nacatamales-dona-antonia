@@ -1,0 +1,70 @@
+.settings-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: 720px;
+}
+
+.settings-manager__group {
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
+  padding: var(--sp-5);
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-manager__group legend {
+  font-family: var(--font-display, inherit);
+  font-weight: var(--fw-bold, 700);
+  color: var(--color-rojo);
+  padding: 0 var(--sp-2);
+}
+
+.settings-manager__row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 var(--sp-4);
+}
+
+.settings-manager__hint {
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: var(--fw-regular, 400);
+  color: var(--color-tinta-3);
+}
+
+.settings-manager__hint--warn {
+  color: var(--color-rojo);
+}
+
+.settings-manager__preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: calc(var(--sp-2) * -1) 0 var(--sp-4);
+}
+
+.settings-manager__preview-label {
+  font-size: var(--fs-sm);
+  color: var(--color-tinta-3);
+}
+
+.settings-manager__success {
+  background: var(--color-verde-claro, #e6f3e6);
+  color: var(--color-verde, #1f6b2a);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3);
+  border-radius: var(--r-chip);
+}
+
+.settings-manager__actions {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+@media (min-width: 640px) {
+  .settings-manager__row {
+    grid-template-columns: 1fr 1fr;
+  }
+}

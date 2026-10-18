@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useSettings } from '../context/SettingsContext'
+	import { useSettings } from '../context/useSettings'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
@@ -12,6 +12,7 @@ import { withCacheBuster } from '../utils/cacheBuster'
 import useOpenNow from '../hooks/useOpenNow'
 import { formatPrice } from '../utils/price'
 import './../styles/Home.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 function whatsappHref(whatsappNumber, message) {
   if (!whatsappNumber) {
@@ -23,6 +24,7 @@ function whatsappHref(whatsappNumber, message) {
 
 export default function Home() {
   const { settings } = useSettings()
+  usePageTitle(null)
   // El hero es el mejor sitio para el estado abierto/cerrado: es lo primero
   // que mira el que esta decidiendo si viene a comer.
   const estaAbierto = useOpenNow(settings.scheduleText)

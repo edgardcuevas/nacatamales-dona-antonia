@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAuth } from '../../../context/AuthContext'
+import { useAuth } from '../../../context/useAuth'
 import './LoginForm.css'
 
 export default function LoginForm() {
@@ -16,13 +16,8 @@ export default function LoginForm() {
 
     try {
       await login(email, password)
-    } catch (error) {
+        } catch (error) {
       if (error.status === 401) {
-        setErrorMessage('Correo o contraseña incorrectos.')
-      } else if (error.code === 'INVALID_EMAIL' || error.code === 'INVALID_PASSWORD') {
-        setErrorMessage('Ingresá tu correo y contraseña.')
-      }
-            if (error.status === 401) {
         setErrorMessage('Correo o contraseña incorrectos.')
       } else if (error.code === 'INVALID_EMAIL' || error.code === 'INVALID_PASSWORD') {
         setErrorMessage('Ingresá tu correo y contraseña.')
@@ -30,8 +25,8 @@ export default function LoginForm() {
         setErrorMessage('Demasiados intentos. Espera unos minutos e intenta de nuevo.')
       } else {
         setErrorMessage('No se pudo iniciar sesión. Intenta de nuevo.')
-      } 
-      } finally {
+      }
+    } finally {
       setIsSubmitting(false)
     }
   }

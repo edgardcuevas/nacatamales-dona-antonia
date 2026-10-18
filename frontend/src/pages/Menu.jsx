@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useSettings } from '../context/SettingsContext'
+import { useSettings } from '../context/useSettings'
 import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
 import Reveal from '../components/Reveal/Reveal'
 import { formatPrice } from '../utils/price'
 import '../styles/Menu.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 function whatsappHref(whatsappNumber, productName) {
   if (!whatsappNumber) {
@@ -17,11 +18,13 @@ function whatsappHref(whatsappNumber, productName) {
 
 export default function Menu() {
   const { settings } = useSettings()
+  usePageTitle('Menú')
   const [searchParams, setSearchParams] = useSearchParams()
   const [categories, setCategories] = useState([])
-  const [products, setProducts] = useState([])
+  // Se guarda junto al slug al que pertenece: así "cargando" se deduce
+  // (slug activo distinto del cargado) sin llamar setState dentro del efecto.
+  const [productsState, setProductsState] = useState({ slug: null, items: [] })
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   // Each effect owns its own message so a later success in the other
   // one cannot wipe an error the user still needs to read.
   const [categoryError, setCategoryError] = useState(null)
@@ -29,6 +32,8 @@ export default function Menu() {
   const errorMessage = categoryError || productsError
 
   const activeSlug = searchParams.get('category')
+    const isLoadingProducts = Boolean(activeSlug) && productsState.slug !== activeSlug
+  const products = productsState.slug === activeSlug ? productsState.items : []
 
   useEffect(() => {
     let isMounted = true
@@ -63,33 +68,25 @@ export default function Menu() {
 
   useEffect(() => {
     if (!activeSlug) {
-      // The request that was in flight is about to be discarded by its
-      // own cleanup, so nothing will ever clear the flag. Without this
-      // the page sits on "Cargando…" forever once the category param
-      // is dropped from the URL.
-      setProducts([])
-      setIsLoadingProducts(false)
       return
     }
 
     let isMounted = true
-    setIsLoadingProducts(true)
 
     api
       .get(`/products?category=${activeSlug}&limit=50`)
       .then((data) => {
         if (isMounted) {
-          setProducts(data.products || [])
+          setProductsState({ slug: activeSlug, items: data.products || [] })
           setProductsError(null)
         }
       })
       .catch(() => {
         if (isMounted) {
+          // Marcar el slug como resuelto evita quedarse en "Cargando…".
+          setProductsState({ slug: activeSlug, items: [] })
           setProductsError('No se pudieron cargar los productos de esta categoría.')
         }
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingProducts(false)
       })
 
     return () => {

@@ -1,10 +1,11 @@
-import { useSettings } from '../context/SettingsContext'
+import { useSettings } from '../context/useSettings'
 import { Icon } from '../components/icons/Icons'
 import Reveal from '../components/Reveal/Reveal'
 import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import useOpenNow from '../hooks/useOpenNow'
 import { formatWhatsappNumber } from '../utils/phone'
 import '../styles/Contacto.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 function whatsappHref(whatsappNumber) {
   if (!whatsappNumber) {
@@ -22,6 +23,7 @@ function mapEmbedSrc(latitude, longitude) {
 
 export default function Contacto() {
   const { settings } = useSettings()
+  usePageTitle('Contacto')
   const waHref = whatsappHref(settings.whatsappNumber)
   const mapSrc = mapEmbedSrc(settings.latitude, settings.longitude)
   // En la pagina de contacto el estado abierto/cerrado evita el viaje en

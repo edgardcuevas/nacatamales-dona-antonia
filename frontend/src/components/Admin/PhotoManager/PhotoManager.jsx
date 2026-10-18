@@ -21,17 +21,21 @@ export default function PhotoManager() {
   const [isSaving, setIsSaving] = useState(false)
   const image = useStagedImage()
 
-  function loadPhotos() {
-    setIsLoading(true)
-    api
+    function fetchPhotos() {
+    return api
       .get('/admin/photos?limit=100')
       .then((data) => setPhotos(data.photos || []))
       .catch(() => setErrorMessage('No se pudieron cargar las fotos.'))
       .finally(() => setIsLoading(false))
   }
 
+  function loadPhotos() {
+    setIsLoading(true)
+    fetchPhotos()
+  }
+
   useEffect(() => {
-    loadPhotos()
+    fetchPhotos()
   }, [])
 
   function resetForm() {

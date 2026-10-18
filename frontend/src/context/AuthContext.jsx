@@ -1,7 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authApi, setAccessToken, setSessionExpiredHandler } from '../api/client'
-
-const AuthContext = createContext(null)
+import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -30,7 +29,7 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-   // El cliente avisa cuando el refresh es rechazado a mitad de sesión:
+  // El cliente avisa cuando el refresh es rechazado a mitad de sesión:
   // se limpia el usuario y la pantalla vuelve al login.
   useEffect(() => {
     setSessionExpiredHandler(() => {
@@ -69,7 +68,7 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       isAuthenticated: Boolean(user),
-            isLoading,
+      isLoading,
       sessionExpired,
       login,
       logout,
@@ -82,12 +81,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth debe usarse dentro de <AuthProvider>')
-  }
-  return context
 }

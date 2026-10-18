@@ -8,11 +8,14 @@ import DiaADia from './pages/DiaADia'
 import Nosotros from './pages/Nosotros'
 import Contacto from './pages/Contacto'
 import Administracion from './pages/Administracion'
+import NotFound from './pages/NotFound'
+import ScrollToTop from './components/ScrollToTop/ScrollToTop'
 
 export default function App() {
   return (
     <SettingsProvider>
       <AuthProvider>
+        <ScrollToTop />
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Home />} />
@@ -21,6 +24,7 @@ export default function App() {
             <Route path="nosotros" element={<Nosotros />} />
             <Route path="contacto" element={<Contacto />} />
             <Route path="administracion" element={<Administracion />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </AuthProvider>

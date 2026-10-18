@@ -36,14 +36,18 @@ export default function ProductManager() {
   const [filterCategoryId, setFilterCategoryId] = useState('')
   const image = useStagedImage()
 
-  function loadProducts() {
-    setIsLoading(true)
+  function fetchProducts() {
     const query = filterCategoryId ? `&categoryId=${filterCategoryId}` : ''
-    api
+    return api
       .get(`/admin/products?limit=100${query}`)
       .then((data) => setProducts(data.products || []))
       .catch(() => setErrorMessage('No se pudieron cargar los productos.'))
       .finally(() => setIsLoading(false))
+  }
+
+  function loadProducts() {
+    setIsLoading(true)
+    fetchProducts()
   }
 
   useEffect(() => {
@@ -54,10 +58,9 @@ export default function ProductManager() {
   }, [])
 
   useEffect(() => {
-    loadProducts()
+    fetchProducts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterCategoryId])
-
   const selectableCategories = categories.filter(
     (category) => category.isActive || String(category.id) === form.categoryId
   )
@@ -269,7 +272,10 @@ export default function ProductManager() {
         <select
           className="product-manager__filter"
           value={filterCategoryId}
-          onChange={(event) => setFilterCategoryId(event.target.value)}
+                    onChange={(event) => {
+            setIsLoading(true)
+            setFilterCategoryId(event.target.value)
+          }}
         >
           <option value="">Todas las categorías</option>
           {categories.map((category) => (

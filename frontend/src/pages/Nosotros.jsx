@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
-import { useSettings } from '../context/SettingsContext'
+	import { useSettings } from '../context/useSettings'
 import { Icon } from '../components/icons/Icons'
 import Reveal from '../components/Reveal/Reveal'
 import '../styles/Nosotros.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 export default function Nosotros() {
   const { settings } = useSettings()
+  usePageTitle('Nosotros')
 
   return (
     <div className="nosotros-page">

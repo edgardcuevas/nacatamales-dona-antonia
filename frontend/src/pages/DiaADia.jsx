@@ -6,9 +6,11 @@ import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
 import '../styles/DiaADia.css'
+import usePageTitle from '../hooks/usePageTitle'
 
 export default function DiaADia() {
   const [items, setItems] = useState([])
+  usePageTitle('Día a día')
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState(null)
   const [playingId, setPlayingId] = useState(null)

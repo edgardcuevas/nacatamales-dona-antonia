@@ -31,11 +31,8 @@ export default function MediaLibrary() {
   const [errorMessage, setErrorMessage] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
 
-  function load() {
-    setIsLoading(true)
-    setErrorMessage(null)
-
-    Promise.all([
+  function fetchAll() {
+    return Promise.all([
       api.get('/admin/media?limit=100'),
       safeList('/admin/categories?limit=100'),
       safeList('/admin/products?limit=100'),
@@ -58,11 +55,20 @@ export default function MediaLibrary() {
       .finally(() => setIsLoading(false))
   }
 
+  function load() {
+    setIsLoading(true)
+    setErrorMessage(null)
+    fetchAll()
+  }
+
   useEffect(() => {
-    load()
+    fetchAll()
   }, [])
 
   async function handleDelete(mediaId) {
+        if (!window.confirm('¿Borrar esta imagen? Esta acción no se puede deshacer.')) {
+      return
+    }
     setDeletingId(mediaId)
     setErrorMessage(null)
 

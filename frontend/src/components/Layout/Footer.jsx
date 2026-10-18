@@ -1,4 +1,4 @@
-import { useSettings } from '../../context/SettingsContext'
+import { useSettings } from '../../context/useSettings'
 import ScheduleBadge from '../ScheduleBadge/ScheduleBadge'
 import useOpenNow from '../../hooks/useOpenNow'
 import './Footer.css'
