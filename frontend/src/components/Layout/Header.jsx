@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useSettings } from '../../context/useSettings'
 import { Icon } from '../icons/Icons'
+import { splitBusinessName } from '../../utils/brand'
 import './Header.css'
 
 const NAV_LINKS = [
@@ -23,6 +24,7 @@ export default function Header() {
   const { settings } = useSettings()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const waHref = whatsappHref(settings.whatsappNumber)
+    const brand = splitBusinessName(settings.businessName)
 
   function closeMenu() {
     setIsMenuOpen(false)
@@ -34,8 +36,8 @@ export default function Header() {
         <NavLink to="/" className="site-header__brand" onClick={closeMenu}>
           <Icon name="badge" className="site-header__badge" />
           <span className="site-header__name">
-            NACATAMALES
-            <span>DE DOÑA ANTONIA</span>
+                       {brand.main}
+            {brand.rest && <span>{brand.rest}</span>}
           </span>
         </NavLink>
 

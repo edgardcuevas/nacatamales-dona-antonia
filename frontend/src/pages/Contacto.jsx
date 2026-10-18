@@ -22,7 +22,7 @@ function mapEmbedSrc(latitude, longitude) {
 }
 
 export default function Contacto() {
-  const { settings } = useSettings()
+    const { settings, loadFailed, refreshSettings } = useSettings()
   usePageTitle('Contacto')
   const waHref = whatsappHref(settings.whatsappNumber)
   const mapSrc = mapEmbedSrc(settings.latitude, settings.longitude)
@@ -38,6 +38,19 @@ export default function Contacto() {
         <p>Escribinos por WhatsApp o visitanos en el local.</p>
       </div>
 
+
+            {loadFailed && (
+        <div className="contacto-page__notice" role="alert">
+          <p>No pudimos cargar el horario ni los datos de contacto.</p>
+          <button
+            type="button"
+            className="btn btn--outline"
+            onClick={() => refreshSettings().catch(() => {})}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
       <Reveal className="contacto-cards">
         {waHref && (
           <div className="contacto-card contacto-card--whatsapp">
@@ -72,18 +85,20 @@ export default function Contacto() {
           </div>
         )}
 
-        <div className="contacto-card">
-          <Icon name="pot" />
-          <div>
-            <strong>Horario general</strong>
-            <ScheduleBadge
-              icon="reloj"
-              text={settings.scheduleText}
-              color={settings.scheduleColor}
-              isOpen={estaAbierto}
-            />
+                {settings.scheduleText && (
+          <div className="contacto-card">
+            <Icon name="pot" />
+            <div>
+              <strong>Horario general</strong>
+              <ScheduleBadge
+                icon="reloj"
+                text={settings.scheduleText}
+                color={settings.scheduleColor}
+                isOpen={estaAbierto}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {settings.fritangaScheduleText && (
           <div className="contacto-card">

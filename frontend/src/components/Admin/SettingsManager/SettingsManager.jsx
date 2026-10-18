@@ -4,6 +4,7 @@ import { useSettings } from '../../../context/useSettings'
 import useOpenNow from '../../../hooks/useOpenNow'
 import { parseSchedule } from '../../../utils/openNow'
 import ScheduleBadge from '../../ScheduleBadge/ScheduleBadge'
+import { extractCoordinates, isShortMapsLink, mapsEmbedUrl, mapsSearchUrl } from '../../../utils/mapsLink'
 import './SettingsManager.css'
 
 const COLOR_OPTIONS = [
@@ -14,6 +15,7 @@ const COLOR_OPTIONS = [
 ]
 
 const SCHEDULE_EXAMPLE = 'Jueves a Domingo · 5:00 AM – 9:00 PM'
+const SCHEDULE_EXAMPLE_MULTI = 'Jueves a Sábado 5:00 AM - 9:00 PM, Domingo 5:00 AM - 10:00 AM'
 
 // Mismos límites que settings.constants.js del servidor.
 const LIMITS = {
@@ -153,6 +155,8 @@ export default function SettingsManager() {
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState(null)
   const [successMessage, setSuccessMessage] = useState(null)
+    const [mapsInput, setMapsInput] = useState('')
+  const [mapsFeedback, setMapsFeedback] = useState(null)
 
   useEffect(() => {
     let isMounted = true
@@ -179,6 +183,32 @@ export default function SettingsManager() {
     setSuccessMessage(null)
   }
 
+    // El dueño pega el enlace de Google Maps (o las coordenadas) y de ahí se
+  // sacan la latitud y la longitud: no tiene que escribirlas a mano.
+  function handleMapsInput(value) {
+    setMapsInput(value)
+
+    if (!value.trim()) {
+      setMapsFeedback(null)
+      return
+    }
+
+    const coordinates = extractCoordinates(value)
+    if (coordinates) {
+      setField('latitude', String(coordinates.latitude))
+      setField('longitude', String(coordinates.longitude))
+      setMapsFeedback({ ok: true })
+    } else {
+      setMapsFeedback({ ok: false, isShort: isShortMapsLink(value) })
+    }
+  }
+
+  function clearLocation() {
+    setField('latitude', '')
+    setField('longitude', '')
+    setMapsInput('')
+    setMapsFeedback(null)
+  }
   async function handleSubmit(event) {
     event.preventDefault()
     setErrorMessage(null)
@@ -208,6 +238,13 @@ export default function SettingsManager() {
       setIsSaving(false)
     }
   }
+
+    const hasLocation =
+    Boolean(form) &&
+    String(form.latitude).trim() !== '' &&
+    String(form.longitude).trim() !== '' &&
+    Number.isFinite(Number(form.latitude)) &&
+    Number.isFinite(Number(form.longitude))
 
   if (isLoading) {
     return <p className="admin-loading-inline">Cargando configuración…</p>
@@ -308,6 +345,9 @@ export default function SettingsManager() {
             onChange={(event) => setField('scheduleText', event.target.value)}
             placeholder={SCHEDULE_EXAMPLE}
           />
+                    <small className="settings-manager__hint">
+            Si tienes horarios distintos, sepáralos con coma. Ejemplo: {SCHEDULE_EXAMPLE_MULTI}
+          </small>
         </label>
         <div className="admin-field">
           <span>Color del horario</span>
@@ -336,7 +376,7 @@ export default function SettingsManager() {
         <SchedulePreview text={form.fritangaScheduleText} color={form.fritangaScheduleColor} icon="grill" />
       </fieldset>
 
-      <fieldset className="settings-manager__group" disabled={isSaving}>
+            <fieldset className="settings-manager__group" disabled={isSaving}>
         <legend>Ubicación</legend>
 
         <label className="admin-field">
@@ -349,31 +389,89 @@ export default function SettingsManager() {
           />
         </label>
 
-        <div className="settings-manager__row">
+        <div className="settings-manager__map">
+          <span className="settings-manager__map-title">Ubicación en el mapa</span>
+          <ol className="settings-manager__steps">
+            <li>Toca “Buscar mi negocio en Google Maps”. Se abre en otra pestaña.</li>
+            <li>Elige tu negocio en los resultados.</li>
+            <li>Copia la dirección de la barra del navegador (empieza con https://www.google.com/maps) y pégala abajo.</li>
+          </ol>
+
+          <a
+            className="btn btn--outline settings-manager__map-button"
+            href={mapsSearchUrl(`${form.businessName} ${form.address}`.trim())}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buscar mi negocio en Google Maps
+          </a>
+
           <label className="admin-field">
-            <span>Latitud</span>
+            <span>Enlace de Google Maps</span>
             <input
               type="text"
-              inputMode="decimal"
-              value={form.latitude}
-              onChange={(event) => setField('latitude', event.target.value)}
-              placeholder="12.1364"
+              value={mapsInput}
+              onChange={(event) => handleMapsInput(event.target.value)}
+              placeholder="Pega aquí el enlace"
+              autoComplete="off"
             />
           </label>
-          <label className="admin-field">
-            <span>Longitud</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={form.longitude}
-              onChange={(event) => setField('longitude', event.target.value)}
-              placeholder="-86.2514"
-            />
-          </label>
+
+          <div role="status">
+            {mapsFeedback?.ok && (
+              <small className="settings-manager__hint settings-manager__hint--ok">
+                Ubicación detectada. Recuerda guardar los cambios.
+              </small>
+            )}
+            {mapsFeedback && !mapsFeedback.ok && (
+              <small className="settings-manager__hint settings-manager__hint--warn">
+                {mapsFeedback.isShort
+                  ? 'Ese es un enlace corto y no trae la ubicación. Ábrelo en el navegador y copia la dirección completa de la barra.'
+                  : 'No encontré la ubicación en ese enlace. Copia la dirección completa de la barra del navegador cuando tu negocio esté seleccionado.'}
+              </small>
+            )}
+          </div>
+
+          {hasLocation && (
+            <div className="settings-manager__map-preview">
+              <iframe
+                src={mapsEmbedUrl(Number(form.latitude), Number(form.longitude))}
+                title="Vista previa de la ubicación"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+              <button type="button" className="btn-link" onClick={clearLocation}>
+                Quitar ubicación
+              </button>
+            </div>
+          )}
+
+          <details className="settings-manager__manual">
+            <summary>Escribir las coordenadas a mano</summary>
+            <div className="settings-manager__row">
+              <label className="admin-field">
+                <span>Latitud</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.latitude}
+                  onChange={(event) => setField('latitude', event.target.value)}
+                  placeholder="12.1364"
+                />
+              </label>
+              <label className="admin-field">
+                <span>Longitud</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.longitude}
+                  onChange={(event) => setField('longitude', event.target.value)}
+                  placeholder="-86.2514"
+                />
+              </label>
+            </div>
+          </details>
         </div>
-        <small className="settings-manager__hint">
-          Para obtenerlas: en Google Maps, mantén presionado el lugar y copia los dos números. Sin ellas, no se muestra el mapa.
-        </small>
       </fieldset>
 
       <div role="alert">{errorMessage && <p className="admin-error">{errorMessage}</p>}</div>
@@ -406,7 +504,7 @@ function SchedulePreview({ text, color, icon, checkOpen = false }) {
       <ScheduleBadge icon={icon} text={text.trim()} color={color} isOpen={isOpen} />
       {checkOpen && !understood && (
         <small className="settings-manager__hint settings-manager__hint--warn">
-          No se entiende el formato, así que el sitio no mostrará “Abierto ahora”. Ejemplo: {SCHEDULE_EXAMPLE}
+        El horario se mostrará tal cual, pero no se entiende para marcar “Abierto ahora”. Escribe los días y las horas así: {SCHEDULE_EXAMPLE}
         </small>
       )}
     </div>

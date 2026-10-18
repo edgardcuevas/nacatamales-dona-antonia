@@ -5,6 +5,7 @@ import { SettingsContext } from './settings-context'
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(withSettingsFallback(null))
   const [isLoading, setIsLoading] = useState(true)
+    const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -16,8 +17,12 @@ export function SettingsProvider({ children }) {
           setSettings(withSettingsFallback(data.settings))
         }
       })
-      .catch(() => {
-        // Si falla, seguimos con los valores por defecto ya cargados.
+            .catch(() => {
+        // Se siguen mostrando los datos de marca por defecto, pero sin
+        // horario; las páginas que lo necesitan avisan con `loadFailed`.
+        if (isMounted) {
+          setLoadFailed(true)
+        }
       })
       .finally(() => {
         if (isMounted) {
@@ -36,13 +41,14 @@ export function SettingsProvider({ children }) {
   const refreshSettings = useCallback(async () => {
     const data = await api.get('/settings')
     setSettings(withSettingsFallback(data.settings))
+        setLoadFailed(false)
   }, [])
 
   // An inline value object would hand every consumer a new reference on
   // each provider render and re-render all six of them for nothing.
-  const value = useMemo(
-    () => ({ settings, isLoading, refreshSettings }),
-    [settings, isLoading, refreshSettings]
+    const value = useMemo(
+    () => ({ settings, isLoading, loadFailed, refreshSettings }),
+    [settings, isLoading, loadFailed, refreshSettings]
   )
 
   return (

@@ -1,13 +1,23 @@
 import { useSettings } from '../../context/useSettings'
 import ScheduleBadge from '../ScheduleBadge/ScheduleBadge'
 import useOpenNow from '../../hooks/useOpenNow'
+import { formatWhatsappNumber } from '../../utils/phone'
 import './Footer.css'
+
+function mapsHref(latitude, longitude) {
+  if (latitude === null || longitude === null) {
+    return null
+  }
+  return `https://www.google.com/maps?q=${latitude},${longitude}`
+}
 
 export default function Footer() {
   const { settings } = useSettings()
   // Un solo pulso en el pie: el horario general. El de fritanga lleva su
   // propio texto y no se mezcla con el principal.
   const estaAbierto = useOpenNow(settings.scheduleText)
+  const mapHref = mapsHref(settings.latitude, settings.longitude)
+  const hasSocials = Boolean(settings.facebookUrl || settings.instagramUrl)
 
   return (
     <footer className="site-footer">
@@ -43,8 +53,39 @@ export default function Footer() {
           </div>
           <div>
             <h4>Visítanos</h4>
-            {settings.whatsappNumber && <p>WhatsApp: {settings.whatsappNumber}</p>}
-            {settings.address && <p>{settings.address}</p>}
+            {settings.whatsappNumber && (
+              <p>
+                WhatsApp:{' '}
+                <a href={`https://wa.me/${settings.whatsappNumber}`} target="_blank" rel="noreferrer">
+                  {formatWhatsappNumber(settings.whatsappNumber)}
+                </a>
+              </p>
+            )}
+            {settings.address && (
+              <p>
+                {mapHref ? (
+                  <a href={mapHref} target="_blank" rel="noreferrer">
+                    {settings.address}
+                  </a>
+                ) : (
+                  settings.address
+                )}
+              </p>
+            )}
+            {hasSocials && (
+              <p className="site-footer__socials">
+                {settings.facebookUrl && (
+                  <a href={settings.facebookUrl} target="_blank" rel="noreferrer">
+                    Facebook
+                  </a>
+                )}
+                {settings.instagramUrl && (
+                  <a href={settings.instagramUrl} target="_blank" rel="noreferrer">
+                    Instagram
+                  </a>
+                )}
+              </p>
+            )}
           </div>
         </div>
         <div className="site-footer__bottom">

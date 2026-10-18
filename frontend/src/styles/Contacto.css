@@ -162,3 +162,23 @@
     flex: 1 1 260px;
   }
 }
+
+
+/* Aviso cuando no se pudo cargar la configuración del sitio. */
+.contacto-page__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  background: var(--color-rojo-claro);
+  color: var(--color-rojo);
+  font-size: var(--fs-sm);
+  padding: var(--sp-4);
+  border-radius: var(--r-card);
+  margin-bottom: var(--sp-5);
+}
+
+.contacto-page__notice p {
+  margin: 0;
+}

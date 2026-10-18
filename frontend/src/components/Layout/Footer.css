@@ -34,6 +34,23 @@
   margin: 0;
 }
 
+/* Enlaces del pie (WhatsApp, dirección, redes). Heredan el color del texto
+   para no introducir un azul de navegador sobre el fondo oscuro. */
+.site-footer__grid a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.site-footer__grid a:hover {
+  color: var(--color-masa-solido);
+}
+
+.site-footer__socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
 .site-footer__schedule-secondary {
   margin-top: var(--sp-2);
 }

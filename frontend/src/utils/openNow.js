@@ -19,20 +19,24 @@
    saber si those are open in Managua, no en Espana. */
 export const TIME_ZONE = 'America/Managua'
 
-/* 0 = domingo ... 6 = sabado, igual que Date.prototype.getDay. */
+/* 0 = domingo ... 6 = sabado, igual que Date.prototype.getDay y que el
+   `dow` que devuelve localParts. Antes esta tabla empezaba en lunes (lunes
+   = 0) mientras localParts empezaba en domingo, y todo el horario quedaba
+   corrido un dia: "Jueves a Domingo" marcaba abierto el miercoles y cerrado
+   el domingo. */
 const DIAS = {
-  domingo: 6,
-  lunes: 0,
-  martes: 1,
-  miercoles: 2,
-  jueves: 3,
-  viernes: 4,
-  sabado: 5,
+  domingo: 0,
+  lunes: 1,
+  martes: 2,
+  miercoles: 3,
+  jueves: 4,
+  viernes: 5,
+  sabado: 6,
 }
 
 /* Abreviaturas de un dia. 'm' se omite a proposito: es ambigua (martes o
    miercoles) y adivinar el dia equivocado es peor que no saber nada. */
-const DIAS_CORTOS = { l: 0, j: 3, v: 4, s: 5, d: 6 }
+const DIAS_CORTOS = { l: 1, j: 4, v: 5, s: 6, d: 0 }
 
 const TODOS_DIAS = () => new Set([0, 1, 2, 3, 4, 5, 6])
 
@@ -60,7 +64,15 @@ function rango(a, b) {
   return dias
 }
 
-function parseDias(parte) {
+function parseDias(texto) {
+  // Se aceptan las formas con que se escribe a mano: "los domingos de",
+  // "sabados", "jueves a sabado de".
+  const parte = texto
+    .replace(/^(los|las|el|la)\s+/, '')
+    .replace(/\s+de$/, '')
+    .replace(/\b(domingo|sabado)s\b/g, '$1')
+    .trim()
+
   if (!parte) return TODOS_DIAS()
 
   // "todos los dias", "todos", "de lunes a domingo" (el "a domingo" lo
@@ -140,13 +152,50 @@ function parseHoras(parte) {
   return { open, close, overnight: close <= open }
 }
 
+// Reparte el texto en tramos. Cada tramo termina donde aparece su hora; lo
+// que no trae hora (los dias de una lista) se pega al tramo siguiente:
+//   "lunes, miercoles, viernes · 5:00 AM - 9:00 PM"  -> 1 tramo
+//   "lunes a sabado 5am-9pm, domingos 5am-10am"       -> 2 tramos
+function dividirTramos(t) {
+  const tramos = []
+  let pendiente = ''
+  for (const pieza of t.split(/[;,]| y /)) {
+    const limpia = pieza.trim()
+    if (!limpia) continue
+    pendiente = pendiente ? `${pendiente}, ${limpia}` : limpia
+    if (/\d/.test(limpia)) {
+      tramos.push(pendiente)
+      pendiente = ''
+    }
+  }
+  // Sobro texto sin hora: se deja como tramo para que falle y devuelva null.
+  if (pendiente) tramos.push(pendiente)
+  return tramos
+}
+
 /**
  * Convierte el texto de horario en un objeto evaluable.
- * @returns {{days:Set<number>, open:number, close:number, overnight:boolean}|null}
+ * Un solo tramo: {days, open, close, overnight}. Varios tramos:
+ * {segments: [ ...mismo objeto por tramo ]}.
+ * @returns {object|null}
  */
 export function parseSchedule(texto) {
   if (typeof texto !== 'string' || !texto.trim()) return null
-  const t = norm(texto)
+
+  const tramos = dividirTramos(norm(texto))
+  if (tramos.length === 0) return null
+
+  const segments = []
+  for (const tramo of tramos) {
+    const segmento = parseTramo(tramo)
+    if (!segmento) return null
+    segments.push(segmento)
+  }
+
+  return segments.length === 1 ? segments[0] : { segments }
+}
+
+function parseTramo(t) {
 
   // Separador explicito "·" (el formato por defecto del sitio).
   let diaParte
@@ -197,6 +246,9 @@ function localParts(fecha, tz) {
  */
 export function isOpenNow(schedule, ahora = new Date()) {
   if (!schedule) return null
+    if (schedule.segments) {
+    return schedule.segments.some((tramo) => isOpenNow(tramo, ahora))
+  }
   const { dow, minutes } = localParts(ahora, TIME_ZONE)
 
   if (schedule.overnight) {

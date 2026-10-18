@@ -1,7 +1,6 @@
 const DEFAULT_FALLBACKS = {
   businessName: 'Nacatamales de Doña Antonia',
   tagline: 'El sabor tradicional de Nicaragua, hecho como en casa.',
-  scheduleText: 'Jueves a Domingo · 5:00 AM – 9:00 PM',
   scheduleColor: 'AMARILLO',
   storyText:
     'Somos un pequeño negocio familiar nicaragüense, dedicado a preparar nacatamales y fritanga con la receta de siempre. Cada plato lo hacemos a mano, con el mismo cariño con el que empezó este negocio.',
@@ -286,7 +285,9 @@ export function withSettingsFallback(settings) {
     address: settings?.address || null,
     latitude: settings?.latitude ?? null,
     longitude: settings?.longitude ?? null,
-    scheduleText: settings?.scheduleText || DEFAULT_FALLBACKS.scheduleText,
+    // Sin dato del servidor no hay horario: mostrar uno inventado (o decir
+    // "Abierto ahora" con él) es peor que no mostrar nada.
+    scheduleText: settings?.scheduleText || null,
     scheduleColor: settings?.scheduleColor || DEFAULT_FALLBACKS.scheduleColor,
     fritangaScheduleText: settings?.fritangaScheduleText || null,
     fritangaScheduleColor: settings?.fritangaScheduleColor || 'ROJO',

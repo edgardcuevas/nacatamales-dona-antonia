@@ -11,6 +11,7 @@ import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
 import useOpenNow from '../hooks/useOpenNow'
 import { formatPrice } from '../utils/price'
+import { storyExcerpt } from '../utils/brand'
 import './../styles/Home.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -74,6 +75,13 @@ export default function Home() {
   const fritangaCategory = categories.find((category) =>
     /fritanga/i.test(`${category.slug} ${category.name}`),
   )
+    // La franja de portada cuenta lo que realmente hay: el horario de fritanga
+  // si el dueño lo cargó, o la categoría si existe. Sin ninguno, no se dibuja.
+  const fritangaStrip = settings.fritangaScheduleText
+    ? `Fritanga: ${settings.fritangaScheduleText}`
+    : fritangaCategory
+      ? 'También hacemos fritanga'
+      : null
   const waOrderHref = whatsappHref(
     settings.whatsappNumber,
     `Hola, quiero hacer un pedido de ${settings.businessName}`
@@ -118,9 +126,11 @@ export default function Home() {
           <div className="hero__strip-item">
             <Icon name="pot" /> Receta tradicional de familia
           </div>
-          <div className="hero__strip-item">
-            <Icon name="grill" /> Fritanga los fines de semana
-          </div>
+                    {fritangaStrip && (
+            <div className="hero__strip-item">
+              <Icon name="grill" /> {fritangaStrip}
+            </div>
+          )}
         </div>
       </header>
 
@@ -239,10 +249,7 @@ export default function Home() {
         <div className="historia-teaser__copy">
           <span className="section-head__tag section-head__tag--left">Nuestra historia</span>
           <h2>Tradición y sabor casero</h2>
-          <p>
-            Somos un pequeño negocio familiar, con años de tradición en la preparación de nacatamales
-            y fritanga. Cada plato lo hacemos con el mismo cariño de siempre.
-          </p>
+                    <p>{storyExcerpt(settings.storyText)}</p>
           <Link className="btn btn--outline" to="/nosotros">
             Conocer más
           </Link>

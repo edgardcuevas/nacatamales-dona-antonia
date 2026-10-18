@@ -9,7 +9,7 @@ describe('parseSchedule', () => {
   it('interpreta el formato por defecto del sitio', () => {
     const s = parseSchedule('Jueves a Domingo · 5:00 AM – 9:00 PM')
     expect(s).not.toBeNull()
-    expect([...s.days].sort()).toEqual([3, 4, 5, 6]) // jue, vie, sab, dom
+    expect([...s.days].sort()).toEqual([0, 4, 5, 6]) // dom, jue, vie, sab
     expect(s.open).toBe(5 * 60) // 300
     expect(s.close).toBe(21 * 60) // 1260
     expect(s.overnight).toBe(false)
@@ -17,12 +17,12 @@ describe('parseSchedule', () => {
 
   it('quita acentos de los nombres de dia', () => {
     const s = parseSchedule('Miércoles a Viernes · 8:00 AM – 5:00 PM')
-    expect([...s.days].sort()).toEqual([2, 3, 4]) // mie, jue, vie
+    expect([...s.days].sort()).toEqual([3, 4, 5]) // mie, jue, vie
   })
 
   it('interpreta abreviaturas de rango (l-v)', () => {
     const s = parseSchedule('L-V · 7:00 AM – 6:00 PM')
-    expect([...s.days].sort()).toEqual([0, 1, 2, 3, 4])
+    expect([...s.days].sort()).toEqual([1, 2, 3, 4, 5]) // lun a vie
   })
 
   it('interpreta formato 24h sin AM/PM', () => {
@@ -96,5 +96,64 @@ describe('isOpenNow', () => {
     const noche = parseSchedule('Viernes a Sábado · 10:00 PM – 2:00 AM')
     // 2026-03-23 es lunes; 07:00 UTC = 01:00 Managua del lunes.
     expect(isOpenNow(noche, new Date('2026-03-23T07:00:00Z'))).toBe(false)
+  })
+})
+
+
+describe('dias de la semana (regresion del desfase de un dia)', () => {
+  const horario = parseSchedule('Jueves a Domingo · 5:00 AM – 9:00 PM')
+
+  it('el miercoles esta cerrado', () => {
+    // 2026-03-18 es miercoles; 18:00 UTC = 12:00 Managua.
+    expect(isOpenNow(horario, new Date('2026-03-18T18:00:00Z'))).toBe(false)
+  })
+
+  it('el domingo esta abierto', () => {
+    // 2026-03-22 es domingo; 18:00 UTC = 12:00 Managua.
+    expect(isOpenNow(horario, new Date('2026-03-22T18:00:00Z'))).toBe(true)
+  })
+
+  it('el lunes sigue cerrado', () => {
+    expect(isOpenNow(horario, new Date('2026-03-23T18:00:00Z'))).toBe(false)
+  })
+})
+
+describe('horarios con varios tramos', () => {
+  const texto = 'Jueves a Sábado de 5:00 am - 9:00 pm, domingos de 5:00 am a 10:00 am'
+
+  it('entiende el horario con dos tramos', () => {
+    const s = parseSchedule(texto)
+    expect(s).not.toBeNull()
+    expect(s.segments).toHaveLength(2)
+    expect([...s.segments[0].days].sort()).toEqual([4, 5, 6])
+    expect([...s.segments[1].days]).toEqual([0])
+  })
+
+  it('jueves 12:00 abierto; domingo 9:00 abierto; domingo 12:00 cerrado', () => {
+    const s = parseSchedule(texto)
+    expect(isOpenNow(s, new Date('2026-03-19T18:00:00Z'))).toBe(true) // jue 12:00
+    expect(isOpenNow(s, new Date('2026-03-22T15:00:00Z'))).toBe(true) // dom 09:00
+    expect(isOpenNow(s, new Date('2026-03-22T18:00:00Z'))).toBe(false) // dom 12:00
+  })
+
+  it('lunes a miercoles esta cerrado', () => {
+    const s = parseSchedule(texto)
+    expect(isOpenNow(s, new Date('2026-03-16T18:00:00Z'))).toBe(false) // lun
+    expect(isOpenNow(s, new Date('2026-03-18T18:00:00Z'))).toBe(false) // mie
+  })
+
+  it('acepta " y " entre tramos y plurales', () => {
+    const s = parseSchedule('Lunes a viernes 8am-5pm y sabados 8am-12pm')
+    expect(s.segments).toHaveLength(2)
+  })
+
+  it('una lista de dias con comas sigue siendo un solo tramo', () => {
+    const s = parseSchedule('Lunes, miércoles, viernes · 5:00 AM – 9:00 PM')
+    expect(s.segments).toBeUndefined()
+    expect([...s.days].sort()).toEqual([1, 3, 5])
+  })
+
+  it('un tramo sin hora invalida todo el horario', () => {
+    expect(parseSchedule('Lunes a viernes 8am-5pm, domingos cerrado')).toBeNull()
   })
 })

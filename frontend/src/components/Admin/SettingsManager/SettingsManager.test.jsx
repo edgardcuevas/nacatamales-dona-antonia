@@ -78,4 +78,35 @@ describe('SettingsManager', () => {
     expect(await screen.findByText(/latitud y la longitud juntas/)).toBeTruthy()
     expect(patch).not.toHaveBeenCalled()
   })
+
+  
+  it('saca la ubicación de un enlace de Google Maps y la guarda', async () => {
+    get.mockResolvedValue({ settings: SETTINGS })
+    patch.mockResolvedValue({ settings: SETTINGS })
+    render(<SettingsManager />)
+
+    const link = await screen.findByPlaceholderText('Pega aquí el enlace')
+    fireEvent.change(link, {
+      target: {
+        value: 'https://www.google.com/maps/place/X/@12.1364,-86.2514,17z/data=!3d12.1371!4d-86.252',
+      },
+    })
+    expect(await screen.findByText(/Ubicación detectada/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1))
+    expect(patch.mock.calls[0][1].latitude).toBe(12.1371)
+    expect(patch.mock.calls[0][1].longitude).toBe(-86.252)
+  })
+
+  it('avisa si el enlace es corto y no trae ubicación', async () => {
+    get.mockResolvedValue({ settings: SETTINGS })
+    render(<SettingsManager />)
+
+    const link = await screen.findByPlaceholderText('Pega aquí el enlace')
+    fireEvent.change(link, { target: { value: 'https://maps.app.goo.gl/abc123' } })
+
+    expect(await screen.findByText(/enlace corto/)).toBeTruthy()
+    expect(patch).not.toHaveBeenCalled()
+  })
 })

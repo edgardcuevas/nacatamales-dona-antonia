@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authApi, setAccessToken, setSessionExpiredHandler } from '../api/client'
+import { clearSessionHint, hasSessionHint, setSessionHint } from '../utils/sessionHint'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // Solo se espera al servidor si este navegador tuvo una sesión. Un
+  // visitante anónimo no consulta nada y la pantalla de login es inmediata.
+  const [isLoading, setIsLoading] = useState(() => hasSessionHint())
   const [sessionExpired, setSessionExpired] = useState(false)
 
   useEffect(() => {
+    if (!hasSessionHint()) {
+      return undefined
+    }
+
     let isMounted = true
 
     authApi
@@ -17,8 +24,12 @@ export function AuthProvider({ children }) {
           setUser(refreshedUser)
         }
       })
-      .catch(() => {
-        // No hay una sesión previa válida; el usuario simplemente no está logueado.
+      .catch((error) => {
+        // Solo un rechazo de autenticación significa que la sesión terminó.
+        // Un corte de red o un 5xx no: la marca se conserva para reintentar.
+        if (error.status === 401 || error.status === 403) {
+          clearSessionHint()
+        }
       })
       .finally(() => {
         if (isMounted) setIsLoading(false)
@@ -34,6 +45,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     setSessionExpiredHandler(() => {
       setAccessToken(null)
+      clearSessionHint()
       setUser(null)
       setSessionExpired(true)
     })
@@ -48,6 +60,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     const data = await authApi.login(email, password)
     setAccessToken(data.accessToken)
+    setSessionHint()
     setUser(data.user)
     setSessionExpired(false)
     return data.user
@@ -58,6 +71,7 @@ export function AuthProvider({ children }) {
       await authApi.logout()
     } finally {
       setAccessToken(null)
+      clearSessionHint()
       setUser(null)
     }
   }, [])
