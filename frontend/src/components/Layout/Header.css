@@ -41,7 +41,10 @@
   line-height: 1.1;
   letter-spacing: var(--tr-display);
   color: var(--color-rojo);
-  white-space: nowrap;
+    /* Antes era nowrap: un nombre largo se salía de su caja y se montaba
+     sobre el menú. Ahora corta por palabras si no cabe. */
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 /* "DE DOÑA ANTONIA". Excepcion documentada al piso de 12px: en

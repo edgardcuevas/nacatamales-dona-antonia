@@ -12,6 +12,7 @@ import { withCacheBuster } from '../utils/cacheBuster'
 import useOpenNow from '../hooks/useOpenNow'
 import { formatPrice } from '../utils/price'
 import { storyExcerpt } from '../utils/brand'
+import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import './../styles/Home.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -150,8 +151,10 @@ export default function Home() {
               <div className="product-card" key={product.id}>
                 <div className="product-card__thumb">
                   {product.image?.url ? (
-                    <img
-                      src={product.image.url}
+                      <img
+                      src={optimizeImage(product.image.url, 640)}
+                      srcSet={imageSrcSet(product.image.url, [400, 640, 960])}
+                      sizes="(min-width: 960px) 360px, 100vw"
                       alt={product.image.altText || product.name}
                       loading="lazy"
                       decoding="async"
@@ -225,7 +228,13 @@ export default function Home() {
                   // variante no existe, en lugar de dejar una imagen rota.
                   <ThumbnailImage
                     key={item.thumbnailUrl || item.imageUrl}
-                    src={withCacheBuster(item.thumbnailUrl || item.imageUrl, item.thumbnailVersion)}
+                                        src={
+                      item.type === 'photo'
+                        ? optimizeImage(item.imageUrl, 640)
+                        : withCacheBuster(item.thumbnailUrl, item.thumbnailVersion)
+                    }
+                    srcSet={imageSrcSet(item.imageUrl, [400, 640, 960])}
+                    sizes="(min-width: 960px) 360px, 100vw"
                     placeholderClassName="video-thumb__placeholder"
                     alt={item.title || item.caption || 'Publicación'}
                   />

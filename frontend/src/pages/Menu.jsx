@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { Icon } from '../components/icons/Icons'
 import Reveal from '../components/Reveal/Reveal'
 import { formatPrice } from '../utils/price'
+import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import '../styles/Menu.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -113,7 +114,11 @@ export default function Menu() {
       {activeCategory && (
         <div
           className="menu-page__category-banner"
-          style={activeCategory.image?.url ? { backgroundImage: `url(${activeCategory.image.url})` } : undefined}
+                    style={
+            activeCategory.image?.url
+              ? { backgroundImage: `url(${optimizeImage(activeCategory.image.url, 1200)})` }
+              : undefined
+          }
         >
           <div className="menu-page__category-banner-overlay">
             <h2>{activeCategory.name}</h2>
@@ -174,7 +179,9 @@ export default function Menu() {
                 <div className="menu-card__thumb">
                   {product.image?.url ? (
                     <img
-                      src={product.image.url}
+                      src={optimizeImage(product.image.url, 640)}
+                      srcSet={imageSrcSet(product.image.url, [400, 640, 960])}
+                      sizes="(min-width: 960px) 360px, 100vw"
                       alt={product.image.altText || product.name}
                       loading="lazy"
                       decoding="async"

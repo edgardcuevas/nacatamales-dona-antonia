@@ -1,13 +1,19 @@
 // Parte el nombre del negocio en las dos líneas del logotipo del Header:
 // "Nacatamales de Doña Antonia" -> { main: 'NACATAMALES', rest: 'DE DOÑA ANTONIA' }.
-// Si el dueño lo renombra y no hay un " de " para cortar, todo va en la
-// primera línea y la segunda no se dibuja.
+// Se corta antes del primer " de "; si no lo hay, después de la primera
+// palabra ("Nacatamales Doña Antonia" -> NACATAMALES / DOÑA ANTONIA). Un
+// nombre de una sola palabra va en una línea. Así el logotipo mantiene
+// siempre su forma de dos líneas, angosta, y no empuja el menú.
 export function splitBusinessName(name) {
   const clean = String(name ?? '').trim().replace(/\s+/g, ' ')
   const match = /^(.+?)\s+(de\s+.+)$/i.exec(clean)
 
   if (!match) {
-    return { main: clean.toLocaleUpperCase('es'), rest: null }
+    const [first, ...others] = clean.split(' ')
+    return {
+      main: first.toLocaleUpperCase('es'),
+      rest: others.length > 0 ? others.join(' ').toLocaleUpperCase('es') : null,
+    }
   }
 
   return {

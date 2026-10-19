@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import './AnnouncementsBanner.css'
+import { optimizeImage } from '../../utils/imageUrl'
 
 const TYPE_LABELS = {
   AVAILABLE: 'Disponible',
@@ -42,7 +43,7 @@ export default function AnnouncementsBanner() {
           {announcement.image?.url && (
             <img
               className="announcement__image"
-              src={announcement.image.url}
+              src={optimizeImage(announcement.image.url, 192)}
               alt={announcement.image.altText || ''}
               loading="lazy"
               decoding="async"

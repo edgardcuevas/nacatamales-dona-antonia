@@ -5,6 +5,7 @@ import Reveal from '../components/Reveal/Reveal'
 import ThumbnailImage from '../components/ThumbnailImage/ThumbnailImage'
 import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
+import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import '../styles/DiaADia.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -78,7 +79,9 @@ export default function DiaADia() {
             <div className="dia-post__media">
               {item.type === 'photo' && item.imageUrl && (
                 <img
-                  src={item.imageUrl}
+                  src={optimizeImage(item.imageUrl, 800)}
+                  srcSet={imageSrcSet(item.imageUrl, [480, 800, 1200])}
+                  sizes="(min-width: 640px) 640px, 100vw"
                   alt={item.altText || item.caption || 'Foto del local'}
                   loading="lazy"
                   decoding="async"

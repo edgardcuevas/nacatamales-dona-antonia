@@ -9,11 +9,19 @@ describe('splitBusinessName', () => {
     })
   })
 
-  it('deja todo en la primera línea si no hay " de "', () => {
-    expect(splitBusinessName('Fritanga Los Pinos')).toEqual({
-      main: 'FRITANGA LOS PINOS',
-      rest: null,
+    it('sin " de " corta después de la primera palabra', () => {
+    expect(splitBusinessName('Nacatamales Doña Antonia')).toEqual({
+      main: 'NACATAMALES',
+      rest: 'DOÑA ANTONIA',
     })
+    expect(splitBusinessName('Fritanga Los Pinos')).toEqual({
+      main: 'FRITANGA',
+      rest: 'LOS PINOS',
+    })
+  })
+
+  it('un nombre de una sola palabra va en una línea', () => {
+    expect(splitBusinessName('Tamales')).toEqual({ main: 'TAMALES', rest: null })
   })
 
   it('tolera espacios sobrantes y valores vacíos', () => {
