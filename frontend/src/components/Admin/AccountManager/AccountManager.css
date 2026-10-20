@@ -1,0 +1,41 @@
+.account-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: 480px;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: var(--r-card);
+  padding: var(--sp-5);
+}
+
+.account-manager__email {
+  margin: 0;
+  color: var(--color-tinta-3);
+  font-size: var(--fs-sm);
+}
+
+.account-manager__rules {
+  list-style: none;
+  margin: calc(var(--sp-2) * -1) 0 0;
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-3);
+}
+
+.account-manager__rule--ok {
+  color: var(--color-verde, #1f6b2a);
+}
+
+.account-manager__success {
+  background: var(--color-verde-claro, #e6f3e6);
+  color: var(--color-verde, #1f6b2a);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3);
+  border-radius: var(--r-chip);
+  margin: 0;
+}
+
+.account-manager .admin-error {
+  margin-bottom: 0;
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/useAuth'
 import LoginForm from '../components/Admin/LoginForm/LoginForm'
 import CategoryManager from '../components/Admin/CategoryManager/CategoryManager'
@@ -7,6 +7,7 @@ import AnnouncementManager from '../components/Admin/AnnouncementManager/Announc
 import FeedManager from '../components/Admin/FeedManager/FeedManager'
 import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
 import SettingsManager from '../components/Admin/SettingsManager/SettingsManager'
+import AccountManager from '../components/Admin/AccountManager/AccountManager'
 import '../styles/Administracion.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -27,6 +28,13 @@ const SECTIONS = [
     description: 'Horario, WhatsApp, redes y ubicación.',
     available: true,
   },
+
+    {
+    key: 'account',
+    label: 'Mi cuenta',
+    description: 'Cambia tu contraseña de acceso.',
+    available: true,
+  },
 ]
 
 const SECTION_COMPONENTS = {
@@ -36,12 +44,20 @@ const SECTION_COMPONENTS = {
   feed: FeedManager,
   media: MediaLibrary,
   settings: SettingsManager,
+    account: AccountManager,
 }
 
 export default function Administracion() {
   usePageTitle('Administración')
   const { isAuthenticated, isLoading, user, logout } = useAuth()
   const [activeSection, setActiveSection] = useState(null)
+    const headingRef = useRef(null)
+
+  // Al abrir o cerrar una sección el foco pasa al título: quien navega con
+  // teclado o lector de pantalla no se queda en un botón que ya no existe.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [activeSection])
 
   if (isLoading) {
     return <div className="admin-loading">Cargando…</div>
@@ -58,7 +74,7 @@ export default function Administracion() {
     <div className="admin-dashboard">
       <div className="admin-dashboard__header">
         <div>
-          <h1>{activeSectionMeta ? activeSectionMeta.label : 'Panel de administración'}</h1>
+          <h1 ref={headingRef} tabIndex={-1}>{activeSectionMeta ? activeSectionMeta.label : 'Panel de administración'}</h1>
           <p>Sesión iniciada como {user.email}</p>
         </div>
         <div className="admin-dashboard__header-actions">

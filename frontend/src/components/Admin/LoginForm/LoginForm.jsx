@@ -59,11 +59,11 @@ export default function LoginForm() {
           />
         </label>
 
-                {sessionExpired && !errorMessage && (
-          <p className="admin-login__error">Tu sesión expiró. Inicia sesión de nuevo.</p>
+        {sessionExpired && !errorMessage && (
+          <p className="admin-login__error" role="alert">Tu sesión expiró. Inicia sesión de nuevo.</p>
         )}
 
-        {errorMessage && <p className="admin-login__error">{errorMessage}</p>}
+        {errorMessage && <p className="admin-login__error" role="alert">{errorMessage}</p>}
 
         <button type="submit" className="btn btn--primary admin-login__submit" disabled={isSubmitting}>
           {isSubmitting ? 'Ingresando…' : 'Ingresar'}

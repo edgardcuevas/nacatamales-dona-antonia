@@ -4,13 +4,19 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { api } from '../../../api/client'
 import VideoManager from './VideoManager'
 
-vi.mock('../../../api/client', () => ({
-  api: {
-    get: vi.fn(),
-    patch: vi.fn(),
-    upload: vi.fn(),
-  },
-}))
+// getAll (lista completa, todas las páginas) se apoya en get: así los tests
+// siguen controlando las respuestas con api.get.
+vi.mock('../../../api/client', () => {
+  const get = vi.fn()
+  return {
+    api: {
+      get,
+      getAll: (...args) => get(...args),
+      patch: vi.fn(),
+      upload: vi.fn(),
+    },
+  }
+})
 
 vi.mock('../../../utils/mediaUpload', () => ({
   uploadVideoThumbnail: vi.fn(),
