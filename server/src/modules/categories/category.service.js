@@ -55,6 +55,14 @@ function createInvalidMediaResourceTypeError() {
   );
 }
 
+function createCategoryHasProductsError(productCount) {
+  return new AppError(
+    409,
+    "CATEGORY_HAS_PRODUCTS",
+    `This category still has ${productCount} product(s); move or delete them first`
+  );
+}
+
 function getDuplicateKey(error) {
   if (error?.code !== "ER_DUP_ENTRY") {
     return null;
@@ -90,6 +98,15 @@ function rethrowCategoryWriteError(error) {
   }
 
   throw error;
+}
+
+// MySQL refuses to delete a parent row that still has children when the
+// foreign key is RESTRICT (errno 1451).
+function isForeignKeyRestriction(error) {
+  return (
+    error?.errno === 1451 ||
+    error?.code === "ER_ROW_IS_REFERENCED_2"
+  );
 }
 
 function isActiveRecord(value) {
@@ -344,6 +361,57 @@ async function changeCategoryStatus({
   return getCategoryById(categoryId);
 }
 
+async function deleteCategory(categoryId) {
+  const category =
+    await categoryRepository.findCategoryById(
+      categoryId
+    );
+
+  if (!category) {
+    throw createCategoryNotFoundError();
+  }
+
+  // products.category_id is ON DELETE RESTRICT, so the rows have to go
+  // first. Counting up front turns MySQL's 1451 into a code the client
+  // can branch on instead of a generic 500.
+  const productCount =
+    await categoryRepository.countProductsByCategoryId(
+      categoryId
+    );
+
+  if (productCount > 0) {
+    throw createCategoryHasProductsError(productCount);
+  }
+
+  let deleted;
+  try {
+    deleted =
+      await categoryRepository.deleteCategoryById(
+        categoryId
+      );
+  } catch (error) {
+    // A product can be created between the count and the DELETE.
+    if (isForeignKeyRestriction(error)) {
+      const remainingCount =
+        await categoryRepository.countProductsByCategoryId(
+          categoryId
+        );
+
+      throw createCategoryHasProductsError(
+        remainingCount || 1
+      );
+    }
+
+    throw error;
+  }
+
+  if (!deleted) {
+    throw createCategoryNotFoundError();
+  }
+
+  return { categoryId, deleted: true };
+}
+
 module.exports = {
   listPublicCategories,
   getPublicCategoryBySlug,
@@ -352,4 +420,5 @@ module.exports = {
   createCategory,
   updateCategory,
   changeCategoryStatus,
+  deleteCategory,
 };

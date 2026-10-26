@@ -178,12 +178,14 @@ async function deleteRemoteVideoController(
       request.videoId
     );
 
-  const message = result.alreadyDeleted
-    ? "The video was already marked as deleted"
-    : "The video was deleted from YouTube successfully";
+  const message = result.remoteRepaired === true
+    ? "The video was deleted from YouTube and the local state was reconciled"
+    : result.alreadyDeleted
+      ? "The video was already marked as deleted"
+      : "The video was deleted from YouTube successfully";
 
   // The payload is built field by field instead of forwarded: whatever
-  // the service returns, only the admin DTO and the three idempotency
+  // the service returns, only the admin DTO and the idempotency
   // flags can leave the server.
   return successResponse(
     response,
@@ -194,6 +196,8 @@ async function deleteRemoteVideoController(
       alreadyDeleted: result.alreadyDeleted,
       remoteAlreadyMissing:
         result.remoteAlreadyMissing,
+      remoteRepaired:
+        result.remoteRepaired === true,
     },
     message
   );

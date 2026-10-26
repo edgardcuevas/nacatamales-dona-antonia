@@ -534,3 +534,114 @@ test("video status changes are idempotent", async () => {
   assert.equal(result.isActive, false);
   assert.equal(updateCalls, 0);
 });
+
+test("only a DELETED video can be removed from the system", async () => {
+  let deleteCalls = 0;
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () => createRawVideo()
+  );
+  mock.method(
+    videoRepository,
+    "deleteVideoById",
+    async () => {
+      deleteCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    videoService.deleteLocalVideo(3),
+    (error) => {
+      assertAppError(
+        error,
+        409,
+        "VIDEO_LOCAL_DELETE_REQUIRES_DELETED"
+      );
+      return true;
+    }
+  );
+
+  assert.equal(
+    deleteCalls,
+    0,
+    "a live row must never lose its last local reference"
+  );
+});
+
+test("removing a DELETED video deletes the row and reports it", async () => {
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+  mock.method(
+    videoRepository,
+    "deleteVideoById",
+    async () => true
+  );
+
+  const result =
+    await videoService.deleteLocalVideo(3);
+
+  assert.deepEqual(result, { deleted: true });
+});
+
+test("a video that disappears mid-delete is reported as not found", async () => {
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () =>
+      createRawVideo({ upload_status: "DELETED" })
+  );
+  mock.method(
+    videoRepository,
+    "deleteVideoById",
+    async () => false
+  );
+
+  await assert.rejects(
+    videoService.deleteLocalVideo(3),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "VIDEO_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+});
+
+test("a missing video cannot be removed from the system", async () => {
+  let deleteCalls = 0;
+  mock.method(
+    videoRepository,
+    "findVideoById",
+    async () => null
+  );
+  mock.method(
+    videoRepository,
+    "deleteVideoById",
+    async () => {
+      deleteCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    videoService.deleteLocalVideo(3),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "VIDEO_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+
+  assert.equal(deleteCalls, 0);
+});

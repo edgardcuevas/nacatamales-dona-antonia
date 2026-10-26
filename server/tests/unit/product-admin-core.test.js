@@ -407,3 +407,83 @@ test("product status and availability changes are idempotent", async () => {
   assert.equal(statusUpdates, 0);
   assert.equal(availabilityUpdates, 0);
 });
+
+test("product repository deletes the row and never touches media", async () => {
+  const queries = [];
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      queries.push({ sql, parameters });
+      return [{ affectedRows: 1 }, []];
+    }
+  );
+
+  const deleted =
+    await productRepository.deleteProductById(4);
+
+  assert.equal(deleted, true);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0].sql, /DELETE FROM products/);
+  assert.deepEqual(queries[0].parameters, [4]);
+  // La imagen sigue viva en media: es lo que la deja "desocupada"
+  // para que el admin pueda borrarla desde la galeria.
+  assert.doesNotMatch(queries[0].sql, /media/i);
+});
+
+test("product service deletes a product and reports it as deleted", async () => {
+  mock.method(
+    productRepository,
+    "findProductById",
+    async () => createRawProduct()
+  );
+  mock.method(
+    productRepository,
+    "deleteProductById",
+    async () => true
+  );
+
+  const result =
+    await productService.deleteProduct(4);
+
+  assert.deepEqual(result, {
+    productId: 4,
+    deleted: true,
+  });
+});
+
+test("product service reports a missing or already deleted product", async () => {
+  mock.method(
+    productRepository,
+    "findProductById",
+    async () => null
+  );
+
+  await assert.rejects(
+    productService.deleteProduct(4),
+    (error) => {
+      assertAppError(error, 404, "PRODUCT_NOT_FOUND");
+      return true;
+    }
+  );
+
+  mock.restoreAll();
+  mock.method(
+    productRepository,
+    "findProductById",
+    async () => createRawProduct()
+  );
+  mock.method(
+    productRepository,
+    "deleteProductById",
+    async () => false
+  );
+
+  await assert.rejects(
+    productService.deleteProduct(4),
+    (error) => {
+      assertAppError(error, 404, "PRODUCT_NOT_FOUND");
+      return true;
+    }
+  );
+});

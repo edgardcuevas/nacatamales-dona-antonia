@@ -5,6 +5,9 @@ const VALID_NODE_ENVIRONMENTS = new Set([
 ]);
 
 const JWT_TTL_PATTERN = /^\d+[smhd]$/;
+const VAPID_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
+const VAPID_SUBJECT_PATTERN =
+  /^(?:mailto:[^\s@]+@[^\s@]+\.[^\s@]+|https:\/\/\S+)$/;
 const IMAGEKIT_HOST = "ik.imagekit.io";
 const IMAGEKIT_FOLDER_PATTERN =
   /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/;
@@ -184,6 +187,110 @@ function validateYoutubeChannelId(value) {
   return value;
 }
 
+function validateVapidPublicKey(value) {
+  const isCanonical =
+    VAPID_KEY_PATTERN.test(value) &&
+    value.length >= 80 &&
+    value.length <= 100;
+
+  if (!isCanonical) {
+    throw new Error(
+      "Environment variable WEB_PUSH_PUBLIC_KEY must be a base64url encoded VAPID public key."
+    );
+  }
+
+  const key = Buffer.from(value, "base64url");
+
+  // An uncompressed P-256 public key is exactly 65 bytes and starts
+  // with 0x04. web-push would reject anything else at send time, so
+  // failing at boot is the only way to notice a bad paste early.
+  if (key.length !== 65 || key[0] !== 0x04) {
+    throw new Error(
+      "Environment variable WEB_PUSH_PUBLIC_KEY must be a base64url encoded VAPID public key."
+    );
+  }
+
+  return value;
+}
+
+function validateVapidPrivateKey(value) {
+  const isCanonical =
+    VAPID_KEY_PATTERN.test(value) &&
+    value.length === 43;
+
+  if (!isCanonical) {
+    throw new Error(
+      "Environment variable WEB_PUSH_PRIVATE_KEY must be a base64url encoded 32-byte VAPID private key."
+    );
+  }
+
+  const key = Buffer.from(value, "base64url");
+
+  if (key.length !== 32) {
+    throw new Error(
+      "Environment variable WEB_PUSH_PRIVATE_KEY must be a base64url encoded 32-byte VAPID private key."
+    );
+  }
+
+  return value;
+}
+
+function validateVapidSubject(value) {
+  if (!VAPID_SUBJECT_PATTERN.test(value)) {
+    throw new Error(
+      "Environment variable WEB_PUSH_SUBJECT must be a mailto: or https: URL."
+    );
+  }
+
+  return value;
+}
+
+function parseWebPushEnvironment() {
+  const publicKey =
+    process.env.WEB_PUSH_PUBLIC_KEY?.trim();
+  const privateKey =
+    process.env.WEB_PUSH_PRIVATE_KEY?.trim();
+  const subject =
+    process.env.WEB_PUSH_SUBJECT?.trim();
+
+  const provided = [
+    publicKey,
+    privateKey,
+    subject,
+  ].filter(
+    (value) =>
+      typeof value === "string" && value !== ""
+  );
+
+  // Web Push is optional: without keys the API boots normally and the
+  // public key endpoint answers { enabled: false }, so the frontend
+  // never offers a subscription that the server cannot honour.
+  if (provided.length === 0) {
+    return Object.freeze({
+      enabled: false,
+      publicKey: null,
+      privateKey: null,
+      subject: null,
+    });
+  }
+
+  // Half a configuration is always a mistake. Sending with a mismatched
+  // key pair silently fails for every subscriber, so refuse to boot.
+  if (provided.length !== 3) {
+    throw new Error(
+      "Environment variables WEB_PUSH_PUBLIC_KEY, WEB_PUSH_PRIVATE_KEY and WEB_PUSH_SUBJECT must be configured together."
+    );
+  }
+
+  return Object.freeze({
+    enabled: true,
+    publicKey: validateVapidPublicKey(publicKey),
+    privateKey:
+      validateVapidPrivateKey(privateKey),
+    subject: validateVapidSubject(subject),
+  });
+}
+
 function validateTrustProxy(value) {
   if (value === undefined || value === "") {
     return null;
@@ -325,6 +432,9 @@ function loadEnvironment() {
     jwt,
     imagekit,
     youtube,
+    // Optional. When disabled the API still boots and the public key
+    // endpoint reports the feature as unavailable.
+    webPush: parseWebPushEnvironment(),
     // null keeps Express' default of trusting nothing, so request.ip
     // stays the socket address. See validateTrustProxy for why no
     // looser value is accepted.

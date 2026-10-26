@@ -69,6 +69,9 @@ const {
 const videoRepository = require(
   "../../src/modules/videos/video.repository"
 );
+const videoService = require(
+  "../../src/modules/videos/video.service"
+);
 const youtubeConnectionRepository = require(
   "../../src/modules/youtube/youtube-connection.repository"
 );
@@ -98,7 +101,9 @@ function externalIdFor(suffix) {
 async function insertFixture({
   suffix,
   uploadStatus = "READY",
-  isActive = 1,
+  // Remote deletion is only allowed for a hidden video, so a fixture
+  // intended to be deleted starts hidden unless it says otherwise.
+  isActive = 0,
   remoteDeletedAt = null,
 }) {
   const externalId = externalIdFor(suffix);
@@ -362,9 +367,10 @@ test(
       "updated_at must never move backwards"
     );
 
-    // A second run is idempotent and never calls the provider again.
+    // A second run is idempotent: the remote resource is confirmed gone
+    // and nothing is deleted or rewritten.
     mock.restoreAll();
-    calls = stubProvider();
+    calls = stubProvider({ ownerStatus: 404 });
     youtubeService.clearAccessTokenCache();
 
     const rerun =
@@ -372,13 +378,16 @@ test(
         first.id
       );
 
-    assert.deepEqual(calls.ownerProbes, []);
+    assert.deepEqual(calls.ownerProbes, [
+      first.externalId,
+    ]);
     assert.deepEqual(calls.remoteDeletes, []);
     assert.equal(rerun.alreadyDeleted, true);
     assert.equal(
       rerun.remoteAlreadyMissing,
       true
     );
+    assert.equal(rerun.remoteRepaired, false);
 
     const afterRerun = await readRow(first.id);
     assert.equal(
@@ -424,6 +433,116 @@ test(
       missingRow.remote_deleted_at instanceof Date
     );
     assert.equal(missingRow.is_active, 0);
+
+    // A row marked DELETED locally while the remote resource is still
+    // alive (the shape the maintenance tool can leave behind) is
+    // repaired: the probe finds it and videos.delete actually runs.
+    const zombie = await insertFixture({
+      suffix: "zombie",
+      uploadStatus: "DELETED",
+      isActive: 0,
+      remoteDeletedAt: new Date(
+        "2026-01-02T03:04:05.000Z"
+      ),
+    });
+
+    mock.restoreAll();
+    calls = stubProvider();
+    youtubeService.clearAccessTokenCache();
+
+    const repaired =
+      await youtubeService.deleteRemoteVideo(
+        zombie.id
+      );
+
+    assert.deepEqual(calls.ownerProbes, [
+      zombie.externalId,
+    ]);
+    assert.deepEqual(
+      calls.remoteDeletes,
+      [zombie.externalId],
+      "a live remote resource must be deleted"
+    );
+    assert.equal(repaired.alreadyDeleted, true);
+    assert.equal(
+      repaired.remoteAlreadyMissing,
+      false
+    );
+    assert.equal(repaired.remoteRepaired, true);
+
+    const repairedRow = await readRow(zombie.id);
+    assert.equal(repairedRow.upload_status, "DELETED");
+    assert.equal(repairedRow.is_active, 0);
+    assert.ok(
+      repairedRow.remote_deleted_at instanceof Date
+    );
+    assert.notEqual(
+      repairedRow.remote_deleted_at.getTime(),
+      new Date(
+        "2026-01-02T03:04:05.000Z"
+      ).getTime(),
+      "the repair records the real deletion time"
+    );
+
+    // A published video must be hidden before it can be deleted: the
+    // server refuses before the provider is contacted, and hiding is
+    // always accepted, so the documented path stays open.
+    const published = await insertFixture({
+      suffix: "published",
+      isActive: 1,
+    });
+    const publishedOriginal =
+      await readRow(published.id);
+
+    mock.restoreAll();
+    calls = stubProvider();
+    youtubeService.clearAccessTokenCache();
+
+    await assert.rejects(
+      youtubeService.deleteRemoteVideo(
+        published.id
+      ),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(
+          error.code,
+          "VIDEO_MUST_BE_HIDDEN"
+        );
+        return true;
+      }
+    );
+
+    assert.deepEqual(calls.ownerProbes, []);
+    assert.deepEqual(calls.remoteDeletes, []);
+    const stillPublished = await readRow(
+      published.id
+    );
+    assert.equal(
+      identitySnapshot(stillPublished),
+      identitySnapshot(publishedOriginal)
+    );
+
+    await videoService.changeVideoStatus({
+      videoId: published.id,
+      isActive: false,
+    });
+
+    mock.restoreAll();
+    calls = stubProvider();
+    youtubeService.clearAccessTokenCache();
+
+    const hiddenResult =
+      await youtubeService.deleteRemoteVideo(
+        published.id
+      );
+
+    assert.deepEqual(calls.remoteDeletes, [
+      published.externalId,
+    ]);
+    assert.equal(hiddenResult.deleted, true);
+    const hiddenRow = await readRow(published.id);
+    assert.equal(hiddenRow.upload_status, "DELETED");
+    assert.equal(hiddenRow.is_active, 0);
 
     // A resource owned by another channel is never deleted.
     const third = await insertFixture({
@@ -476,7 +595,7 @@ test(
     const failedRow = await readRow(fourth.id);
     assert.equal(failedRow.upload_status, "READY");
     assert.equal(failedRow.remote_deleted_at, null);
-    assert.equal(failedRow.is_active, 1);
+    assert.equal(failedRow.is_active, 0);
     assert.equal(
       identitySnapshot(failedRow),
       identitySnapshot(fourthOriginal)

@@ -16,6 +16,7 @@ const {
   createCategoryController,
   updateCategoryController,
   changeCategoryStatusController,
+  deleteCategoryController,
 } = require("./category.controller");
 
 const {
@@ -62,6 +63,11 @@ router.get(
   "/:categoryId",
   validateCategoryId,
   getAdministrativeCategoryController
+);
+router.delete(
+  "/:categoryId",
+  validateCategoryId,
+  deleteCategoryController
 );
 
 module.exports = router;

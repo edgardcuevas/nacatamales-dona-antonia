@@ -1,0 +1,121 @@
+/* Modal propio de permiso de notificaciones.
+   ------------------------------------------------------------
+   Nunca se usa el diálogo nativo del navegador para preguntar: el
+   navegador solo se invoca después de un clic en "Activar", y si el
+   visitante dice que no, el modal no vuelve a aparecer por 30 días.
+   Los comentarios usan solo sintaxis de bloque: lightningcss no
+   acepta // en CSS. */
+
+.notification-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+
+.notification-prompt__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(42, 26, 18, 0.55);
+}
+
+.notification-prompt__card {
+  position: relative;
+  width: min(100%, 440px);
+  margin-bottom: max(var(--sp-4), env(safe-area-inset-bottom));
+  background: var(--color-blanco);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-5);
+  animation: notification-prompt-rise var(--dur-2) var(--ease-out);
+}
+
+.notification-prompt__eyebrow {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-rojo);
+  margin-bottom: var(--sp-2);
+}
+
+.notification-prompt__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-titulo);
+  letter-spacing: var(--tr-display);
+  color: var(--color-tinta);
+  margin: 0 0 var(--sp-3);
+}
+
+.notification-prompt__body {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-cuerpo);
+  color: var(--color-tinta-2);
+  margin: 0 0 var(--sp-4);
+}
+
+.notification-prompt__body p {
+  margin: 0 0 var(--sp-2);
+}
+
+.notification-prompt__steps {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.notification-prompt__error {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-denso);
+  color: var(--color-rojo-dark);
+  background: var(--color-rojo-claro);
+  border-radius: var(--r-chip);
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-3);
+}
+
+.notification-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.notification-prompt__note {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-denso);
+  color: var(--color-tinta-3);
+  margin: var(--sp-3) 0 0;
+}
+
+@keyframes notification-prompt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (min-width: 640px) {
+  .notification-prompt {
+    align-items: center;
+  }
+
+  .notification-prompt__card {
+    margin-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-prompt__card {
+    animation: none;
+  }
+}

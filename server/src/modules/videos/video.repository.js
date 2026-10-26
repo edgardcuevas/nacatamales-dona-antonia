@@ -457,6 +457,22 @@ async function reconcileThumbnailState({
   }
 }
 
+// The only hard delete in the module. Callers must have proven that the
+// local marker is DELETED, which is terminal: the row can never become
+// publishable again, so removing it cannot leave a public page pointing
+// at a video that is already gone. No media row is involved here.
+async function deleteVideoById(videoId) {
+  const [result] = await pool.execute(
+    `
+      DELETE FROM videos
+      WHERE id = ?
+    `,
+    [videoId]
+  );
+
+  return result.affectedRows === 1;
+}
+
 // The DELETED transition is the only write that must be all or nothing:
 // a partially marked batch would leave the local state disagreeing with
 // YouTube. The transaction is owned here so the service never has to
@@ -526,6 +542,7 @@ module.exports = {
   updateVideoStatusById,
   createUploadedVideo,
   updateVideoProcessingStatus,
+  deleteVideoById,
   markVideoAsRemoteDeleted,
   reconcileThumbnailState,
 };

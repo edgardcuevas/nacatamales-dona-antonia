@@ -16,6 +16,7 @@ const {
   createVideoController,
   updateVideoController,
   changeVideoStatusController,
+  deleteLocalVideoController,
 } = require("./video.controller");
 
 const {
@@ -49,9 +50,13 @@ const contentAdminOnly = authorizeRoles(
   "ADMIN",
   "EDITOR"
 );
-// Deleting a video on YouTube is irreversible, so it is narrower than
-// the rest of the module: ADMIN only, on top of the router gate.
-const irreversibleAdminOnly = authorizeRoles("ADMIN");
+// Deleting a video on YouTube is irreversible. Both ADMIN and EDITOR
+// can do it, but the frontend shows a confirmation warning before
+// proceeding.
+const irreversibleAdminOnly = authorizeRoles(
+  "ADMIN",
+  "EDITOR"
+);
 
 router.use(
   authenticate,
@@ -100,6 +105,16 @@ router.patch(
   "/:videoId/status",
   validateVideoStatus,
   changeVideoStatusController
+);
+// The local counterpart of the deletion below: it removes the database
+// row, never contacts YouTube, and is only accepted for a row already
+// marked DELETED. Declared before the single-segment route so the
+// literal path can never be mistaken for a video ID.
+router.delete(
+  "/:videoId/local",
+  irreversibleAdminOnly,
+  validateVideoId,
+  deleteLocalVideoController
 );
 // videoId is the local id, never the YouTube external id. The rate
 // limiter runs before the role gate so a burst costs nothing, and the

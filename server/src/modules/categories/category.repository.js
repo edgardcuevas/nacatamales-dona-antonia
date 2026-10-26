@@ -271,6 +271,33 @@ async function updateCategoryStatusById({
   return result.affectedRows === 1;
 }
 
+async function countProductsByCategoryId(categoryId) {
+  const [rows] = await pool.execute(
+    `
+      SELECT COUNT(*) AS total_items
+      FROM products
+      WHERE category_id = ?
+    `,
+    [categoryId]
+  );
+
+  return Number(rows[0]?.total_items ?? 0);
+}
+
+// Plain DELETE on purpose: the image row in media must stay untouched so
+// it becomes unreferenced and the admin can delete it from the gallery.
+async function deleteCategoryById(categoryId) {
+  const [result] = await pool.execute(
+    `
+      DELETE FROM categories
+      WHERE id = ?
+    `,
+    [categoryId]
+  );
+
+  return result.affectedRows === 1;
+}
+
 module.exports = {
   listPublicCategories,
   findPublicCategoryBySlug,
@@ -279,4 +306,6 @@ module.exports = {
   createCategory,
   updateCategoryById,
   updateCategoryStatusById,
+  countProductsByCategoryId,
+  deleteCategoryById,
 };

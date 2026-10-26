@@ -125,6 +125,24 @@
   color: var(--color-amarillo);
 }
 
+/* Estado del push: es informacion editorial, no una accion. El badge
+   "Sin notificar" usa el amarillo de pendiente para que el admin sepa
+   que puede reenviarlo. */
+.announcement-row__notified {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-verde);
+  background: var(--color-verde-claro);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.announcement-row__notified--pending {
+  color: var(--color-amarillo);
+  background: var(--color-amarillo-claro);
+}
+
 @media (min-width: 640px) {
   .announcement-manager__dates {
     grid-template-columns: 1fr 1fr;

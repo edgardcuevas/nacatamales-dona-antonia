@@ -17,6 +17,7 @@ const {
   updateProductController,
   changeProductStatusController,
   changeProductAvailabilityController,
+  deleteProductController,
 } = require("./product.controller");
 
 const {
@@ -69,6 +70,11 @@ router.get(
   "/:productId",
   validateProductId,
   getAdministrativeProductController
+);
+router.delete(
+  "/:productId",
+  validateProductId,
+  deleteProductController
 );
 
 module.exports = router;

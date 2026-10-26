@@ -164,6 +164,17 @@ mock.method(
     return state.product;
   }
 );
+mock.method(
+  productService,
+  "deleteProduct",
+  async (productId) => {
+    state.calls.delete = { productId };
+    if (state.errors.delete) {
+      throw state.errors.delete;
+    }
+    return { productId, deleted: true };
+  }
+);
 
 const app = require("../../src/app");
 const pool = require("../../src/database/pool");
@@ -410,5 +421,56 @@ test("product admin detail rejects invalid IDs and inactive users", async () => 
   assert.equal(
     inactive.body.error.code,
     "AUTHENTICATED_USER_UNAVAILABLE"
+  );
+});
+
+test("product admin can delete a product", async () => {
+  const result = await request(
+    "/api/admin/products/4",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(state.calls.delete, {
+    productId: 4,
+  });
+  assert.equal(result.body.data.deleted, true);
+  assert.equal(result.body.data.productId, 4);
+});
+
+test("product admin delete rejects an invalid id and surfaces a missing product", async () => {
+  const invalid = await request(
+    "/api/admin/products/abc",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  state.errors.delete = new AppError(
+    404,
+    "PRODUCT_NOT_FOUND",
+    "The requested product does not exist"
+  );
+  const missing = await request(
+    "/api/admin/products/4",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(invalid.status, 400);
+  assert.equal(
+    invalid.body.error.code,
+    "INVALID_PRODUCT_ID"
+  );
+  assert.equal(missing.status, 404);
+  assert.equal(
+    missing.body.error.code,
+    "PRODUCT_NOT_FOUND"
   );
 });

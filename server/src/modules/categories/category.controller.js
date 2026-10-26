@@ -10,6 +10,7 @@ const {
   createCategory,
   updateCategory,
   changeCategoryStatus,
+  deleteCategory,
 } = require("./category.service");
 
 async function listPublicCategoriesController(
@@ -127,6 +128,22 @@ async function changeCategoryStatusController(
   );
 }
 
+async function deleteCategoryController(
+  request,
+  response
+) {
+  const result = await deleteCategory(
+    request.categoryId
+  );
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "Category deleted successfully"
+  );
+}
+
 module.exports = {
   listPublicCategoriesController,
   getPublicCategoryController,
@@ -135,4 +152,5 @@ module.exports = {
   createCategoryController,
   updateCategoryController,
   changeCategoryStatusController,
+  deleteCategoryController,
 };

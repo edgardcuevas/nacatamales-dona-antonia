@@ -6,6 +6,9 @@ const mediaRepository = require(
 const announcementRepository = require(
   "./announcement.repository"
 );
+const notificationService = require(
+  "../notification/notification.service"
+);
 
 function createAnnouncementNotFoundError() {
   return new AppError(
@@ -197,6 +200,9 @@ function toAdminAnnouncement(announcement) {
     sortOrder,
     imageMediaId,
     image: toImage(announcement),
+    notifiedAt: toIsoString(
+      announcement.notified_at
+    ),
     createdAt: toIsoString(announcement.created_at),
     updatedAt: toIsoString(announcement.updated_at),
   };
@@ -360,9 +366,41 @@ async function changeAnnouncementStatus({
     if (!updated) {
       throw createAnnouncementNotFoundError();
     }
+
+    // Publicar es el momento en que el aviso "se manda". El servicio de
+    // notificaciones reclama la fila de forma atomica (notified_at) y
+    // despacha en segundo plano: un fallo de push nunca revierte la
+    // publicacion ni retrasa la respuesta al admin.
+    if (isActive) {
+      notificationService.notifyAnnouncementInBackground(
+        announcementId
+      );
+    }
   }
 
   return getAnnouncementById(announcementId);
+}
+
+async function deleteAnnouncement(announcementId) {
+  const current =
+    await announcementRepository.findAnnouncementById(
+      announcementId
+    );
+
+  if (!current) {
+    throw createAnnouncementNotFoundError();
+  }
+
+  const deleted =
+    await announcementRepository.deleteAnnouncementById(
+      announcementId
+    );
+
+  if (!deleted) {
+    throw createAnnouncementNotFoundError();
+  }
+
+  return { announcementId, deleted: true };
 }
 
 module.exports = {
@@ -372,4 +410,5 @@ module.exports = {
   createAnnouncement,
   updateAnnouncement,
   changeAnnouncementStatus,
+  deleteAnnouncement,
 };

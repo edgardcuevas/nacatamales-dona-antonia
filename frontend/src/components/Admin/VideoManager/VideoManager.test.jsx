@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { api } from '../../../api/client'
 import VideoManager from './VideoManager'
 
@@ -13,6 +13,7 @@ vi.mock('../../../api/client', () => {
       get,
       getAll: (...args) => get(...args),
       patch: vi.fn(),
+      delete: vi.fn(),
       upload: vi.fn(),
     },
   }
@@ -420,5 +421,136 @@ describe('VideoManager estados terminales', () => {
     expect(screen.getByAltText('Video de prueba').getAttribute('src')).toBe(
       'https://i.ytimg.com/vi/abc123/hqdefault.jpg'
     )
+  })
+})
+
+describe('VideoManager eliminacion de videos', () => {
+  beforeEach(() => {
+    api.get.mockReset()
+    api.delete.mockReset()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('en una fila eliminada solo ofrece Eliminar del sistema', async () => {
+    await renderWithVideos([makeVideo({ id: 9, uploadStatus: 'DELETED' })])
+
+    expect(screen.queryByRole('button', { name: 'Eliminar de YouTube' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cambiar miniatura' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Usar la de YouTube' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Eliminar del sistema' })).toBeTruthy()
+  })
+
+  it('bloquea Eliminar de YouTube mientras el video esta publicado', async () => {
+    await renderWithVideos([makeVideo({ id: 5, uploadStatus: 'READY', isActive: true })])
+
+    const button = screen.getByRole('button', { name: 'Eliminar de YouTube' })
+
+    expect(button.disabled).toBe(true)
+    expect(
+      screen.getByText('Para eliminar este video de YouTube primero debes ocultarlo.')
+    ).toBeTruthy()
+
+    fireEvent.click(button)
+    await flush()
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(api.delete).not.toHaveBeenCalled()
+  })
+
+  it('elimina de YouTube solo cuando el video esta oculto', async () => {
+    api.delete.mockResolvedValue({ deleted: true })
+    await renderWithVideos([makeVideo({ id: 5, uploadStatus: 'READY', isActive: false })])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar de YouTube' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eliminar de YouTube' }))
+
+    await flush()
+
+    expect(api.delete).toHaveBeenCalledTimes(1)
+    expect(api.delete).toHaveBeenCalledWith('/admin/videos/5')
+  })
+
+  it('muestra la regla del servidor si la publicacion cambia durante la confirmacion', async () => {
+    api.delete.mockRejectedValue(
+      Object.assign(new Error('published'), { code: 'VIDEO_MUST_BE_HIDDEN', status: 409 })
+    )
+    await renderWithVideos([makeVideo({ id: 5, uploadStatus: 'READY', isActive: false })])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar de YouTube' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Eliminar de YouTube' })
+    )
+
+    await flush()
+
+    expect(
+      screen.getByText('Para eliminar este video de YouTube primero debes ocultarlo.')
+    ).toBeTruthy()
+  })
+
+  it('elimina el registro local tras confirmar y nunca toca YouTube', async () => {
+    api.delete.mockResolvedValue({ deleted: true })
+    await renderWithVideos([
+      makeVideo({ id: 9, title: 'Video borrado', uploadStatus: 'DELETED' }),
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar del sistema' }))
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(dialog).getByText(/no se puede deshacer/)).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eliminar del sistema' }))
+    await flush()
+
+    expect(api.delete).toHaveBeenCalledTimes(1)
+    expect(api.delete).toHaveBeenCalledWith('/admin/videos/9/local')
+    expect(screen.getByText(/se eliminó definitivamente del sitio/)).toBeTruthy()
+  })
+
+  it('explica por que no se pudo eliminar el registro local', async () => {
+    api.delete.mockRejectedValue(
+      Object.assign(new Error('still remote'), {
+        code: 'VIDEO_LOCAL_DELETE_REQUIRES_DELETED',
+        status: 409,
+      })
+    )
+    await renderWithVideos([makeVideo({ id: 9, uploadStatus: 'DELETED' })])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar del sistema' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Eliminar del sistema' })
+    )
+
+    await flush()
+
+    expect(screen.getByText(/todavía no está marcado como eliminado de YouTube/)).toBeTruthy()
+  })
+
+  it('no dispara dos eliminaciones locales con un doble clic', async () => {
+    let resolveDelete
+    api.delete.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        })
+    )
+    await renderWithVideos([makeVideo({ id: 9, uploadStatus: 'DELETED' })])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar del sistema' }))
+    const confirm = within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Eliminar del sistema',
+    })
+
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    expect(api.delete).toHaveBeenCalledTimes(1)
+
+    resolveDelete({ deleted: true })
+    await flush()
   })
 })

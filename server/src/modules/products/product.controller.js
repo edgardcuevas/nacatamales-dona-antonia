@@ -11,6 +11,7 @@ const {
   updateProduct,
   changeProductStatus,
   changeProductAvailability,
+  deleteProduct,
 } = require("./product.service");
 
 async function listPublicProductsController(
@@ -146,6 +147,22 @@ async function changeProductAvailabilityController(
   );
 }
 
+async function deleteProductController(
+  request,
+  response
+) {
+  const result = await deleteProduct(
+    request.productId
+  );
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "Product deleted successfully"
+  );
+}
+
 module.exports = {
   listPublicProductsController,
   getPublicProductController,
@@ -155,4 +172,5 @@ module.exports = {
   updateProductController,
   changeProductStatusController,
   changeProductAvailabilityController,
+  deleteProductController,
 };

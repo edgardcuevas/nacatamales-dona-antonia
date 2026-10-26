@@ -8,6 +8,7 @@ import FeedManager from '../components/Admin/FeedManager/FeedManager'
 import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
 import SettingsManager from '../components/Admin/SettingsManager/SettingsManager'
 import AccountManager from '../components/Admin/AccountManager/AccountManager'
+import UserManager from '../components/Admin/UserManager/UserManager'
 import '../styles/Administracion.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -35,6 +36,12 @@ const SECTIONS = [
     description: 'Cambia tu contraseña de acceso.',
     available: true,
   },
+  {
+    key: 'users',
+    label: 'Usuarios',
+    description: 'Crea y gestiona usuarios del panel de administración.',
+    available: true,
+  },
 ]
 
 const SECTION_COMPONENTS = {
@@ -45,6 +52,7 @@ const SECTION_COMPONENTS = {
   media: MediaLibrary,
   settings: SettingsManager,
     account: AccountManager,
+    users: UserManager,
 }
 
 export default function Administracion() {

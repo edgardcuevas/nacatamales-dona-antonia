@@ -34,9 +34,13 @@ nombre, tipo ni valor, y **el frontend en producción actual sigue funcionando s
 | `updatedAt` en el DTO público de video | [§11.1](#111-dto-publico) | Señal de versión para romper la caché de la miniatura de YouTube |
 | `image.id` en fotos | [§6](#6-dtos-de-imagen), [§17](#17-fotos-dia-a-dia) | Saber qué imagen está en uso y reutilizarla de la galería |
 | `GET /api/health/ready` | [§3.1](#31-salud) | Saber si la base de datos responde de verdad |
-| `503 SERVICE_UNAVAILABLE` | [§13.1](#131-errores-http-globales) | **Único código de error nuevo.** Solo lo devuelve el readiness |
+| `503 SERVICE_UNAVAILABLE` | [§13.1](#131-errores-http-globales) | Único código de error nuevo **de esa ronda**. Solo lo devuelve el readiness |
 | `TRUST_PROXY` | [§2.7](#27-configuracion-de-proxy-trust_proxy) | Que el rate limiter vea la IP real detrás del proxy |
 | Documentación del módulo `photos` | [§17](#17-fotos-dia-a-dia) | El módulo no estaba documentado |
+| `DELETE /api/admin/categories/:categoryId` | [§7.3](#73-administración) | Borrar una categoría |
+| `DELETE /api/admin/products/:productId` | [§8.4](#84-administración-de-productos) | Borrar un producto |
+| `DELETE /api/admin/announcements/:announcementId` | [§9.3](#93-administración) | Borrar un aviso |
+| `409 CATEGORY_HAS_PRODUCTS` | [§7.3](#73-administración) | Una categoría con productos no se puede borrar |
 
 La documentación cubre:
 
@@ -318,6 +322,7 @@ Administrativas (`ADMIN` o `EDITOR`):
 | GET | `/api/admin/categories/:categoryId` |
 | PATCH | `/api/admin/categories/:categoryId` |
 | PATCH | `/api/admin/categories/:categoryId/status` |
+| DELETE | `/api/admin/categories/:categoryId` |
 
 ### 3.5 Productos
 
@@ -338,6 +343,7 @@ Administrativos (`ADMIN` o `EDITOR`):
 | PATCH | `/api/admin/products/:productId` |
 | PATCH | `/api/admin/products/:productId/status` |
 | PATCH | `/api/admin/products/:productId/availability` |
+| DELETE | `/api/admin/products/:productId` |
 
 ### 3.6 Avisos
 
@@ -356,6 +362,7 @@ Administrativos (`ADMIN` o `EDITOR`):
 | GET | `/api/admin/announcements/:announcementId` |
 | PATCH | `/api/admin/announcements/:announcementId` |
 | PATCH | `/api/admin/announcements/:announcementId/status` |
+| DELETE | `/api/admin/announcements/:announcementId` |
 
 ### 3.7 Media / ImageKit
 
@@ -983,6 +990,48 @@ name, slug, description, sortOrder, imageMediaId
 }
 ```
 
+### Eliminar
+
+`DELETE /api/admin/categories/:categoryId`
+
+Borrado **físico** e irreversible: la fila desaparece de `categories`. No hay
+papelera ni borrado lógico.
+
+Respuesta `200`:
+
+```json
+{
+  "success": true,
+  "message": "Category deleted successfully",
+  "data": {
+    "categoryId": 1,
+    "deleted": true
+  }
+}
+```
+
+**Una categoría con productos no se puede borrar.** `products.category_id` es
+`FOREIGN KEY ... ON DELETE RESTRICT`, así que el servidor cuenta los
+productos de la categoría antes de borrar y responde `409`:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "CATEGORY_HAS_PRODUCTS",
+    "message": "This category still has 3 product(s); move or delete them first"
+  }
+}
+```
+
+El mensaje trae la cantidad de productos; el código es la parte estable del
+contrato. El orden esperado en el panel es: borrar o reubicar los productos
+primero, y después borrar la categoría.
+
+La imagen de la categoría **no** se borra: la fila en `media` sobrevive y
+queda sin referencias, así que el administrador puede eliminarla después
+desde `DELETE /api/admin/media/:mediaId` (ver §10.9).
+
 ### DTO administrativo
 
 ```json
@@ -1024,6 +1073,7 @@ name, slug, description, sortOrder, imageMediaId
 | 404 | `MEDIA_NOT_FOUND` | The requested media does not exist |
 | 409 | `CATEGORY_NAME_ALREADY_EXISTS` | A category with this name already exists |
 | 409 | `CATEGORY_SLUG_ALREADY_EXISTS` | A category with this slug already exists |
+| 409 | `CATEGORY_HAS_PRODUCTS` | This category still has N product(s); move or delete them first |
 | 409 | `MEDIA_INACTIVE` | The selected media is inactive |
 | 400 | `INVALID_MEDIA_RESOURCE_TYPE` | The selected media must be an image |
 
@@ -1200,6 +1250,33 @@ Debe enviarse al menos uno.
 - `isAvailable`: disponibilidad comercial.
 
 Un producto activo puede estar no disponible. El filtro público `available=false` devuelve productos activos no disponibles, no productos inactivos.
+
+### Eliminar
+
+`DELETE /api/admin/products/:productId`
+
+Borrado **físico** e irreversible: la fila desaparece de `products`. No hay
+papelera ni borrado lógico. La categoría del producto no se toca.
+
+Respuesta `200`:
+
+```json
+{
+  "success": true,
+  "message": "Product deleted successfully",
+  "data": {
+    "productId": 4,
+    "deleted": true
+  }
+}
+```
+
+Un producto que no existe responde `404 PRODUCT_NOT_FOUND`. Borrar dos veces
+el mismo producto no es idempotente: la segunda respuesta es `404`.
+
+La imagen del producto **no** se borra: la fila en `media` sobrevive y queda
+sin referencias, así que el administrador puede eliminarla después desde
+`DELETE /api/admin/media/:mediaId` (ver §10.9).
 
 ### DTO administrativo
 
@@ -1401,6 +1478,33 @@ Al menos uno.
 
 Antes de activar se vuelve a validar el schedule actual. No se puede activar un aviso cuyo `endsAt` ya venció.
 
+### Eliminar
+
+`DELETE /api/admin/announcements/:announcementId`
+
+Borrado **físico** e irreversible: la fila desaparece de `announcements`. No hay
+papelera ni borrado lógico.
+
+Respuesta `200`:
+
+```json
+{
+  "success": true,
+  "message": "Announcement deleted successfully",
+  "data": {
+    "announcementId": 8,
+    "deleted": true
+  }
+}
+```
+
+Un anuncio que no existe responde `404 ANNOUNCEMENT_NOT_FOUND`. Borrar dos veces
+el mismo anuncio no es idempotente: la segunda respuesta es `404`.
+
+La imagen del aviso **no** se borra: la fila en `media` sobrevive y queda sin
+referencias, así que el administrador puede eliminarla después desde
+`DELETE /api/admin/media/:mediaId` (ver §10.9).
+
 ### DTO administrativo
 
 ```json
@@ -1515,6 +1619,10 @@ Response:
   }
 }
 ```
+
+El máximo de `limit` es `100`. La galería del panel carga la primera página y
+suma el resto con un botón "Ver más imágenes", así que ninguna imagen queda
+fuera del alcance del administrador.
 
 ## 10.2 `GET /api/admin/media/:mediaId`
 
@@ -1730,6 +1838,23 @@ El backend:
 No se permite eliminar media referenciada. `imageMediaId: null` es la forma de retirar asociaciones
 en categorías, productos y avisos. **En fotos no existe esa salida:** una foto siempre tiene
 imagen, así que para reutilizar el archivo hay que reasignarlo o borrar antes la foto que lo usa.
+
+### El conteo de referencias es en vivo
+
+La comprobación de referencias **no** es un contador guardado en la fila de
+`media`: es un `COUNT(*)` sobre `categories`, `products`, `announcements` y
+`photos` ejecutado en cada intento de borrado. Por eso:
+
+- borrar una categoría, un producto, un aviso o una foto **libera** su
+  imagen: la siguiente llamada a `DELETE /api/admin/media/:mediaId` ya no
+  devuelve `409 MEDIA_IN_USE`;
+- una imagen compartida por varias publicaciones sigue bloqueada mientras
+  alguna de ellas exista, que es lo correcto;
+- no hay estado que se pueda desincronizar.
+
+Las cuatro tablas son las únicas que referencian `media`. Si en el futuro un
+módulo nuevo guardara un `imageMediaId`, tiene que entrar también en ese
+conteo (hay un test que lo verifica: `tests/unit/media-reference-guard.test.js`).
 
 Response `200`:
 
@@ -2207,21 +2332,30 @@ No requiere que el canal esté conectado: si el proveedor no responde, se limpia
 
 ## 11.9 `DELETE /api/admin/videos/:videoId`
 
-**Roles:** solo `ADMIN`. `EDITOR` recibe `403 FORBIDDEN`.
+**Roles:** `ADMIN` y `EDITOR`.
 
 Elimina el recurso **remoto** en YouTube y marca el registro local como `DELETED`. `videoId` es el **ID local**, nunca el `externalId`.
 
-Es irreversible. `EDITOR` conserva todos los demás permisos del módulo; solo esta ruta se estrecha.
+Es irreversible. El frontend muestra una confirmación explícita antes de enviarla.
+
+### Requisito: el video debe estar oculto
+
+Un video con `is_active = 1` **no** se puede eliminar de YouTube: la ruta responde `409 VIDEO_MUST_BE_HIDDEN` y no contacta al proveedor. El admin debe ocultarlo primero con `PATCH /api/admin/videos/:videoId/status` (`{ "isActive": false }`), que siempre se acepta. Así la publicación deja de estar visible antes de perder su fuente.
+
+La única excepción es una fila ya `DELETED`: no está publicada (las consultas públicas exigen `upload_status = 'READY'`) y el flujo de reparación debe seguir siendo alcanzable.
 
 ### Orden de operaciones
 
 1. Se lee el registro local. Si no existe, `404 VIDEO_NOT_FOUND` sin contactar YouTube.
 2. Se validan `provider`, `external_id` y `upload_status` antes de cualquier llamada al proveedor.
-3. Si ya está `DELETED` con `remote_deleted_at`, la respuesta es **idempotente y exitosa** sin contactar YouTube.
-4. Se verifica la existencia y el canal propietario con `videos.list` (`part=snippet`).
-5. Si el `channelId` propietario no coincide con el canal conectado, `403 YOUTUBE_CHANNEL_MISMATCH` y no se borra nada.
-6. Se ejecuta `videos.delete`.
-7. Solo después del éxito remoto se marca el estado local, en una transacción.
+3. Si no está `DELETED` y `is_active = 1`, `409 VIDEO_MUST_BE_HIDDEN` sin contactar YouTube.
+4. Una fila `DELETED` se confirma con una sonda `videos.list`:
+   - recurso ausente → éxito idempotente, sin `videos.delete` y sin reescribir `remote_deleted_at`;
+   - recurso presente (el marcador local era falso, por ejemplo escrito por la herramienta de mantenimiento) → se elimina y se corrige la fecha local con la del borrado real.
+5. Se verifica la existencia y el canal propietario con `videos.list` (`part=snippet`).
+6. Si el `channelId` propietario no coincide con el canal conectado, `403 YOUTUBE_CHANNEL_MISMATCH` y no se borra nada.
+7. Se ejecuta `videos.delete`.
+8. Solo después del éxito remoto se marca el estado local, en una transacción.
 
 **YouTube primero, estado local después.** No hay transacción distribuida: si YouTube borró el recurso y MySQL falla, la respuesta es `500 YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED`, que **no** afirma que el borrado remoto falló. Un segundo intento encuentra el recurso ausente y completa el marcado local.
 
@@ -2243,15 +2377,36 @@ Un registro `DELETED` **sin** `remote_deleted_at` se considera estado inconsiste
     "video": { "id": 3, "uploadStatus": "DELETED", "remoteDeletedAt": "2026-10-04T05:17:51.306Z" },
     "deleted": true,
     "alreadyDeleted": false,
-    "remoteAlreadyMissing": false
+    "remoteAlreadyMissing": false,
+    "remoteRepaired": false
   }
 }
 ```
 
-- `alreadyDeleted: true` → el registro ya estaba marcado; no se contacting YouTube.
+- `alreadyDeleted: true` → el registro ya estaba marcado como `DELETED`; el recurso remoto se verificó antes de responder.
 - `remoteAlreadyMissing: true` → el recurso remoto ya no existía.
+- `remoteRepaired: true` → el registro estaba marcado `DELETED` pero el video seguía en YouTube; se borró ahora y se corrigió la fecha local. En ese caso el mensaje es `The video was deleted from YouTube and the local state was reconciled`.
 
-El payload se construye campo por campo: el DTO administrativo y esas tres banderas son lo único que sale del servidor. Nunca se devuelven tokens, `channelId` ni la respuesta de Google.
+El payload se construye campo por campo: el DTO administrativo y esas cuatro banderas son lo único que sale del servidor. Nunca se devuelven tokens, `channelId` ni la respuesta de Google.
+
+### `DELETE /api/admin/videos/:videoId/local`
+
+Elimina **definitivamente el registro local** (la fila de `videos`) y no contacta YouTube. Es la acción que el panel ofrece a una fila `DELETED`; para esas filas sustituye a "Eliminar de YouTube".
+
+- **Roles:** `ADMIN` y `EDITOR`.
+- Solo se acepta si `upload_status = 'DELETED'`. Cualquier otra fila responde `409 VIDEO_LOCAL_DELETE_REQUIRES_DELETED` y no se modifica nada: es lo que impide borrar la última referencia local a un video que sigue vivo en YouTube.
+- No tiene rate limit propio: no consume cuota del proveedor.
+- Es irreversible: la fila desaparece del listado administrativo. No toca la tabla `media`, porque los videos no usan ese almacenamiento.
+
+```json
+{
+  "success": true,
+  "message": "The video was permanently removed from the system",
+  "data": { "deleted": true }
+}
+```
+
+> Nota operativa: una fila marcada `DELETED` por la herramienta de mantenimiento puede seguir existiendo en YouTube. En ese caso hay que repararla con `DELETE /api/admin/videos/:videoId` antes de eliminarla del sistema; si se borra la fila local primero se pierde el `externalId` y el recurso remoto queda huérfano.
 
 ### Alcance del permiso OAuth
 
@@ -2323,6 +2478,8 @@ Para cambiar la miniatura de forma soportada conviene usar `PUT /api/admin/video
 | 409 | `YOUTUBE_REAUTH_REQUIRED` | The YouTube channel must be reconnected |
 | 409 | `YOUTUBE_DELETE_NOT_PERMITTED` | The connected channel is not allowed to delete this video |
 | 409 | `VIDEO_LOCAL_STATE_INCONSISTENT` | The stored video state is inconsistent and cannot be deleted |
+| 409 | `VIDEO_MUST_BE_HIDDEN` | The video must be hidden before it can be deleted from YouTube |
+| 409 | `VIDEO_LOCAL_DELETE_REQUIRES_DELETED` | Only a video already deleted from YouTube can be removed from the system |
 | 429 | `YOUTUBE_THUMBNAIL_RATE_LIMITED` | Too many thumbnail changes were requested for this channel |
 | 429 | `YOUTUBE_DELETE_RATE_LIMITED` | Too many deletion requests were sent to YouTube |
 | 500 | `VIDEO_THUMBNAIL_PERSISTENCE_FAILED` | The chosen thumbnail could not be recorded |
@@ -2793,10 +2950,10 @@ Este bloque **sí** se mantiene al día (a diferencia del snapshot histórico de
 estado real comprobado tras las últimas rondas de trabajo.
 
 ```text
-371 tests passed
+569 tests passed
 0 failed
 Módulos con error de sintaxis: 0
-Migraciones en disco: 16 (sin cambios; ninguna migración nueva ni editada)
+Migraciones en disco: 17 (sin cambios; ninguna migración nueva ni editada)
 ```
 
 ### Verificación funcional
@@ -2806,7 +2963,7 @@ real, que es gitignored y no se lee ni se imprime.
 
 | Comprobación | Resultado |
 |---|---|
-| `npm test` | 371 / 371, 0 fallos |
+| `npm test` | 569 / 569, 0 fallos |
 | `node --check` en todos los módulos | 0 errores |
 | Arranque del servidor | Correcto |
 | `GET /api/health` | `200` (no consulta MySQL) |
@@ -3014,3 +3171,204 @@ objeto `image` incluido `id`.
 | `INVALID_MEDIA_RESOURCE_TYPE` | 400 | La media referida no es de tipo `IMAGE`. |
 
 Los tres últimos reutilizan los códigos de Media definidos en [§13.3](#133-media-reutilizado-por-entidades).
+
+## 18. Notificaciones Web Push
+
+El sitio puede avisar al teléfono del visitante cuando se publica un aviso, sin
+app y sin servicio de terceros. Usa Web Push estándar (VAPID + service worker) y
+es **opcional**: si el servidor no tiene las claves configuradas, la API arranca
+igual y el frontend nunca ofrece la suscripción.
+
+### 18.1 Requisitos
+
+- **HTTPS en producción.** El service worker y `PushManager` solo existen en un
+  contexto seguro. `http://localhost` es la única excepción (desarrollo).
+- **iOS/iPadOS 16.4 o superior y el sitio agregado a la pantalla de inicio.**
+  Sin instalar, Safari no entrega push. El modal muestra las instrucciones en
+  lugar del permiso.
+- Las claves VAPID son **permanentes**: rotarlas invalida todas las
+  suscripciones existentes.
+
+Variables de entorno (las tres o ninguna):
+
+```env
+WEB_PUSH_PUBLIC_KEY=
+WEB_PUSH_PRIVATE_KEY=
+WEB_PUSH_SUBJECT=mailto:tu-correo@ejemplo.com
+```
+
+Se generan con:
+
+```bash
+node node_modules/web-push/src/cli.js generate-vapid-keys
+```
+
+### 18.2 `GET /api/notifications/public-key`
+
+Público. Devuelve la clave pública que el navegador necesita para suscribirse.
+Nunca devuelve la privada.
+
+```json
+{
+  "success": true,
+  "message": "Push notification configuration retrieved successfully",
+  "data": {
+    "enabled": true,
+    "publicKey": "BElYtqfJ-..."
+  }
+}
+```
+
+Con la feature apagada responde `200` con `{ "enabled": false, "publicKey": null }`.
+
+### 18.3 `POST /api/notifications/subscriptions`
+
+Público, rate limit de 30 peticiones por IP cada 15 minutos. Guarda (o
+actualiza) la suscripción del navegador. El `endpoint` debe pertenecer a un
+servicio push conocido; cualquier otro host se rechaza con
+`400 INVALID_PUSH_SUBSCRIPTION` para evitar SSRF.
+
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+  "keys": {
+    "p256dh": "BElYtqfJ-...",
+    "auth": "emdVLow-..."
+  }
+}
+```
+
+Respuesta `201`:
+
+```json
+{
+  "success": true,
+  "message": "Push subscription stored successfully",
+  "data": { "subscriptionId": 12 }
+}
+```
+
+La identidad de la fila es `SHA-256(endpoint)`, no el endpoint completo: la URL
+supera el límite de índice de MySQL. Repetir la petición con el mismo navegador
+actualiza las claves en vez de crear otra fila.
+
+### 18.4 `POST /api/notifications/subscriptions/unsubscribe`
+
+Público, mismo rate limit. Usa `POST` con body JSON en vez de `DELETE` porque el
+cliente del frontend solo expone `delete` sin body y el endpoint es demasiado
+largo para la query string.
+
+```json
+{ "endpoint": "https://fcm.googleapis.com/fcm/send/..." }
+```
+
+```json
+{
+  "success": true,
+  "message": "Push subscription removed successfully",
+  "data": { "unsubscribed": true }
+}
+```
+
+### 18.5 `GET /api/admin/notifications/stats`
+
+ADMIN o EDITOR. Sirve para diagnóstico.
+
+```json
+{
+  "success": true,
+  "message": "Push notification statistics retrieved successfully",
+  "data": { "enabled": true, "subscriptions": 34 }
+}
+```
+
+### 18.6 `POST /api/admin/announcements/:announcementId/notify`
+
+ADMIN o EDITOR. Reenvía a mano la notificación de un aviso **activo y vigente**.
+No hace falta para el flujo normal: publicar ya dispara el envío automático.
+
+```json
+{
+  "success": true,
+  "message": "Announcement notification sent successfully",
+  "data": {
+    "total": 34,
+    "sent": 33,
+    "failed": 1,
+    "removed": 0,
+    "notifiedAt": "2026-10-25T12:00:00.000Z"
+  }
+}
+```
+
+Si el aviso está oculto, programado para el futuro o vencido responde
+`409 ANNOUNCEMENT_NOT_VISIBLE`. Si el servidor no tiene claves VAPID responde
+`503 PUSH_NOT_CONFIGURED`.
+
+### 18.7 Cuándo se envía
+
+- **Al publicar** (`PATCH /api/admin/announcements/:id/status` con
+  `{ "isActive": true }`), si el aviso ya está dentro de su ventana de fechas.
+- **Avisos programados**: un chequeo cada 60 s busca avisos activos, visibles y
+  con `notified_at IS NULL` y los envía cuando llega su `startsAt`.
+- **Nunca al editar** un aviso ya publicado, para no spamear.
+
+`announcements.notified_at` es la marca de idempotencia: se escribe con un
+`UPDATE ... WHERE notified_at IS NULL` **antes** de despachar. Dos peticiones
+simultáneas no pueden enviar el mismo aviso dos veces. El envío corre en segundo
+plano: un fallo de push nunca revierte la publicación ni retrasa la respuesta.
+
+Cada suscripción recibe un `POST` independiente, en lotes de 20. Un `404` o
+`410` del servicio push borra la fila (la suscripción ya no existe); otros
+errores incrementan `failure_count` y la fila se elimina al llegar a 10.
+
+El payload que ve el service worker es:
+
+```json
+{
+  "title": "Hay nacatamales",
+  "body": "Ya están listos los de pollo.",
+  "icon": "/apple-touch-icon.png",
+  "badge": "/apple-touch-icon.png",
+  "tag": "announcement-7",
+  "url": "/",
+  "announcementId": 7
+}
+```
+
+### 18.8 Flujo del frontend
+
+1. `frontend/src/utils/push.js` detecta soporte, registra `/sw.js` y pide la
+   clave pública al backend.
+2. `components/NotificationPrompt/NotificationPrompt.jsx` (montado en `Layout`,
+   nunca en `/administracion`) espera 20 s o una interacción y muestra un modal
+   propio. **Nunca** llama a `Notification.requestPermission()` al cargar: solo
+   desde el clic en “Activar notificaciones”.
+3. Si el visitante dice “Ahora no”, se guarda en `localStorage` y no se vuelve a
+   preguntar por 30 días. Si el permiso del navegador ya está denegado, no se
+   muestra nunca.
+4. Si el permiso ya estaba concedido pero la suscripción se perdió, se repara en
+   silencio (`syncPushSubscription`).
+5. `public/sw.js` solo maneja `push`, `notificationclick` y
+   `pushsubscriptionchange`. **No tiene handler de `fetch`**: no hay caché ni PWA
+   offline, así que un despliegue nunca sirve assets viejos.
+
+### 18.9 Errores de Notificaciones
+
+| Código | HTTP | Origen |
+|---|---:|---|
+| `INVALID_PUSH_SUBSCRIPTION` | 400 | Body inválido, campo inesperado, endpoint no HTTPS o fuera de la allowlist, claves con formato incorrecto. |
+| `PUSH_NOT_CONFIGURED` | 503 | El servidor no tiene las tres variables `WEB_PUSH_*`. |
+| `ANNOUNCEMENT_NOT_VISIBLE` | 409 | Reenvío manual de un aviso oculto, programado o vencido. |
+| `ANNOUNCEMENT_NOT_FOUND` | 404 | El aviso no existe al reenviar. |
+| `RATE_LIMIT_EXCEEDED` | 429 | Más de 30 suscripciones/desuscripciones por IP en 15 minutos. |
+
+### 18.10 Operación
+
+- Servir `/sw.js` con `Cache-Control: no-cache` en el proxy. Si se cachea, una
+  actualización del service worker puede tardar en llegar.
+- El scheduler es un `setInterval` de 60 s con `unref()`, arrancado desde
+  `src/server.js` y detenido en el apagado. Con varias instancias del backend el
+  claim atómico evita envíos duplicados.
+- Los logs de envío solo incluyen contadores (`sent`, `failed`, `removed`),
+  nunca endpoints, claves ni user agents.

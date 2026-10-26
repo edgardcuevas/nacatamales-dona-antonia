@@ -27,6 +27,7 @@ export default function CategoryManager() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
   const image = useStagedImage()
 
     function fetchCategories() {
@@ -120,6 +121,44 @@ export default function CategoryManager() {
     }
   }
 
+  async function handleDelete(category) {
+    const confirmed = window.confirm(
+      `¿Eliminar la categoría "${category.name}"? Esta acción no se puede deshacer.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingId(category.id)
+    setErrorMessage(null)
+
+    try {
+      await api.delete(`/admin/categories/${category.id}`)
+
+      if (editingId === category.id) {
+        resetForm()
+      }
+
+      loadCategories()
+    } catch (error) {
+      if (error.code === 'CATEGORY_HAS_PRODUCTS') {
+        // El servidor pone la cantidad en el mensaje. Si no la encuentra,
+        // el texto genérico alcanza igual.
+        const count = /(\d+)/.exec(error.message || '')
+        setErrorMessage(
+          count
+            ? `Esa categoría todavía tiene ${count[1]} producto(s). Movelos o eliminá esos productos primero.`
+            : 'Esa categoría todavía tiene productos. Movelos o eliminá esos productos primero.',
+        )
+      } else {
+        setErrorMessage('No se pudo eliminar la categoría.')
+      }
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div className="category-manager">
       <form className="category-manager__form" onSubmit={handleSubmit}>
@@ -196,6 +235,14 @@ export default function CategoryManager() {
               </button>
               <button type="button" className="btn-link" onClick={() => toggleStatus(category)}>
                 {category.isActive ? 'Desactivar' : 'Activar'}
+              </button>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => handleDelete(category)}
+                disabled={deletingId === category.id}
+              >
+                {deletingId === category.id ? 'Eliminando…' : 'Eliminar'}
               </button>
             </div>
           </div>

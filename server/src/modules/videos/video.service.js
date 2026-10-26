@@ -42,6 +42,14 @@ function createRemoteDeletedError() {
   );
 }
 
+function createLocalDeleteRequiresDeletedError() {
+  return new AppError(
+    409,
+    "VIDEO_LOCAL_DELETE_REQUIRES_DELETED",
+    "Only a video already deleted from YouTube can be removed from the system"
+  );
+}
+
 function assertRemoteVideoAvailable(video) {
   if (video.upload_status === "DELETED") {
     throw createRemoteDeletedError();
@@ -298,6 +306,32 @@ async function updateVideo({
   return getVideoById(videoId);
 }
 
+// Permanently removes the local row. It is deliberately narrower than a
+// generic delete: only a DELETED row qualifies, so the panel can never
+// erase the last reference to a video that still exists on YouTube. The
+// remote resource is never contacted here.
+async function deleteLocalVideo(videoId) {
+  const current =
+    await videoRepository.findVideoById(videoId);
+
+  if (!current) {
+    throw createVideoNotFoundError();
+  }
+
+  if ((current.upload_status ?? "READY") !== "DELETED") {
+    throw createLocalDeleteRequiresDeletedError();
+  }
+
+  const removed =
+    await videoRepository.deleteVideoById(videoId);
+
+  if (!removed) {
+    throw createVideoNotFoundError();
+  }
+
+  return { deleted: true };
+}
+
 async function changeVideoStatus({
   videoId,
   isActive,
@@ -345,6 +379,7 @@ module.exports = {
   createVideo,
   updateVideo,
   changeVideoStatus,
+  deleteLocalVideo,
   assertRemoteVideoAvailable,
   createRemoteDeletedError,
 };

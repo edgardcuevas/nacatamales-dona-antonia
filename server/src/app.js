@@ -50,6 +50,12 @@ const youtubeAdminRoutes = require(
 const youtubeOAuthRoutes = require(
   "./modules/youtube/youtube.oauth.routes"
 );
+const notificationRoutes = require(
+  "./modules/notification/notification.routes"
+);
+const notificationAdminRoutes = require(
+  "./modules/notification/notification.admin.routes"
+);
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -143,6 +149,14 @@ app.use(
 app.use(
   "/api/youtube/oauth",
   youtubeOAuthRoutes
+);
+app.use(
+  "/api/notifications",
+  notificationRoutes
+);
+app.use(
+  "/api/admin/notifications",
+  notificationAdminRoutes
 );
 
 // Liveness: answers 200 whenever the process can serve HTTP. It never

@@ -88,6 +88,7 @@ function getAnnouncementColumns() {
     a.ends_at,
     a.sort_order,
     a.image_media_id,
+    a.notified_at,
     a.created_at,
     a.updated_at,
     m.id AS image_id,
@@ -297,6 +298,85 @@ async function updateAnnouncementStatusById({
   return result.affectedRows === 1;
 }
 
+// Plain DELETE on purpose: the image row in media must stay untouched so
+// it becomes unreferenced and the admin can delete it from the gallery.
+async function deleteAnnouncementById(
+  announcementId
+) {
+  const [result] = await pool.execute(
+    `
+      DELETE FROM announcements
+      WHERE id = ?
+    `,
+    [announcementId]
+  );
+
+  return result.affectedRows === 1;
+}
+
+// Marca el aviso como notificado SOLO si sigue siendo visible y nadie lo
+// habia marcado antes. El UPDATE condicional es lo que hace idempotente
+// el envio: dos peticiones simultaneas (o dos procesos) no pueden ganar
+// las dos, asi que no se manda el push dos veces.
+async function claimAnnouncementNotification(
+  announcementId
+) {
+  const [result] = await pool.execute(
+    `
+      UPDATE announcements
+      SET notified_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND notified_at IS NULL
+        AND is_active = 1
+        AND (starts_at IS NULL OR starts_at <= CURRENT_TIMESTAMP)
+        AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
+    `,
+    [announcementId]
+  );
+
+  return result.affectedRows === 1;
+}
+
+// El admin pidio reenviar: no importa si ya estaba marcado, se vuelve a
+// marcar para que la lista muestre la fecha del ultimo envio.
+async function markAnnouncementNotified(
+  announcementId
+) {
+  const [result] = await pool.execute(
+    `
+      UPDATE announcements
+      SET notified_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    [announcementId]
+  );
+
+  return result.affectedRows === 1;
+}
+
+// Candidatos para el scheduler: activos, dentro de su ventana y sin
+// notificar. Devuelve solo IDs para que el despacho los recargue con la
+// misma forma que usa el resto del modulo.
+async function listAnnouncementsAwaitingNotification({
+  limit = 50,
+} = {}) {
+  const [rows] = await pool.execute(
+    `
+      SELECT id
+      FROM announcements
+      WHERE notified_at IS NULL
+        AND is_active = 1
+        AND (starts_at IS NULL OR starts_at <= CURRENT_TIMESTAMP)
+        AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)
+      ORDER BY id ASC
+      LIMIT ?
+    `,
+    [limit]
+  );
+
+  return rows.map((row) => Number(row.id));
+}
+
 module.exports = {
   listPublicAnnouncements,
   listAnnouncements,
@@ -304,4 +384,8 @@ module.exports = {
   createAnnouncement,
   updateAnnouncementById,
   updateAnnouncementStatusById,
+  deleteAnnouncementById,
+  claimAnnouncementNotification,
+  markAnnouncementNotified,
+  listAnnouncementsAwaitingNotification,
 };

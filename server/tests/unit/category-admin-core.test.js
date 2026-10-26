@@ -341,3 +341,176 @@ test("category status change is idempotent and updates timestamps through reposi
   assert.equal(result.isActive, true);
   assert.equal(updateCalls, 0);
 });
+
+test("category repository deletes the row and never touches media", async () => {
+  const queries = [];
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      queries.push({ sql, parameters });
+      return [{ affectedRows: 1 }, []];
+    }
+  );
+
+  const deleted =
+    await categoryRepository.deleteCategoryById(3);
+
+  assert.equal(deleted, true);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0].sql, /DELETE FROM categories/);
+  assert.deepEqual(queries[0].parameters, [3]);
+  // La imagen sigue viva en media: es lo que la deja "desocupada"
+  // para que el admin pueda borrarla desde la galeria.
+  assert.doesNotMatch(queries[0].sql, /media/i);
+});
+
+test("category service deletes a category and reports it as deleted", async () => {
+  mock.method(
+    categoryRepository,
+    "findCategoryById",
+    async () => createRawCategory()
+  );
+  mock.method(
+    categoryRepository,
+    "countProductsByCategoryId",
+    async () => 0
+  );
+  mock.method(
+    categoryRepository,
+    "deleteCategoryById",
+    async () => true
+  );
+
+  const result =
+    await categoryService.deleteCategory(3);
+
+  assert.deepEqual(result, {
+    categoryId: 3,
+    deleted: true,
+  });
+});
+
+test("category service refuses to delete a category that still has products", async () => {
+  let deleteCalls = 0;
+  mock.method(
+    categoryRepository,
+    "findCategoryById",
+    async () => createRawCategory()
+  );
+  mock.method(
+    categoryRepository,
+    "countProductsByCategoryId",
+    async () => 3
+  );
+  mock.method(
+    categoryRepository,
+    "deleteCategoryById",
+    async () => {
+      deleteCalls += 1;
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    categoryService.deleteCategory(3),
+    (error) => {
+      assertAppError(
+        error,
+        409,
+        "CATEGORY_HAS_PRODUCTS"
+      );
+      assert.match(error.message, /3/);
+      return true;
+    }
+  );
+
+  assert.equal(deleteCalls, 0);
+});
+
+test("category service maps a foreign key restriction to CATEGORY_HAS_PRODUCTS", async () => {
+  const restriction = new Error(
+    "Cannot delete or update a parent row"
+  );
+  restriction.errno = 1451;
+  restriction.code = "ER_ROW_IS_REFERENCED_2";
+
+  mock.method(
+    categoryRepository,
+    "findCategoryById",
+    async () => createRawCategory()
+  );
+  mock.method(
+    categoryRepository,
+    "countProductsByCategoryId",
+    async () => 1
+  );
+  mock.method(
+    categoryRepository,
+    "deleteCategoryById",
+    async () => {
+      throw restriction;
+    }
+  );
+
+  await assert.rejects(
+    categoryService.deleteCategory(3),
+    (error) => {
+      assertAppError(
+        error,
+        409,
+        "CATEGORY_HAS_PRODUCTS"
+      );
+      return true;
+    }
+  );
+});
+
+test("category service reports a missing or already deleted category", async () => {
+  mock.method(
+    categoryRepository,
+    "findCategoryById",
+    async () => null
+  );
+
+  await assert.rejects(
+    categoryService.deleteCategory(3),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "CATEGORY_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+
+  mock.restoreAll();
+  mock.method(
+    categoryRepository,
+    "findCategoryById",
+    async () => createRawCategory()
+  );
+  mock.method(
+    categoryRepository,
+    "countProductsByCategoryId",
+    async () => 0
+  );
+  mock.method(
+    categoryRepository,
+    "deleteCategoryById",
+    async () => false
+  );
+
+  await assert.rejects(
+    categoryService.deleteCategory(3),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "CATEGORY_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+});

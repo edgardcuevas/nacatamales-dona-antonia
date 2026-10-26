@@ -140,6 +140,17 @@ mock.method(
 );
 mock.method(
   announcementService,
+  "deleteAnnouncement",
+  async (announcementId) => {
+    state.calls.delete = { announcementId };
+    if (state.errors.delete) {
+      throw state.errors.delete;
+    }
+    return { announcementId, deleted: true };
+  }
+);
+mock.method(
+  announcementService,
   "changeAnnouncementStatus",
   async (input) => {
     state.calls.status = input;
@@ -362,5 +373,56 @@ test("announcement admin inactive user cannot access routes", async () => {
   assert.equal(
     result.body.error.code,
     "AUTHENTICATED_USER_UNAVAILABLE"
+  );
+});
+
+test("announcement admin can delete an announcement", async () => {
+  const result = await request(
+    "/api/admin/announcements/7",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(state.calls.delete, {
+    announcementId: 7,
+  });
+  assert.equal(result.body.data.deleted, true);
+  assert.equal(result.body.data.announcementId, 7);
+});
+
+test("announcement admin delete rejects an invalid id and surfaces a missing announcement", async () => {
+  const invalid = await request(
+    "/api/admin/announcements/abc",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  state.errors.delete = new AppError(
+    404,
+    "ANNOUNCEMENT_NOT_FOUND",
+    "The requested announcement does not exist"
+  );
+  const missing = await request(
+    "/api/admin/announcements/7",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(invalid.status, 400);
+  assert.equal(
+    invalid.body.error.code,
+    "INVALID_ANNOUNCEMENT_ID"
+  );
+  assert.equal(missing.status, 404);
+  assert.equal(
+    missing.body.error.code,
+    "ANNOUNCEMENT_NOT_FOUND"
   );
 });

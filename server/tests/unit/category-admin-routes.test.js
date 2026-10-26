@@ -145,6 +145,17 @@ mock.method(
     return state.category;
   }
 );
+mock.method(
+  categoryService,
+  "deleteCategory",
+  async (categoryId) => {
+    state.calls.delete = { categoryId };
+    if (state.errors.delete) {
+      throw state.errors.delete;
+    }
+    return { categoryId, deleted: true };
+  }
+);
 
 const app = require("../../src/app");
 const pool = require("../../src/database/pool");
@@ -391,5 +402,60 @@ test("category admin inactive user cannot manage content", async () => {
   assert.equal(
     result.body.error.code,
     "AUTHENTICATED_USER_UNAVAILABLE"
+  );
+});
+
+test("category admin can delete a category", async () => {
+  const result = await request(
+    "/api/admin/categories/3",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(state.calls.delete, {
+    categoryId: 3,
+  });
+  assert.equal(result.body.data.deleted, true);
+  assert.equal(result.body.data.categoryId, 3);
+});
+
+test("category admin delete rejects an invalid id", async () => {
+  const result = await request(
+    "/api/admin/categories/abc",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 400);
+  assert.equal(
+    result.body.error.code,
+    "INVALID_CATEGORY_ID"
+  );
+});
+
+test("category admin delete surfaces a category that still has products", async () => {
+  state.errors.delete = new AppError(
+    409,
+    "CATEGORY_HAS_PRODUCTS",
+    "This category still has 3 product(s); move or delete them first"
+  );
+
+  const result = await request(
+    "/api/admin/categories/3",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 409);
+  assert.equal(
+    result.body.error.code,
+    "CATEGORY_HAS_PRODUCTS"
   );
 });

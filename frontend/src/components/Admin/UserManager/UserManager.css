@@ -1,0 +1,92 @@
+.user-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.user-manager__form {
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.user-manager__form h3 {
+  font-size: var(--fs-md);
+  color: var(--color-tinta);
+  margin-bottom: 14px;
+}
+
+.user-manager__form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.user-manager__form-actions button {
+  cursor: pointer;
+}
+
+.user-manager__divider {
+  border-top: 1px solid var(--color-linea);
+  margin: 8px 0;
+}
+
+.user-manager__rules {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.user-manager__rule {
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
+}
+
+.user-manager__rule--ok {
+  color: var(--color-tinta-2);
+}
+
+.user-manager__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-blanco);
+  border: 1px solid var(--color-linea);
+  border-radius: 12px;
+  padding: 12px;
+  flex-wrap: wrap;
+}
+
+.user-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.user-row__body strong {
+  font-size: var(--fs-sm);
+  color: var(--color-tinta);
+}
+
+.user-row__body span {
+  font-size: var(--fs-xs);
+  color: var(--color-tinta-4);
+}
+
+.user-row__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}

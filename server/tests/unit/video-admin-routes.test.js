@@ -156,6 +156,17 @@ mock.method(
   }
 );
 mock.method(
+  videoService,
+  "deleteLocalVideo",
+  async (videoId) => {
+    state.calls.deleteLocal = { videoId };
+    if (state.errors.deleteLocal) {
+      throw state.errors.deleteLocal;
+    }
+    return { deleted: true };
+  }
+);
+mock.method(
   youtubeService,
   "setVideoThumbnail",
   async (input) => {
@@ -400,6 +411,80 @@ test("video admin duplicate error is neutral and edit/status routes are availabl
   assert.equal(status.status, 200);
   assert.equal(state.calls.update.videoId, 3);
   assert.equal(state.calls.status.isActive, true);
+});
+
+test("removing a video from the system deletes only the local row", async () => {
+  const removed = await request(
+    "/api/admin/videos/3/local",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.success, true);
+  assert.equal(removed.body.data.deleted, true);
+  assert.match(
+    removed.body.message,
+    /permanently removed/
+  );
+  assert.deepEqual(state.calls.deleteLocal, {
+    videoId: 3,
+  });
+
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  const editorResult = await request(
+    "/api/admin/videos/3/local",
+    {
+      method: "DELETE",
+      accessToken: token("EDITOR"),
+    }
+  );
+  assert.equal(editorResult.status, 200);
+
+  // The service refuses a row that is not DELETED; the code must reach
+  // the client unchanged.
+  state.errors.deleteLocal = new AppError(
+    409,
+    "VIDEO_LOCAL_DELETE_REQUIRES_DELETED",
+    "Only a video already deleted from YouTube can be removed from the system"
+  );
+  const refused = await request(
+    "/api/admin/videos/3/local",
+    {
+      method: "DELETE",
+      accessToken: token("EDITOR"),
+    }
+  );
+
+  assert.equal(refused.status, 409);
+  assert.equal(
+    refused.body.error.code,
+    "VIDEO_LOCAL_DELETE_REQUIRES_DELETED"
+  );
+});
+
+test("removing a video from the system rejects a malformed id before the service", async () => {
+  const result = await request(
+    "/api/admin/videos/not-a-number/local",
+    {
+      method: "DELETE",
+      accessToken: token(),
+    }
+  );
+
+  assert.equal(result.status, 400);
+  assert.equal(
+    result.body.error.code,
+    "INVALID_VIDEO_ID"
+  );
+  assert.equal(state.calls.deleteLocal, undefined);
 });
 
 test("setting a thumbnail accepts a raw JPEG body and returns the provider URL", async () => {

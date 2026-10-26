@@ -445,3 +445,91 @@ test("announcement cannot be activated after its end date but future schedules c
   assert.equal(result.isActive, false);
   assert.equal(updateCalls, 1);
 });
+
+test("announcement repository deletes the row and never touches media", async () => {
+  const queries = [];
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      queries.push({ sql, parameters });
+      return [{ affectedRows: 1 }, []];
+    }
+  );
+
+  const deleted =
+    await announcementRepository.deleteAnnouncementById(7);
+
+  assert.equal(deleted, true);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0].sql, /DELETE FROM announcements/);
+  assert.deepEqual(queries[0].parameters, [7]);
+  // La imagen sigue viva en media: es lo que la deja "desocupada"
+  // para que el admin pueda borrarla desde la galeria.
+  assert.doesNotMatch(queries[0].sql, /media/i);
+});
+
+test("announcement service deletes an announcement and reports it as deleted", async () => {
+  mock.method(
+    announcementRepository,
+    "findAnnouncementById",
+    async () => createRawAnnouncement()
+  );
+  mock.method(
+    announcementRepository,
+    "deleteAnnouncementById",
+    async () => true
+  );
+
+  const result =
+    await announcementService.deleteAnnouncement(7);
+
+  assert.deepEqual(result, {
+    announcementId: 7,
+    deleted: true,
+  });
+});
+
+test("announcement service reports a missing or already deleted announcement", async () => {
+  mock.method(
+    announcementRepository,
+    "findAnnouncementById",
+    async () => null
+  );
+
+  await assert.rejects(
+    announcementService.deleteAnnouncement(7),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "ANNOUNCEMENT_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+
+  mock.restoreAll();
+  mock.method(
+    announcementRepository,
+    "findAnnouncementById",
+    async () => createRawAnnouncement()
+  );
+  mock.method(
+    announcementRepository,
+    "deleteAnnouncementById",
+    async () => false
+  );
+
+  await assert.rejects(
+    announcementService.deleteAnnouncement(7),
+    (error) => {
+      assertAppError(
+        error,
+        404,
+        "ANNOUNCEMENT_NOT_FOUND"
+      );
+      return true;
+    }
+  );
+});

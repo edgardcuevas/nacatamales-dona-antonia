@@ -9,6 +9,7 @@ const {
   createAnnouncement,
   updateAnnouncement,
   changeAnnouncementStatus,
+  deleteAnnouncement,
 } = require("./announcement.service");
 
 async function listPublicAnnouncementsController(
@@ -116,6 +117,22 @@ async function changeAnnouncementStatusController(
   );
 }
 
+async function deleteAnnouncementController(
+  request,
+  response
+) {
+  const result = await deleteAnnouncement(
+    request.announcementId
+  );
+
+  return successResponse(
+    response,
+    200,
+    result,
+    "Announcement deleted successfully"
+  );
+}
+
 module.exports = {
   listPublicAnnouncementsController,
   listAdministrativeAnnouncementsController,
@@ -123,4 +140,5 @@ module.exports = {
   createAnnouncementController,
   updateAnnouncementController,
   changeAnnouncementStatusController,
+  deleteAnnouncementController,
 };

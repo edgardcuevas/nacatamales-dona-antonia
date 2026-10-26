@@ -131,6 +131,41 @@
   color: var(--color-rojo-dark);
 }
 
+.btn-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.btn-link--danger {
+  color: var(--color-rojo-dark, #c0392b);
+  font-weight: var(--fw-bold, 700);
+}
+
+.btn--danger {
+  background: var(--color-rojo-dark, #c0392b);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn--danger:hover {
+  background: #922b21;
+}
+
+.btn--danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-link--danger:hover {
+  color: #922b21;
+  text-decoration: underline;
+}
+
 @media (min-width: 640px) {
   .admin-dashboard__header {
     flex-direction: row;

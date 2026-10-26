@@ -233,6 +233,14 @@ function createLocalStateInconsistentError() {
   );
 }
 
+function createVideoMustBeHiddenError() {
+  return createYoutubeError(
+    409,
+    "VIDEO_MUST_BE_HIDDEN",
+    "The video must be hidden before it can be deleted from YouTube"
+  );
+}
+
 function createDeleteNotPermittedError() {
   return createYoutubeError(
     409,
@@ -1249,31 +1257,35 @@ async function deleteRemoteVideo(videoId) {
     throw createLocalStateInconsistentError();
   }
 
-  if (current.upload_status === "DELETED") {
-    // A DELETED row without a deletion date is inconsistent. The date
-    // is never invented here.
-    if (
-      current.remote_deleted_at === null ||
-      current.remote_deleted_at === undefined
-    ) {
-      throw createLocalStateInconsistentError();
-    }
+  // A DELETED row is terminal for the status poll, but the marker is
+  // local bookkeeping and can be wrong: the maintenance tool writes it
+  // without ever contacting YouTube. It is a hypothesis to confirm,
+  // never proof that the remote resource is gone, so the row is not
+  // trusted before the probe below runs.
+  const alreadyDeletedLocally =
+    current.upload_status === "DELETED";
 
-    // Already marked: a second request is a safe no-op. YouTube is not
-    // contacted and the original date is never replaced.
-    logRemoteDeletionEvent(
-      "already-deleted",
-      videoId
-    );
+  if (
+    alreadyDeletedLocally &&
+    (current.remote_deleted_at === null ||
+      current.remote_deleted_at === undefined)
+  ) {
+    // The date is never invented here: a DELETED row without one is an
+    // inconsistent state, not a row to delete.
+    throw createLocalStateInconsistentError();
+  }
 
-    return {
-      video: await videoService.getVideoById(
-        videoId
-      ),
-      deleted: true,
-      alreadyDeleted: true,
-      remoteAlreadyMissing: true,
-    };
+  // Deleting a published video would remove the source while the
+  // publication is still visible on the site, so the admin has to hide
+  // it first. Hiding is always accepted, which keeps the path forward
+  // open. A DELETED row is exempt: it is not published (the public
+  // queries require READY) and the repair path must stay reachable.
+  if (
+    !alreadyDeletedLocally &&
+    (current.is_active === 1 ||
+      current.is_active === true)
+  ) {
+    throw createVideoMustBeHiddenError();
   }
 
   const connection =
@@ -1298,7 +1310,9 @@ async function deleteRemoteVideo(videoId) {
     ) {
       remoteAlreadyMissing = true;
       logRemoteDeletionEvent(
-        "remote-missing",
+        alreadyDeletedLocally
+          ? "already-deleted"
+          : "remote-missing",
         videoId
       );
     } else {
@@ -1316,7 +1330,12 @@ async function deleteRemoteVideo(videoId) {
       throw createChannelMismatchError();
     }
 
-    logRemoteDeletionEvent("attempt", videoId);
+    logRemoteDeletionEvent(
+      alreadyDeletedLocally
+        ? "repair-attempt"
+        : "attempt",
+      videoId
+    );
 
     try {
       await youtubeClient.deleteVideo(
@@ -1335,16 +1354,38 @@ async function deleteRemoteVideo(videoId) {
       }
     }
 
-    logRemoteDeletionEvent(
-      "remote-success",
-      videoId
-    );
+    if (!remoteAlreadyMissing) {
+      logRemoteDeletionEvent(
+        alreadyDeletedLocally
+          ? "repair-success"
+          : "remote-success",
+        videoId
+      );
+    }
+  }
+
+  // Already marked and now confirmed absent: a true no-op. Nothing is
+  // deleted and nothing is written, so the original date is preserved.
+  if (alreadyDeletedLocally && remoteAlreadyMissing) {
+    return {
+      video: await videoService.getVideoById(
+        videoId
+      ),
+      deleted: true,
+      alreadyDeleted: true,
+      remoteAlreadyMissing: true,
+      remoteRepaired: false,
+    };
   }
 
   // YouTube first, local state second. The two cannot share a
   // transaction, so a local failure is reported as its own condition:
   // the remote delete already happened and must never be described as
   // failed. A retry finds the resource missing and finishes the job.
+  //
+  // A repaired row records the real deletion time: the previous stamp
+  // came from a local-only transition, so it never described a remote
+  // deletion.
   const deletedAt = new Date();
   try {
     await videoRepository
@@ -1362,13 +1403,19 @@ async function deleteRemoteVideo(videoId) {
     throw createRemoteDeletedLocalUpdateFailedError();
   }
 
-  logRemoteDeletionEvent("local-success", videoId);
+  logRemoteDeletionEvent(
+    alreadyDeletedLocally
+      ? "remote-repaired"
+      : "local-success",
+    videoId
+  );
 
   return {
     video: await videoService.getVideoById(videoId),
     deleted: true,
-    alreadyDeleted: false,
+    alreadyDeleted: alreadyDeletedLocally,
     remoteAlreadyMissing,
+    remoteRepaired: alreadyDeletedLocally,
   };
 }
 

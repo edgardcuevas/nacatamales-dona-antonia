@@ -215,7 +215,7 @@ test("the remote deletion route requires authentication", async () => {
   assert.deepEqual(state.calls, []);
 });
 
-test("the remote deletion route is ADMIN only", async () => {
+test("the remote deletion route allows ADMIN and EDITOR", async () => {
   state.currentUser = {
     id: 2,
     email: "editor@example.com",
@@ -228,16 +228,8 @@ test("the remote deletion route is ADMIN only", async () => {
     { accessToken: token("EDITOR") }
   );
 
-  assert.equal(result.status, 403);
-  assert.equal(
-    result.body.error.code,
-    "FORBIDDEN"
-  );
-  assert.deepEqual(
-    state.calls,
-    [],
-    "EDITOR must never reach the service"
-  );
+  assert.equal(result.status, 200);
+  assert.deepEqual(state.calls, [3]);
 });
 
 test("EDITOR keeps every other permission on the module", async () => {
@@ -298,6 +290,10 @@ test("an ADMIN receives the normalized local video and the idempotency flags", a
     false
   );
   assert.equal(
+    result.body.data.remoteRepaired,
+    false
+  );
+  assert.equal(
     result.body.data.video.uploadStatus,
     "DELETED"
   );
@@ -333,6 +329,39 @@ test("an already deleted record answers with the idempotent message and flags", 
     result.body.data.remoteAlreadyMissing,
     true
   );
+  assert.equal(
+    result.body.data.remoteRepaired,
+    false
+  );
+});
+
+test("a repaired record reports the repair message and flag", async () => {
+  state.result = {
+    video: state.video,
+    deleted: true,
+    alreadyDeleted: true,
+    remoteAlreadyMissing: false,
+    remoteRepaired: true,
+  };
+
+  const result = await deleteRequest(
+    "/api/admin/videos/2",
+    { accessToken: token() }
+  );
+
+  assert.equal(result.status, 200);
+  assert.match(
+    result.body.message,
+    /reconciled/
+  );
+  assert.equal(
+    result.body.data.remoteRepaired,
+    true
+  );
+  assert.equal(
+    result.body.data.remoteAlreadyMissing,
+    false
+  );
 });
 
 test("the route passes the local id, never the external id", async () => {
@@ -343,6 +372,29 @@ test("the route passes the local id, never the external id", async () => {
 
   assert.equal(result.status, 200);
   assert.deepEqual(state.calls, [42]);
+});
+
+test("a published video is refused with the hide-first code", async () => {
+  state.error = new AppError(
+    409,
+    "VIDEO_MUST_BE_HIDDEN",
+    "The video must be hidden before it can be deleted from YouTube"
+  );
+
+  const result = await deleteRequest(
+    "/api/admin/videos/3",
+    { accessToken: token() }
+  );
+
+  assert.equal(result.status, 409);
+  assert.equal(
+    result.body.error.code,
+    "VIDEO_MUST_BE_HIDDEN"
+  );
+  assert.equal(result.body.success, false);
+  // The server still receives the local id; the refusal is a state
+  // decision, not a routing one.
+  assert.deepEqual(state.calls, [3]);
 });
 
 test("a malformed local id is rejected before the service is called", async () => {

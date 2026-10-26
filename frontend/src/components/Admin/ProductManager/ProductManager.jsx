@@ -33,6 +33,7 @@ export default function ProductManager() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
   const [filterCategoryId, setFilterCategoryId] = useState('')
   const image = useStagedImage()
 
@@ -168,6 +169,33 @@ export default function ProductManager() {
       loadProducts()
     } catch {
       setErrorMessage('No se pudo cambiar el estado del producto.')
+    }
+  }
+
+  async function handleDelete(product) {
+    const confirmed = window.confirm(
+      `¿Eliminar "${product.name}"? Va a desaparecer del menú. Esta acción no se puede deshacer.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingId(product.id)
+    setErrorMessage(null)
+
+    try {
+      await api.delete(`/admin/products/${product.id}`)
+
+      if (editingId === product.id) {
+        resetForm()
+      }
+
+      loadProducts()
+    } catch {
+      setErrorMessage('No se pudo eliminar el producto.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -320,6 +348,14 @@ export default function ProductManager() {
               </button>
               <button type="button" className="btn-link" onClick={() => toggleStatus(product)}>
                 {product.isActive ? 'Ocultar' : 'Mostrar'}
+              </button>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => handleDelete(product)}
+                disabled={deletingId === product.id}
+              >
+                {deletingId === product.id ? 'Eliminando…' : 'Eliminar'}
               </button>
             </div>
           </div>

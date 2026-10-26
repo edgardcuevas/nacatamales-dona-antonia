@@ -1,6 +1,12 @@
 const app = require("./app");
 const env = require("./config/env");
 const pool = require("./database/pool");
+const {
+  startNotificationScheduler,
+  stopNotificationScheduler,
+} = require(
+  "./modules/notification/notification.scheduler"
+);
 
 let server;
 let isShuttingDown = false;
@@ -11,6 +17,10 @@ function startServer() {
       `Server running in ${env.nodeEnv} mode on port ${env.port}`
     );
   });
+
+  // Programmed announcements become visible without an admin request,
+  // so a single unref'ed timer is the only way they get notified.
+  startNotificationScheduler();
 }
 
 async function closeDatabasePool() {
@@ -35,6 +45,8 @@ async function shutdown(signal) {
   isShuttingDown = true;
 
   console.log(`${signal} received. Closing server gracefully...`);
+
+  stopNotificationScheduler();
 
   const forceShutdownTimer = setTimeout(() => {
     console.error("Graceful shutdown timed out. Forcing exit.");

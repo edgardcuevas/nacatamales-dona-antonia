@@ -476,6 +476,29 @@ async function changeProductAvailability({
   return getProductById(productId);
 }
 
+async function deleteProduct(productId) {
+  assertProductId(productId);
+  const current =
+    await productRepository.findProductById(
+      productId
+    );
+
+  if (!current) {
+    throw createProductNotFoundError();
+  }
+
+  const deleted =
+    await productRepository.deleteProductById(
+      productId
+    );
+
+  if (!deleted) {
+    throw createProductNotFoundError();
+  }
+
+  return { productId, deleted: true };
+}
+
 module.exports = {
   listPublicProducts,
   getPublicProductBySlug,
@@ -485,4 +508,5 @@ module.exports = {
   updateProduct,
   changeProductStatus,
   changeProductAvailability,
+  deleteProduct,
 };

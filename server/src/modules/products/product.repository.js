@@ -397,6 +397,20 @@ async function updateProductAvailabilityById({
   return result.affectedRows === 1;
 }
 
+// Plain DELETE on purpose: the image row in media must stay untouched so
+// it becomes unreferenced and the admin can delete it from the gallery.
+async function deleteProductById(productId) {
+  const [result] = await pool.execute(
+    `
+      DELETE FROM products
+      WHERE id = ?
+    `,
+    [productId]
+  );
+
+  return result.affectedRows === 1;
+}
+
 module.exports = {
   listPublicProducts,
   findPublicProductBySlug,
@@ -406,4 +420,5 @@ module.exports = {
   updateProductById,
   updateProductStatusById,
   updateProductAvailabilityById,
+  deleteProductById,
 };

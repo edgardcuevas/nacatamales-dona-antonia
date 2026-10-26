@@ -10,6 +10,7 @@ const {
   createVideo,
   updateVideo,
   changeVideoStatus,
+  deleteLocalVideo,
 } = require("./video.service");
 
 async function listPublicVideosController(
@@ -125,6 +126,20 @@ async function changeVideoStatusController(
   );
 }
 
+async function deleteLocalVideoController(
+  request,
+  response
+) {
+  await deleteLocalVideo(request.videoId);
+
+  return successResponse(
+    response,
+    200,
+    { deleted: true },
+    "The video was permanently removed from the system"
+  );
+}
+
 module.exports = {
   listPublicVideosController,
   getPublicVideoController,
@@ -133,4 +148,5 @@ module.exports = {
   createVideoController,
   updateVideoController,
   changeVideoStatusController,
+  deleteLocalVideoController,
 };

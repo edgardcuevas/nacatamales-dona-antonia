@@ -92,7 +92,9 @@ function createRawVideo(overrides = {}) {
       "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg",
     thumbnail_source: "CUSTOM",
     sort_order: 0,
-    is_active: 1,
+    // Remote deletion is only allowed once the video is hidden, which is
+    // the precondition the panel enforces before offering the action.
+    is_active: 0,
     upload_status: "READY",
     privacy_status: "PUBLIC",
     remote_deleted_at: null,
@@ -302,13 +304,20 @@ test("an unrecognized local status is refused as an inconsistent state", async (
   assert.deepEqual(calls.remoteDeletes, []);
 });
 
-test("a DELETED record with a date answers idempotently and never contacts YouTube", async () => {
+test("a DELETED record whose remote resource is gone stays idempotent", async () => {
   const calls = createHarness({
     video: createRawVideo({
       upload_status: "DELETED",
       is_active: 0,
       remote_deleted_at: DELETED_DATE,
     }),
+    getVideoOwner: async () => {
+      throw new YouTubeApiError(
+        "video-owner",
+        404
+      );
+    },
+    deleteVideo: async () => undefined,
   });
 
   const result =
@@ -317,13 +326,15 @@ test("a DELETED record with a date answers idempotently and never contacts YouTu
   assert.equal(result.deleted, true);
   assert.equal(result.alreadyDeleted, true);
   assert.equal(result.remoteAlreadyMissing, true);
+  assert.equal(result.remoteRepaired, false);
   assert.equal(result.video.uploadStatus, "DELETED");
   assert.equal(
     result.video.remoteDeletedAt,
     DELETED_DATE.toISOString()
   );
 
-  assert.deepEqual(calls.ownerProbes, []);
+  // The local marker is not proof: the remote state is always probed.
+  assert.deepEqual(calls.ownerProbes, [EXTERNAL_ID]);
   assert.deepEqual(calls.remoteDeletes, []);
   assert.deepEqual(
     calls.localMarks,
@@ -357,24 +368,138 @@ test("a DELETED record without a date is refused as inconsistent without contact
   assert.deepEqual(calls.localMarks, []);
 });
 
-test("the five already deleted development records would never reach YouTube", async () => {
+test("a published video is refused before YouTube is contacted", async () => {
+  const calls = createHarness({
+    video: createRawVideo({ is_active: 1 }),
+    getVideoOwner: async () => ({
+      videoId: EXTERNAL_ID,
+      channelId: CHANNEL,
+    }),
+    deleteVideo: async () => undefined,
+  });
+
+  await assert.rejects(
+    youtubeService.deleteRemoteVideo(VIDEO_ID),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(
+        error.code,
+        "VIDEO_MUST_BE_HIDDEN"
+      );
+      return true;
+    }
+  );
+
+  assert.equal(
+    calls.getConnection,
+    0,
+    "hiding first must be the only way forward"
+  );
+  assert.deepEqual(calls.ownerProbes, []);
+  assert.deepEqual(calls.remoteDeletes, []);
+  assert.deepEqual(calls.localMarks, []);
+});
+
+test("a DELETED row stays repairable even if it is still marked active", async () => {
+  // The public queries require READY, so a DELETED row is never
+  // published whatever is_active says. The repair path must not be
+  // blocked by the hide-first rule.
+  const calls = createHarness({
+    video: createRawVideo({
+      upload_status: "DELETED",
+      is_active: 1,
+      remote_deleted_at: DELETED_DATE,
+    }),
+    getVideoOwner: async () => ({
+      videoId: EXTERNAL_ID,
+      channelId: CHANNEL,
+    }),
+    deleteVideo: async () => undefined,
+  });
+
+  const result =
+    await youtubeService.deleteRemoteVideo(VIDEO_ID);
+
+  assert.deepEqual(calls.remoteDeletes, [EXTERNAL_ID]);
+  assert.equal(result.remoteRepaired, true);
+  assert.equal(calls.localMarks.length, 1);
+});
+
+test("a DELETED record whose remote resource still exists is repaired in place", async () => {
   // Mirrors the real shape of the five records marked by the local tool:
-  // DELETED with a date. No provider call may be made.
+  // DELETED with a date, but still alive on YouTube. The marker must not
+  // turn the request into a silent no-op.
   const calls = createHarness({
     video: createRawVideo({
       id: 3,
       upload_status: "DELETED",
       is_active: 0,
-      remote_deleted_at: new Date(),
+      remote_deleted_at: DELETED_DATE,
     }),
+    getVideoOwner: async () => ({
+      videoId: EXTERNAL_ID,
+      channelId: CHANNEL,
+    }),
+    deleteVideo: async () => undefined,
   });
 
   const result =
     await youtubeService.deleteRemoteVideo(3);
 
+  assert.deepEqual(calls.ownerProbes, [EXTERNAL_ID]);
+  assert.deepEqual(
+    calls.remoteDeletes,
+    [EXTERNAL_ID],
+    "the video is still on YouTube and must be deleted"
+  );
+
+  assert.equal(calls.localMarks.length, 1);
+  assert.equal(calls.localMarks[0].videoId, 3);
+  assert.equal(
+    calls.localMarks[0].remoteDeletedAt instanceof Date,
+    true,
+    "the repair records the real deletion time"
+  );
+
+  assert.equal(result.deleted, true);
   assert.equal(result.alreadyDeleted, true);
-  assert.deepEqual(calls.ownerProbes, []);
-  assert.deepEqual(calls.remoteDeletes, []);
+  assert.equal(result.remoteAlreadyMissing, false);
+  assert.equal(result.remoteRepaired, true);
+});
+
+test("a DELETED record owned by another channel is never repaired", async () => {
+  const calls = createHarness({
+    video: createRawVideo({
+      id: 3,
+      upload_status: "DELETED",
+      is_active: 0,
+      remote_deleted_at: DELETED_DATE,
+    }),
+    getVideoOwner: async () => ({
+      videoId: EXTERNAL_ID,
+      channelId: OTHER_CHANNEL,
+    }),
+    deleteVideo: async () => undefined,
+  });
+
+  await assert.rejects(
+    youtubeService.deleteRemoteVideo(3),
+    (error) => {
+      assert.equal(error.statusCode, 403);
+      assert.equal(
+        error.code,
+        "YOUTUBE_CHANNEL_MISMATCH"
+      );
+      return true;
+    }
+  );
+
+  assert.deepEqual(calls.ownerProbes, [EXTERNAL_ID]);
+  assert.deepEqual(
+    calls.remoteDeletes,
+    [],
+    "a foreign channel must never be deleted"
+  );
   assert.deepEqual(calls.localMarks, []);
 });
 

@@ -42,3 +42,7 @@ prisma/dev.db-journal
 tmp/
 temp/
 *.tmp
+# Verification scripts (local only, not part of the app)
+verify-*.js
+verify-*.txt
+vite.verify.config.js

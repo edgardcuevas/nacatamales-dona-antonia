@@ -16,6 +16,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Doña Antonia" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <!--
+      Manifest mínimo para que iOS permita "Agregar a pantalla de
+      inicio" con display standalone: sin instalar, iOS no entrega
+      notificaciones push. No hay service worker de caché ni PWA
+      offline; el manifest solo describe la app instalable.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
 
     <!--
       Open Graph. El canal principal de este negocio es WhatsApp, y sin

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import { uploadImage } from '../../../utils/mediaUpload'
 import { useStagedImage } from '../../../hooks/useStagedImage'
@@ -70,6 +70,33 @@ function describeSchedule(announcement) {
   return 'Sin fechas: se muestra siempre'
 }
 
+// El servidor rechaza el reenvío manual de un aviso programado o vencido
+// con 409 ANNOUNCEMENT_NOT_VISIBLE. No se ofrece un botón que va a fallar:
+// los programados se envían solos cuando llega su fecha.
+function isVisibleNow(announcement) {
+  if (!announcement.isActive) {
+    return false
+  }
+
+  const now = Date.now()
+
+  if (
+    announcement.startsAt &&
+    new Date(announcement.startsAt).getTime() > now
+  ) {
+    return false
+  }
+
+  if (
+    announcement.endsAt &&
+    new Date(announcement.endsAt).getTime() <= now
+  ) {
+    return false
+  }
+
+  return true
+}
+
 export default function AnnouncementManager() {
   const [announcements, setAnnouncements] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -77,7 +104,12 @@ export default function AnnouncementManager() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+  const [notifyingId, setNotifyingId] = useState(null)
   const image = useStagedImage()
+  // disabled={...} depende de un re-render: dos clics en el mismo tick
+  // se cuelan. Un envío de push es demasiado caro para perderlo así.
+  const notifyInFlightRef = useRef(null)
 
   function fetchAnnouncements() {
     return api
@@ -188,6 +220,71 @@ export default function AnnouncementManager() {
       loadAnnouncements()
     } catch {
       setErrorMessage('No se pudo cambiar el estado del anuncio.')
+    }
+  }
+
+  async function handleNotify(announcement) {
+    if (notifyInFlightRef.current !== null) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      announcement.notifiedAt
+        ? `¿Enviar de nuevo la notificación de "${announcement.title}"?`
+        : `¿Enviar la notificación de "${announcement.title}" ahora?`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    notifyInFlightRef.current = announcement.id
+    setNotifyingId(announcement.id)
+    setErrorMessage(null)
+
+    try {
+      await api.post(`/admin/announcements/${announcement.id}/notify`)
+      loadAnnouncements()
+    } catch (error) {
+      if (error.code === 'ANNOUNCEMENT_NOT_VISIBLE') {
+        setErrorMessage(
+          'El aviso no está visible ahora mismo: revisá las fechas o publicalo primero.',
+        )
+      } else if (error.code === 'PUSH_NOT_CONFIGURED') {
+        setErrorMessage('Las notificaciones no están configuradas en el servidor.')
+      } else {
+        setErrorMessage('No se pudo enviar la notificación.')
+      }
+    } finally {
+      notifyInFlightRef.current = null
+      setNotifyingId(null)
+    }
+  }
+
+  async function handleDelete(announcement) {
+    const confirmed = window.confirm(
+      `¿Eliminar el anuncio "${announcement.title}"? Esta acción no se puede deshacer.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingId(announcement.id)
+    setErrorMessage(null)
+
+    try {
+      await api.delete(`/admin/announcements/${announcement.id}`)
+
+      if (editingId === announcement.id) {
+        resetForm()
+      }
+
+      loadAnnouncements()
+    } catch {
+      setErrorMessage('No se pudo eliminar el anuncio.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -320,12 +417,45 @@ export default function AnnouncementManager() {
                 </span>
               </div>
               <span className={state.className}>{state.label}</span>
+              {announcement.isActive && (
+                <span
+                  className={
+                    announcement.notifiedAt
+                      ? 'announcement-row__notified'
+                      : 'announcement-row__notified announcement-row__notified--pending'
+                  }
+                >
+                  {announcement.notifiedAt ? 'Notificación enviada' : 'Sin notificar'}
+                </span>
+              )}
               <div className="announcement-row__actions">
+                {isVisibleNow(announcement) && (
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => handleNotify(announcement)}
+                    disabled={notifyingId === announcement.id}
+                  >
+                    {notifyingId === announcement.id
+                      ? 'Enviando…'
+                      : announcement.notifiedAt
+                        ? 'Reenviar aviso'
+                        : 'Notificar'}
+                  </button>
+                )}
                 <button type="button" className="btn-link" onClick={() => startEdit(announcement)}>
                   Editar
                 </button>
                 <button type="button" className="btn-link" onClick={() => togglePublished(announcement)}>
                   {announcement.isActive ? 'Ocultar' : 'Publicar'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => handleDelete(announcement)}
+                  disabled={deletingId === announcement.id}
+                >
+                  {deletingId === announcement.id ? 'Eliminando…' : 'Eliminar'}
                 </button>
               </div>
             </div>

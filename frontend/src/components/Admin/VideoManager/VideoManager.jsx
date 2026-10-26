@@ -167,6 +167,48 @@ function describePublishError(error) {
   return 'No se pudo cambiar el estado del video.'
 }
 
+function describeDeleteError(error) {
+  if (error.code === 'VIDEO_MUST_BE_HIDDEN') {
+    return 'Para eliminar este video de YouTube primero debes ocultarlo.'
+  }
+  if (error.code === 'VIDEO_REMOTE_DELETED') {
+    return 'El video ya fue eliminado de YouTube.'
+  }
+  if (error.status === 429) {
+    return 'Demasiadas eliminaciones seguidas. Esperá un momento e intentá de nuevo.'
+  }
+  if (
+    error.code === 'YOUTUBE_NOT_CONNECTED' ||
+    error.code === 'YOUTUBE_REAUTH_REQUIRED' ||
+    error.code === 'YOUTUBE_CHANNEL_MISMATCH'
+  ) {
+    return 'La cuenta de YouTube no está conectada. Avisale al administrador del sitio para que la reconecte.'
+  }
+  if (error.code === 'YOUTUBE_VIDEO_DELETED_LOCAL_UPDATE_FAILED') {
+    return 'YouTube ya borró el video, pero no se pudo registrar en el sitio. Actualizá la página y volvé a intentarlo.'
+  }
+  if (error instanceof TypeError) {
+    return 'Se cortó la conexión al eliminar el video. Revisá tu internet.'
+  }
+  return 'No se pudo eliminar el video de YouTube. Intentá de nuevo.'
+}
+
+// "Eliminar del sistema" only removes the local row, and the server only
+// accepts it for a row already marked DELETED. The message says so
+// instead of promising a deletion that will be refused.
+function describeLocalDeleteError(error) {
+  if (error.code === 'VIDEO_LOCAL_DELETE_REQUIRES_DELETED') {
+    return 'Ese video todavía no está marcado como eliminado de YouTube. Primero eliminálo de YouTube.'
+  }
+  if (error.code === 'VIDEO_NOT_FOUND') {
+    return 'Ese video ya no existe en el sistema.'
+  }
+  if (error instanceof TypeError) {
+    return 'Se cortó la conexión al eliminar el registro. Revisá tu internet.'
+  }
+  return 'No se pudo eliminar el registro del video. Intentá de nuevo.'
+}
+
 function describeRefreshError(error, video) {
   if (error.code === 'VIDEO_REMOTE_DELETED') {
     return `"${video.title}" ya no existe en YouTube. Dejamos de consultarlo hasta que actualices la página.`
@@ -190,6 +232,13 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   const [fileInputKey, setFileInputKey] = useState(0)
   const [editingId, setEditingId] = useState(null)
   const [stage, setStage] = useState('idle')
+  const [deletingVideoId, setDeletingVideoId] = useState(null)
+  const [deleteConfirmVideo, setDeleteConfirmVideo] = useState(null)
+  // Local removal has its own confirmation and its own in-flight guard:
+  // it destroys the last reference to the video and a double click must
+  // not dispatch two DELETEs.
+  const [deletingLocalVideoId, setDeletingLocalVideoId] = useState(null)
+  const [localDeleteConfirmVideo, setLocalDeleteConfirmVideo] = useState(null)
   const isMountedRef = useRef(true)
   // Vive fuera del efecto porque cada loadVideos() vuelve a crear el
   // intervalo: un cursor local al efecto reiniciaría en cero y siempre
@@ -211,6 +260,8 @@ export default function VideoManager({ navigate = (url) => window.location.assig
   // reconnectInFlightRef para la reconexion de YouTube.
   const uploadInFlightRef = useRef(false)
   const rowThumbnailInFlightRef = useRef(false)
+  const deleteInFlightRef = useRef(false)
+  const localDeleteInFlightRef = useRef(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
   const [reconnectErrorMessage, setReconnectErrorMessage] = useState(null)
   const reconnectInFlightRef = useRef(false)
@@ -732,6 +783,91 @@ export default function VideoManager({ navigate = (url) => window.location.assig
     }
   }
 
+  function handleDeleteVideo(video) {
+    // The server refuses this too. Keeping the button visible but
+    // disabled makes the rule discoverable, and the guard here closes
+    // the window before the click becomes a request.
+    if (video.isActive) {
+      setErrorMessage('Para eliminar este video de YouTube primero debes ocultarlo.')
+      return
+    }
+
+    setDeleteConfirmVideo(video)
+  }
+
+  async function confirmDeleteVideo() {
+    const video = deleteConfirmVideo
+    if (!video || deleteInFlightRef.current) return
+
+    deleteInFlightRef.current = true
+    setDeleteConfirmVideo(null)
+    setDeletingVideoId(video.id)
+    setErrorMessage(null)
+    setInfoMessage(null)
+
+    try {
+      await api.delete(`/admin/videos/${video.id}`)
+      loadVideos()
+      if (isMountedRef.current) {
+        setInfoMessage('El video se eliminó de YouTube y ya no aparece en el sitio.')
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        setErrorMessage(describeDeleteError(error))
+      }
+    } finally {
+      deleteInFlightRef.current = false
+      if (isMountedRef.current) {
+        setDeletingVideoId(null)
+      }
+    }
+  }
+
+  function cancelDeleteVideo() {
+    setDeleteConfirmVideo(null)
+  }
+
+  function handleLocalDeleteVideo(video) {
+    if (video.uploadStatus !== 'DELETED') {
+      setErrorMessage('Solo se puede eliminar del sistema un video que ya no existe en YouTube.')
+      return
+    }
+
+    setLocalDeleteConfirmVideo(video)
+  }
+
+  async function confirmLocalDeleteVideo() {
+    const video = localDeleteConfirmVideo
+    if (!video || localDeleteInFlightRef.current) return
+
+    localDeleteInFlightRef.current = true
+    setLocalDeleteConfirmVideo(null)
+    setDeletingLocalVideoId(video.id)
+    setErrorMessage(null)
+    setInfoMessage(null)
+
+    try {
+      await api.delete(`/admin/videos/${video.id}/local`)
+      loadVideos()
+      if (isMountedRef.current) {
+        setInfoMessage('El registro del video se eliminó definitivamente del sitio.')
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        setErrorMessage(describeLocalDeleteError(error))
+      }
+    } finally {
+      localDeleteInFlightRef.current = false
+      if (isMountedRef.current) {
+        setDeletingLocalVideoId(null)
+      }
+    }
+  }
+
+  function cancelLocalDeleteVideo() {
+    setLocalDeleteConfirmVideo(null)
+  }
+
   async function refreshStatus(video) {
     setErrorMessage(null)
 
@@ -875,6 +1011,10 @@ export default function VideoManager({ navigate = (url) => window.location.assig
           // YouTube stays hidden: its status endpoint would only ever
           // answer 410 and its thumbnail is already gone.
           const isPending = isPollableStatus(video.uploadStatus)
+          // The only action a DELETED row still offers is removing the
+          // local record: the remote resource on which the other actions
+          // operate no longer exists.
+          const isDeleted = video.uploadStatus === 'DELETED'
           return (
             <div className="video-row" key={video.id}>
               <div className="video-row__thumb">
@@ -925,9 +1065,39 @@ export default function VideoManager({ navigate = (url) => window.location.assig
                     {revertingVideoId === video.id ? 'Restaurando…' : 'Usar la de YouTube'}
                   </button>
                 )}
+                {!isDeleted && (
+                  <button
+                    type="button"
+                    className="btn-link btn-link--danger"
+                    onClick={() => handleDeleteVideo(video)}
+                    disabled={deletingVideoId === video.id || video.isActive}
+                    title={
+                      video.isActive
+                        ? 'Para eliminar este video de YouTube primero debes ocultarlo.'
+                        : undefined
+                    }
+                  >
+                    {deletingVideoId === video.id ? 'Eliminando…' : 'Eliminar de YouTube'}
+                  </button>
+                )}
+                {isDeleted && (
+                  <button
+                    type="button"
+                    className="btn-link btn-link--danger"
+                    onClick={() => handleLocalDeleteVideo(video)}
+                    disabled={deletingLocalVideoId === video.id}
+                  >
+                    {deletingLocalVideoId === video.id ? 'Eliminando…' : 'Eliminar del sistema'}
+                  </button>
+                )}
+                {!isDeleted && video.isActive && (
+                  <span className="video-row__hint">
+                    Para eliminar este video de YouTube primero debes ocultarlo.
+                  </span>
+                )}
               </div>
 
-              {rowThumbnail?.id === video.id && (
+              {!isDeleted && rowThumbnail?.id === video.id && (
                 <div className="video-row__thumbnail-editor">
                   <VideoThumbnailField
                     previewUrl={rowThumbnail.previewUrl || video.thumbnailUrl}
@@ -963,6 +1133,73 @@ export default function VideoManager({ navigate = (url) => window.location.assig
           )
         })}
       </div>
+
+      {deleteConfirmVideo && (
+        <div className="video-delete-modal" role="dialog" aria-modal="true">
+          <div className="video-delete-modal__backdrop" onClick={cancelDeleteVideo} />
+          <div className="video-delete-modal__content">
+            <h3>Eliminar video de YouTube</h3>
+            <p>
+              ¿Eliminar el video <strong>"{deleteConfirmVideo.title}"</strong> de YouTube?
+            </p>
+            <p className="video-delete-modal__warning">
+              Esta acción es <strong>IRREVERSIBLE</strong>: el video se borrará de YouTube permanentemente y no se podrá recuperar.
+            </p>
+            <div className="video-delete-modal__actions">
+              <button
+                type="button"
+                className="btn btn--outline"
+                onClick={cancelDeleteVideo}
+                disabled={deletingVideoId !== null}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={confirmDeleteVideo}
+                disabled={deletingVideoId !== null}
+              >
+                {deletingVideoId !== null ? 'Eliminando…' : 'Eliminar de YouTube'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {localDeleteConfirmVideo && (
+        <div className="video-delete-modal" role="dialog" aria-modal="true">
+          <div className="video-delete-modal__backdrop" onClick={cancelLocalDeleteVideo} />
+          <div className="video-delete-modal__content">
+            <h3>Eliminar video del sistema</h3>
+            <p>
+              ¿Eliminar definitivamente el registro de{' '}
+              <strong>"{localDeleteConfirmVideo.title}"</strong>?
+            </p>
+            <p className="video-delete-modal__warning">
+              Esta acción borra el registro de la base de datos y <strong>no se puede deshacer</strong>. El
+              video ya no existe en YouTube.
+            </p>
+            <div className="video-delete-modal__actions">
+              <button
+                type="button"
+                className="btn btn--outline"
+                onClick={cancelLocalDeleteVideo}
+                disabled={deletingLocalVideoId !== null}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={confirmLocalDeleteVideo}
+                disabled={deletingLocalVideoId !== null}
+              >
+                {deletingLocalVideoId !== null ? 'Eliminando…' : 'Eliminar del sistema'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

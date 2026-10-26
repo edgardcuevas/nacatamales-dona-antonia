@@ -16,6 +16,7 @@ const {
   createAnnouncementController,
   updateAnnouncementController,
   changeAnnouncementStatusController,
+  deleteAnnouncementController,
 } = require("./announcement.controller");
 
 const {
@@ -25,6 +26,10 @@ const {
   validateUpdateAnnouncement,
   validateAnnouncementStatus,
 } = require("./announcement.validator");
+
+const {
+  resendAnnouncementController,
+} = require("../notification/notification.controller");
 
 const router = express.Router();
 const contentAdminOnly = authorizeRoles(
@@ -53,6 +58,11 @@ router.patch(
   validateAnnouncementStatus,
   changeAnnouncementStatusController
 );
+router.post(
+  "/:announcementId/notify",
+  validateAnnouncementId,
+  resendAnnouncementController
+);
 router.patch(
   "/:announcementId",
   validateUpdateAnnouncement,
@@ -62,6 +72,11 @@ router.get(
   "/:announcementId",
   validateAnnouncementId,
   getAnnouncementController
+);
+router.delete(
+  "/:announcementId",
+  validateAnnouncementId,
+  deleteAnnouncementController
 );
 
 module.exports = router;

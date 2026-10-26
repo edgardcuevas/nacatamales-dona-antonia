@@ -19,6 +19,7 @@ export default function PhotoManager() {
   const [caption, setCaption] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
   const image = useStagedImage()
 
     function fetchPhotos() {
@@ -103,6 +104,9 @@ export default function PhotoManager() {
       return
     }
 
+    setDeletingId(photo.id)
+    setErrorMessage(null)
+
     try {
       await api.delete(`/admin/photos/${photo.id}`)
       if (editingId === photo.id) {
@@ -111,6 +115,8 @@ export default function PhotoManager() {
       loadPhotos()
     } catch {
       setErrorMessage('No se pudo eliminar la foto.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -167,8 +173,8 @@ export default function PhotoManager() {
               <button type="button" className="btn-link" onClick={() => startEdit(photo)}>
                 Editar
               </button>
-              <button type="button" className="btn-link" onClick={() => handleDelete(photo)}>
-                Eliminar
+              <button type="button" className="btn-link" onClick={() => handleDelete(photo)} disabled={deletingId === photo.id}>
+                {deletingId === photo.id ? 'Eliminando…' : 'Eliminar'}
               </button>
             </div>
           </div>
