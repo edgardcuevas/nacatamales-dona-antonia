@@ -1,0 +1,186 @@
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.assistant-chat--loading,
+.assistant-chat--error,
+.assistant-chat--disabled {
+  padding: 2rem;
+  text-align: center;
+}
+
+.assistant-chat__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.assistant-chat__header h2 {
+  margin: 0;
+}
+
+.assistant-chat__notice {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.assistant-chat__new {
+  align-self: flex-start;
+}
+
+.assistant-chat__conversations ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.assistant-chat__conversation {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.assistant-chat__conversation--active {
+  background: #1f3b73;
+  color: #fff;
+  border-color: #1f3b73;
+}
+
+.assistant-chat__pruned {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #7a5a00;
+}
+
+.assistant-chat__messages {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  min-height: 240px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #fafafa;
+}
+
+.assistant-chat__empty {
+  margin: 0;
+  color: #777;
+  font-style: italic;
+}
+
+.assistant-chat__message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 85%;
+}
+
+.assistant-chat__message--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.assistant-chat__message--assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.assistant-chat__role {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.assistant-chat__content {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-chat__message--user .assistant-chat__content {
+  background: #1f3b73;
+  color: #fff;
+}
+
+.assistant-chat__message--assistant .assistant-chat__content {
+  background: #fff;
+  border: 1px solid #ddd;
+}
+
+.assistant-chat__time {
+  font-size: 0.7rem;
+  color: #999;
+}
+
+.assistant-chat__error {
+  margin: 0;
+  color: #b00020;
+  font-size: 0.9rem;
+}
+
+.assistant-chat__suggestions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.assistant-chat__suggestion {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.assistant-chat__suggestion:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.assistant-chat__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.assistant-chat__composer-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.assistant-chat__input {
+  resize: vertical;
+  min-height: 60px;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.assistant-chat__send {
+  align-self: flex-end;
+}
+
+.assistant-chat__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

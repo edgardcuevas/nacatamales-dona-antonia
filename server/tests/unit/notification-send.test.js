@@ -354,6 +354,29 @@ test("resending is refused for an announcement that is not visible", async () =>
   );
 });
 
+test("resending is refused within the cooldown window", async () => {
+  mock.method(
+    announcementRepository,
+    "findAnnouncementById",
+    async () =>
+      createRawAnnouncement({
+        notified_at: new Date(),
+      })
+  );
+
+  await assert.rejects(
+    () => notificationService.resendAnnouncement(7),
+    (error) => {
+      assertAppError(
+        error,
+        409,
+        "RESEND_TOO_SOON"
+      );
+      return true;
+    }
+  );
+});
+
 test("resending marks the row and delivers again", async () => {
   let marked = 0;
   mock.method(

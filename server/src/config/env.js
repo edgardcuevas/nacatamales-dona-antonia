@@ -1,9 +1,25 @@
+const {
+  ASSISTANT_PROVIDERS,
+  ASSISTANT_PROVIDER_VALUES,
+  DEFAULT_ASSISTANT_MODEL,
+  DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS,
+  MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
+  MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
+  DEFAULT_ASSISTANT_TIMEOUT_MS,
+  MIN_ASSISTANT_TIMEOUT_MS,
+  MAX_ASSISTANT_TIMEOUT_MS,
+} = require(
+  "../modules/assistant/assistant.constants"
+);
+
 const VALID_NODE_ENVIRONMENTS = new Set([
   "development",
   "test",
   "production",
 ]);
 
+const ASSISTANT_MODEL_PATTERN =
+  /^[A-Za-z0-9._-]{1,80}$/;
 const JWT_TTL_PATTERN = /^\d+[smhd]$/;
 const VAPID_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
 const VAPID_SUBJECT_PATTERN =
@@ -318,6 +334,99 @@ function validateTrustProxy(value) {
   return hops;
 }
 
+function parseBoundedInteger(
+  value,
+  variableName,
+  { defaultValue, minimum, maximum }
+) {
+  const trimmed = value?.trim();
+
+  if (trimmed === undefined || trimmed === "") {
+    return defaultValue;
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `Environment variable ${variableName} must be an integer between ${minimum} and ${maximum}.`
+    );
+  }
+
+  const parsed = Number(trimmed);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    throw new Error(
+      `Environment variable ${variableName} must be an integer between ${minimum} and ${maximum}.`
+    );
+  }
+
+  return parsed;
+}
+
+// Optional, like Web Push: without an API key the API still boots and
+// the assistant reports itself as disabled. The key never reaches the
+// frontend.
+function parseAssistantEnvironment() {
+  const provider = (
+    process.env.AI_PROVIDER?.trim() ||
+    ASSISTANT_PROVIDERS.GEMINI
+  ).toLowerCase();
+
+  if (!ASSISTANT_PROVIDER_VALUES.includes(provider)) {
+    throw new Error(
+      `Environment variable AI_PROVIDER must be one of: ${ASSISTANT_PROVIDER_VALUES.join(", ")}.`
+    );
+  }
+
+  const model =
+    process.env.AI_MODEL?.trim() ||
+    DEFAULT_ASSISTANT_MODEL;
+
+  if (!ASSISTANT_MODEL_PATTERN.test(model)) {
+    throw new Error(
+      "Environment variable AI_MODEL must contain only letters, digits, dots, dashes or underscores."
+    );
+  }
+
+  const maxOutputTokens = parseBoundedInteger(
+    process.env.AI_MAX_OUTPUT_TOKENS,
+    "AI_MAX_OUTPUT_TOKENS",
+    {
+      defaultValue:
+        DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS,
+      minimum: MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
+      maximum: MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
+    }
+  );
+
+  const timeoutMs = parseBoundedInteger(
+    process.env.AI_TIMEOUT_MS,
+    "AI_TIMEOUT_MS",
+    {
+      defaultValue: DEFAULT_ASSISTANT_TIMEOUT_MS,
+      minimum: MIN_ASSISTANT_TIMEOUT_MS,
+      maximum: MAX_ASSISTANT_TIMEOUT_MS,
+    }
+  );
+
+  const apiKey =
+    provider === ASSISTANT_PROVIDERS.GEMINI
+      ? process.env.GEMINI_API_KEY?.trim() ?? ""
+      : "";
+
+  return Object.freeze({
+    enabled: apiKey.length > 0,
+    provider,
+    model,
+    apiKey: apiKey.length > 0 ? apiKey : null,
+    maxOutputTokens,
+    timeoutMs,
+  });
+}
+
 function loadEnvironment() {
   const nodeEnv = process.env.NODE_ENV ?? "development";
 
@@ -435,6 +544,8 @@ function loadEnvironment() {
     // Optional. When disabled the API still boots and the public key
     // endpoint reports the feature as unavailable.
     webPush: parseWebPushEnvironment(),
+    // Optional. Without GEMINI_API_KEY the assistant stays disabled.
+    assistant: parseAssistantEnvironment(),
     // null keeps Express' default of trusting nothing, so request.ip
     // stays the socket address. See validateTrustProxy for why no
     // looser value is accepted.

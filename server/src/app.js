@@ -56,6 +56,9 @@ const notificationRoutes = require(
 const notificationAdminRoutes = require(
   "./modules/notification/notification.admin.routes"
 );
+const assistantRoutes = require(
+  "./modules/assistant/assistant.routes"
+);
 
 const notFoundHandler = require("./middlewares/not-found.middleware");
 const errorHandler = require("./middlewares/error.middleware");
@@ -157,6 +160,10 @@ app.use(
 app.use(
   "/api/admin/notifications",
   notificationAdminRoutes
+);
+app.use(
+  "/api/admin/assistant",
+  assistantRoutes
 );
 
 // Liveness: answers 200 whenever the process can serve HTTP. It never

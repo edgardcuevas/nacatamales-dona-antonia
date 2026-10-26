@@ -9,6 +9,7 @@ import MediaLibrary from '../components/Admin/MediaLibrary/MediaLibrary'
 import SettingsManager from '../components/Admin/SettingsManager/SettingsManager'
 import AccountManager from '../components/Admin/AccountManager/AccountManager'
 import UserManager from '../components/Admin/UserManager/UserManager'
+import AssistantChat from '../components/Admin/Assistant/AssistantChat'
 import '../styles/Administracion.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -21,6 +22,12 @@ const SECTIONS = [
     key: 'media',
     label: 'Galería de fotos',
     description: 'Mirá dónde se usa cada imagen subida y borrá las que no necesités.',
+    available: true,
+  },
+  {
+    key: 'assistant',
+    label: 'Asistente',
+    description: 'Preguntá cómo usar el panel y sus módulos.',
     available: true,
   },
   {
@@ -50,6 +57,7 @@ const SECTION_COMPONENTS = {
   announcements: AnnouncementManager,
   feed: FeedManager,
   media: MediaLibrary,
+  assistant: AssistantChat,
   settings: SettingsManager,
     account: AccountManager,
     users: UserManager,

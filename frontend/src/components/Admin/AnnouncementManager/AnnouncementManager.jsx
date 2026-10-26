@@ -252,6 +252,8 @@ export default function AnnouncementManager() {
         )
       } else if (error.code === 'PUSH_NOT_CONFIGURED') {
         setErrorMessage('Las notificaciones no están configuradas en el servidor.')
+      } else if (error.code === 'RESEND_TOO_SOON') {
+        setErrorMessage('Esperá unos segundos antes de reenviar este aviso.')
       } else {
         setErrorMessage('No se pudo enviar la notificación.')
       }

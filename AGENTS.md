@@ -98,6 +98,8 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 
 `docs/frontend-integration.md` (~59 KB, Spanish) is the authoritative API contract — full endpoint map, error catalog, auth/refresh flows, upload flows, React integration guide. There is no OpenAPI/Swagger file. **Its audit numbers go stale** — verify the test and migration counts against `npm test` and the migrations directory rather than trusting the prose. Keep the doc updated when endpoints or error codes change.
 
+`docs/assistant.md` is the living plan for the admin AI assistant (Phase 1). Read it before continuing that work and follow its three completion rules: do not break existing behavior, validate the real flow (not only tests), and keep documentation proportional to code.
+
 ## Operational gotchas
 
 - **`DELETED` is terminal and must never be polled.** `videos.upload_status` also carries `DELETED` (set by the remote-deletion tooling), `listVideos` does not filter it, so it reaches the admin panel. Its status endpoint answers `410 VIDEO_REMOTE_DELETED` forever, so `VideoManager` filters with `isPollableStatus()` (`TERMINAL_UPLOAD_STATUSES = {READY, DELETED}`) and hides every action that waits on YouTube. **Never write a `uploadStatus !== 'READY'` filter** — that is what produced an unbounded 410 loop that kept the refresh timer alive forever and burned quota no other video could use. `STATUS_LABELS` must carry a Spanish label for every enum member, or the raw English value leaks into the UI.

@@ -19,6 +19,8 @@ const {
   NOTIFICATION_TAG_PREFIX,
 } = require("./notification.constants");
 
+const RESEND_COOLDOWN_MS = 30 * 1000;
+
 function createPushNotConfiguredError() {
   return new AppError(
     503,
@@ -40,6 +42,14 @@ function createAnnouncementNotFoundError() {
     404,
     "ANNOUNCEMENT_NOT_FOUND",
     "The requested announcement does not exist"
+  );
+}
+
+function createResendTooSoonError() {
+  return new AppError(
+    409,
+    "RESEND_TOO_SOON",
+    "Please wait before resending this notification"
   );
 }
 
@@ -195,8 +205,6 @@ async function deliverBatch(batch, payload) {
         const statusCode =
           result.reason?.statusCode;
 
-        // 404/410 mean the subscription no longer exists at the push
-        // service. Retrying can never succeed, so drop the row.
         if (
           statusCode === 404 ||
           statusCode === 410
@@ -269,7 +277,6 @@ async function dispatchAnnouncement(announcement) {
   }
 
   if (totals.failed > 0 || totals.removed > 0) {
-    // Counts only: endpoints and keys must never reach the logs.
     console.warn(
       `Push delivery for announcement ${announcement.id}: ${totals.sent} sent, ${totals.failed} failed, ${totals.removed} removed.`
     );
@@ -278,10 +285,6 @@ async function dispatchAnnouncement(announcement) {
   return totals;
 }
 
-// Idempotent path used by both the activation flow and the scheduler.
-// claimAnnouncementNotification only returns true for the caller that
-// flipped notified_at from NULL, so a concurrent request cannot send
-// the same announcement twice.
 async function notifyAnnouncementIfVisible(
   announcementId
 ) {
@@ -310,8 +313,6 @@ async function notifyAnnouncementIfVisible(
   return dispatchAnnouncement(announcement);
 }
 
-// Activation must not block the admin's HTTP response on N network
-// calls, and a push failure must never undo a published announcement.
 function notifyAnnouncementInBackground(
   announcementId
 ) {
@@ -347,6 +348,16 @@ async function resendAnnouncement(announcementId) {
 
   if (!isAnnouncementVisible(announcement)) {
     throw createAnnouncementNotVisibleError();
+  }
+
+  const lastNotifiedAt = announcement.notified_at
+    ? new Date(announcement.notified_at).getTime()
+    : null;
+  if (
+    lastNotifiedAt !== null &&
+    Date.now() - lastNotifiedAt < RESEND_COOLDOWN_MS
+  ) {
+    throw createResendTooSoonError();
   }
 
   await announcementRepository.markAnnouncementNotified(
