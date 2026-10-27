@@ -1,6 +1,6 @@
 # Asistente Inteligente de Administración
 
-Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B pendiente de diseño**.
+Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B con diseño propuesto, pendiente de aprobación**.
 Última actualización: 2026-10-26.
 
 ## Cómo retomar el trabajo
@@ -397,7 +397,7 @@ Si un resultado supera el presupuesto, el normalizador recorta datos de forma se
 
 ### Compatibilidad futura con Fase 2B
 
-El registro reserva `mode` y `allowedRoles` como metadatos de política, pero durante 2A solo admite `read`; no habrá handlers ni rutas de escritura. La Fase 2B requerirá un ejecutor separado, confirmación humana vinculada a usuario e intención, permisos explícitos, idempotencia y servicios de dominio existentes. Esta compatibilidad organizativa no habilita escritura anticipadamente.
+El registro reserva `mode` y `allowedRoles` como metadatos de política, pero durante 2A solo admite `read`; no habrá handlers ni rutas de escritura. La Fase 2B requerirá un ejecutor separado, confirmación humana vinculada a usuario e intención, permisos explícitos, idempotencia y servicios de dominio existentes. Esta compatibilidad organizativa no habilita escritura anticipadamente. El diseño propuesto está en la sección de Fase 2B.
 
 ### Roadmap definitivo
 
@@ -499,3 +499,298 @@ Validación real:
 - Gemini en vivo: la clave sigue respondiendo `429 RATE_LIMITED` (cuota), así que no se pudo repetir una conversación completa con el modelo. No es un fallo de código y no bloquea la aceptación de solo lectura, que quedó demostrada con el ciclo real de herramientas.
 
 **Pendiente fuera de Fase 2A:** repetir una conversación real con Gemini cuando el proveedor restablezca la cuota. Registrar el resultado aquí antes de iniciar Fase 2B.
+
+## Fase 2B — Acciones con confirmación humana
+
+Estado: **diseño propuesto el 2026-10-26, pendiente de aprobación**. No hay código, migración ni endpoints de Fase 2B.
+
+### Alcance propuesto
+
+El asistente podrá **proponer** cambios de visibilidad o disponibilidad sobre entidades existentes. Ningún cambio se ejecuta desde el modelo: el servidor crea una acción pendiente y solo una confirmación explícita del usuario autenticado la ejecuta. El modelo nunca confirma, nunca ejecuta y nunca puede alterar el objetivo ni los argumentos después de la propuesta.
+
+Incluye:
+
+- Cuatro acciones acotadas: disponibilidad de producto, visibilidad de aviso, visibilidad de video y visibilidad de categoría.
+- Búsquedas de lectura por nombre para que el modelo elija un objetivo real y el usuario vea su nombre antes de confirmar.
+- Confirmación vinculada al usuario, a la conversación y a una intención concreta, con token de un solo uso y vencimiento.
+- Idempotencia, control de concurrencia y auditoría en MySQL.
+
+No incluye:
+
+- Crear ni eliminar entidades.
+- Cambiar nombres, textos, precios, imágenes, fechas, configuración, usuarios, roles o contraseñas.
+- Acciones remotas de YouTube (publicar, borrar o cambiar miniatura).
+- Operaciones masivas, SQL libre ni herramientas inventadas por el modelo.
+- Confirmaciones automáticas, por lote o desde el cliente sin sesión.
+
+La regla de 2A se mantiene: **la seguridad se aplica en el servidor y no depende del prompt**.
+
+### Por qué un ejecutor separado
+
+El registro de 2A es solo lectura y va a seguir siéndolo. La Fase 2B agrega un segundo registro, `assistant.action-registry.js`, con definiciones `mode: "write"` y un ejecutor distinto. El registro de 2A rechaza cualquier modo distinto de `read`; el de 2B rechaza cualquier modo distinto de `write`. Ninguna herramienta de escritura se puede ejecutar con el `executeToolCall` de 2A.
+
+```text
+authenticate -> requireActiveUser -> authorizeRoles -> assistantRateLimiter
+  -> validator -> controller -> service
+  -> proveedor (herramientas de lectura + declaraciones de escritura)
+  -> si la respuesta pide una acción:
+       registro de escritura -> resolución del objetivo -> validación
+       -> INSERT ai_pending_actions (PENDING) -> respuesta con pendingAction
+  -> si el usuario confirma:
+       POST /actions/:token/confirm -> claim atómico -> revalidar rol, tool,
+       argumentos, objetivo y estado -> servicio de dominio existente
+       -> EXECUTED / FAILED -> resultado
+```
+
+### Flujo de confirmación
+
+1. El usuario pide algo como “marcá el producto «Nacatamal de pollo» como agotado”.
+2. El modelo puede ejecutar primero una búsqueda de lectura (`search_products`) y luego responde con una llamada a `set_product_availability`.
+3. El servidor **no ejecuta** la escritura. Resuelve el objetivo en la base, arma un resumen en español, guarda la acción como `PENDING` y devuelve `201` con el texto del asistente y un objeto `pendingAction`.
+4. El asistente responde “Preparé la acción; confirmala para aplicarla”. No afirma que el cambio ya se hizo.
+5. El frontend muestra una tarjeta con el objetivo real, el cambio (`antes -> después`), la advertencia de efectos secundarios y los botones **Confirmar** / **Cancelar**.
+6. `POST /admin/assistant/actions/:token/confirm` reclama la acción de forma atómica, vuelve a validar todo y llama al servicio de dominio existente. El cliente no envía argumentos: el token es la única entrada.
+7. La tarjeta muestra el resultado. La acción queda auditada como `EXECUTED` o `FAILED`.
+
+Una propuesta no ejecutada **no cambia ninguna tabla de negocio**. La única escritura del turno es la fila en `ai_pending_actions`.
+
+### Modelo de datos
+
+Migración `20261027120000_create_ai_pending_actions.js` (pasa de 20 a 21 archivos).
+
+**`ai_pending_actions`**
+
+| Columna | Tipo | Nota |
+|---|---|---|
+| `id` | BIGINT UNSIGNED PK | Interno |
+| `public_token_hash` | CHAR(64) UNIQUE | SHA-256 de un token de 32 bytes; el token plano solo se devuelve una vez |
+| `user_id` | BIGINT UNSIGNED | FK `users.id` `ON DELETE CASCADE` |
+| `conversation_id` | BIGINT UNSIGNED NULL | FK `ai_conversations.id` `ON DELETE SET NULL` |
+| `tool_name` | VARCHAR(64) | Nombre exacto del registro de escritura |
+| `target_type` | VARCHAR(32) | `product`, `announcement`, `video`, `category` |
+| `target_id` | BIGINT UNSIGNED | Id interno ya resuelto; nunca lo elige el cliente |
+| `target_label` | VARCHAR(160) | Nombre visible al momento de proponer |
+| `arguments_json` | JSON | Argumentos normalizados y validados |
+| `before_json` | JSON | Campo afectado, valor anterior y `updated_at` del objetivo |
+| `summary` | VARCHAR(255) | Resumen generado por el servidor; no por el modelo |
+| `status` | ENUM | `PENDING`, `EXECUTING`, `EXECUTED`, `FAILED`, `CANCELLED`, `EXPIRED` |
+| `result_json` | JSON NULL | Resultado mínimo de la acción ejecutada |
+| `error_code` | VARCHAR(64) NULL | Código público y acotado, nunca stack ni SQL |
+| `expires_at` | DATETIME | `created_at + 10 min` |
+| `started_at` / `finished_at` | DATETIME NULL | Trazabilidad |
+| `created_at` / `updated_at` | DATETIME | `updated_at` se actualiza a mano en cada transición |
+
+Índices: `(user_id, status, expires_at)` y `(conversation_id)`.
+
+- El token viaja solo en la respuesta de la propuesta y en la ruta de confirmación. En la base queda su hash.
+- No se guardan argumentos del cliente ni resultados completos del modelo; `arguments_json` contiene únicamente el id y el booleano validados.
+- Las acciones vencidas se marcan `EXPIRED` al crear una nueva propuesta del mismo usuario y al intentar confirmar. No hace falta scheduler.
+- Limpieza futura: borrar acciones terminadas de más de 90 días desde un script con `--dry-run`, igual que el historial.
+
+### Máquina de estados
+
+```text
+PENDING -> EXECUTING -> EXECUTED
+                     -> FAILED
+PENDING -> CANCELLED
+PENDING -> EXPIRED
+```
+
+- La propuesta inserta `PENDING`.
+- Confirmar hace un único `UPDATE ... SET status='EXECUTING', started_at=NOW() WHERE public_token_hash=? AND user_id=? AND status='PENDING' AND expires_at > NOW()`. Si `affectedRows = 0`, no se ejecuta nada y se responde según el estado real.
+- Si la acción ya está `EXECUTED`, la repetición responde `200` con `alreadyExecuted: true` y el resultado guardado; no vuelve a llamar al servicio.
+- Si está `EXECUTING`, responde `409 ASSISTANT_ACTION_IN_PROGRESS`.
+- Si está `FAILED`, `CANCELLED` o `EXPIRED`, responde `409 ASSISTANT_ACTION_NOT_CONFIRMABLE` o `410 ASSISTANT_ACTION_EXPIRED`.
+- Si una acción queda `EXECUTING` más de 60 s (proceso caído durante la escritura), una nueva confirmación la marca `FAILED` con `ASSISTANT_ACTION_UNKNOWN` y pide verificar el estado real. No se reintenta automáticamente: el servicio pudo haber aplicado el cambio.
+- Antes de ejecutar se compara `before_json` con el objetivo actual (`campo`, valor y `updated_at`). Si cambió, la acción pasa a `FAILED` con `ASSISTANT_ACTION_CONFLICT` y no se escribe nada.
+- Cancelar solo aplica a `PENDING`; si ya está cancelada responde `200` sin cambios.
+
+### Contrato de API
+
+`POST /api/admin/assistant/messages` suma un campo opcional a la respuesta existente. No cambia nada más del contrato de 2A.
+
+```json
+{
+  "conversation": { "id": 9, "title": "Marcá el producto…" },
+  "userMessage": { "role": "user", "content": "Marcá el producto…" },
+  "reply": {
+    "role": "assistant",
+    "content": "Preparé la acción. Confirmala para aplicarla.",
+    "provider": "gemini",
+    "model": "gemini-3.6-flash",
+    "inputTokens": 120,
+    "outputTokens": 30
+  },
+  "prunedConversationId": null,
+  "pendingAction": {
+    "token": "…",
+    "tool": "set_product_availability",
+    "summary": "Marcar «Nacatamal de pollo» como no disponible",
+    "target": { "type": "product", "id": 12, "label": "Nacatamal de pollo" },
+    "changes": [{ "field": "isAvailable", "from": true, "to": false }],
+    "warnings": [],
+    "expiresAt": "2026-10-26T21:45:00.000Z"
+  }
+}
+```
+
+| Método | Ruta | Rol | Uso |
+|---|---|---|---|
+| POST | `/admin/assistant/actions/:token/confirm` | ADMIN, EDITOR | Ejecuta la acción propuesta. Cuerpo `{}`; cualquier campo extra da `400`. |
+| POST | `/admin/assistant/actions/:token/cancel` | ADMIN, EDITOR | Cancela una acción `PENDING`. Cuerpo `{}`. |
+
+- El token no se puede usar dos veces ni desde otro usuario. Se valida como base64url de 43 caracteres; cualquier otro formato responde `404`.
+- El cliente no puede enviar `tool`, `target`, `arguments` ni un “confirmado por el modelo”. El servidor usa exclusivamente lo guardado.
+- El texto de `reply` lo compone el servidor al crear la propuesta. `provider`, `model` y los tokens corresponden a la llamada del proveedor que emitió la solicitud de escritura.
+- La respuesta de confirmación devuelve `{ action: {...}, result: {...}, alreadyExecuted }`; `result` solo contiene los campos que el usuario necesita para entender el cambio.
+- Tras ejecutar, se agrega un mensaje del asistente a la conversación con el resultado (mejor esfuerzo: si falla la inserción, la acción sigue `EXECUTED`).
+
+Errores nuevos:
+
+| Código | HTTP | Cuándo |
+|---|---|---|
+| `ASSISTANT_ACTION_NOT_FOUND` | 404 | Token desconocido o de otro usuario |
+| `ASSISTANT_ACTION_EXPIRED` | 410 | Venció antes de confirmar |
+| `ASSISTANT_ACTION_NOT_CONFIRMABLE` | 409 | Cancelada, fallida o ya no aplicable |
+| `ASSISTANT_ACTION_IN_PROGRESS` | 409 | Otra confirmación está ejecutando |
+| `ASSISTANT_ACTION_CONFLICT` | 409 | El objetivo cambió desde la propuesta |
+| `ASSISTANT_ACTION_FAILED` | 409 | El servicio de dominio rechazó la escritura; el mensaje es seguro |
+| `ASSISTANT_ACTION_UNKNOWN` | 409 | Ejecución interrumpida; verificar manualmente |
+
+### Permisos
+
+| Acción | ADMIN | EDITOR | Efecto |
+|---|---|---|---|
+| `set_product_availability` | Sí | Sí | El producto sigue visible, marcado agotado |
+| `set_announcement_active` | Sí | Sí | Publicar puede enviar push; ocultar no |
+| `set_video_active` | Sí | Sí | Solo videos `READY`; `DELETED` no se publica; sin llamadas a YouTube |
+| `set_category_active` | Sí | Sí | Ocultar la categoría oculta sus productos del menú público |
+
+- El rol se relee en la propuesta y otra vez en la confirmación, desde `request.currentUser.role`.
+- Si al usuario se le quita el rol o se desactiva la cuenta entre ambos pasos, la confirmación falla aunque el token sea válido.
+- No hay herramientas de escritura para usuarios: ese módulo sigue siendo solo `ADMIN` y queda fuera de 2B.
+
+### Catálogo y orden de implementación
+
+Cada tarea agrega primero la búsqueda de lectura y después la propuesta de escritura. Las búsquedas devuelven como máximo 10 filas, con `id`, etiqueta y el estado necesario para decidir.
+
+| Orden | Lectura nueva | Escritura nueva | Motivo del orden |
+|---|---|---|---|
+| 1 | `search_products` | `set_product_availability` | Sin push y reversible; el producto sigue visible |
+| 2 | `search_announcements` | `set_announcement_active` | Publicar dispara push; requiere advertencia explícita |
+| 3 | `search_videos` | `set_video_active` | Depende de `uploadStatus` `READY` y de las reglas de `DELETED` |
+| 4 | `search_categories` | `set_category_active` | Mayor impacto: oculta también los productos de la categoría |
+
+Las búsquedas son de solo lectura, pasan por el registro de 2A y respetan `MAX_TOOL_RESULT_CHARS`. Los ids internos son necesarios para proponer la acción y no se exponen en la respuesta pública del sitio.
+
+### Reglas del prompt para 2B
+
+- Se pueden proponer acciones de visibilidad o disponibilidad, pero **nunca ejecutarlas**.
+- Nunca afirmar que un cambio ya se hizo; la ejecución depende de la confirmación.
+- Si falta el objetivo o hay más de una coincidencia, pedir aclaración y no proponer.
+- No inventar ids, herramientas, campos ni acciones.
+- No proponer creación, borrado, precios, textos, imágenes, configuración, usuarios ni YouTube remoto.
+- Explicar el efecto visible y cualquier advertencia antes de pedir confirmación.
+
+El texto de la propuesta y el resumen de la tarjeta los genera el servidor, no el modelo. Así el modelo no puede describir una acción distinta de la que se guardó.
+
+### Experiencia en el chat
+
+- La tarjeta muestra `summary`, `target.label`, `changes` y `warnings`; nunca HTML del modelo.
+- Botones **Confirmar** y **Cancelar** con `confirmInFlightRef` / `cancelInFlightRef` además de `disabled`, para que un doble clic no dispare dos confirmaciones.
+- **Confirmar** no recibe foco automático; Enter en el composer no confirma una acción.
+- Si `expiresAt` ya pasó, los botones se deshabilitan con el mensaje “La confirmación venció. Pedila de nuevo.”
+- Tras confirmar, la tarjeta queda en estado final y se agrega el resultado al historial visible.
+- En esta versión la tarjeta **no se recupera al recargar**: la acción sigue viva en el servidor hasta vencer, pero el usuario debe pedirla de nuevo si perdió el token. Recuperarla requeriría persistir el token en el historial, que se evita a propósito.
+- Accesibilidad: `role="status"` para el resultado, etiquetas explícitas y estado de error anunciado.
+
+### Límites y coste
+
+- **Una propuesta de escritura por turno.** Las lecturas y la escritura no se mezclan en una misma respuesta del proveedor: si llegan juntas, la respuesta se rechaza como `ASSISTANT_PROVIDER_ERROR`. El modelo debe buscar primero, recibir el resultado y proponer la escritura en la llamada siguiente.
+- **5 acciones `PENDING` por usuario.** Al crear la sexta se vencen las caducadas y, si sigue el cupo lleno, el asistente responde que hay demasiadas confirmaciones pendientes sin crear otra.
+- **10 minutos de vigencia.**
+- **Un token de 32 bytes**, hash SHA-256, comparación por índice único.
+- El mismo rate limit del asistente (10/min y 100/día por usuario) cubre también confirmar y cancelar.
+- Los handlers de escritura usan el mismo timeout de 10 s de 2A y llaman solo a servicios de dominio existentes.
+- Los errores de dominio se traducen a un mensaje seguro; no se devuelven SQL, stack ni detalles de implementación.
+
+### Compatibilidad con Fase 2A
+
+- `assistant.tools.js`, sus cuatro herramientas y el ejecutor de lectura no cambian de comportamiento.
+- El registro de lectura sigue rechazando `mode: "write"`.
+- La respuesta de `POST /messages` es aditiva: `pendingAction` es opcional.
+- Los tests de 2A (no mutación, límite de resultado, autorización por ejecución, timeout) deben seguir pasando sin cambios.
+- Esta fase no habilita escritura desde el registro de lectura ni desde el cliente.
+
+### Roadmap propuesto
+
+Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna tarea se inicia sin aprobación explícita de este diseño.
+
+#### [ ] Tarea 1 — Aprobación del diseño
+
+**Archivos:** este documento.
+
+**Done:** alcance, catálogo, orden, estados, permisos, límites y decisiones abiertas aprobados por el usuario.
+
+#### [ ] Tarea 2 — Migración, repositorio y máquina de estados
+
+**Archivos:** `database/migrations/20261027120000_create_ai_pending_actions.js`, `assistant.action.repository.js`, tests.
+
+**Done:** tabla e índices; inserción con token hasheado; claim atómico; expiración; cancelación; transiciones idempotentes; token ajeno invisible.
+
+#### [ ] Tarea 3 — Ejecutor y endpoints de confirmación
+
+**Archivos:** `assistant.action-registry.js`, `assistant.action-executor.js`, `assistant.action.service.js`, `assistant.action.controller.js`, `assistant.action.validator.js`, rutas, tests.
+
+**Done:** registro de escritura separado; revalidación de rol, tool, argumentos y objetivo; comparación `before_json`; `POST confirm` y `cancel`; errores nuevos; mensaje de resultado en la conversación.
+
+#### [ ] Tarea 4 — `search_products` + `set_product_availability`
+
+**Archivos:** `assistant.tools.js`, `assistant.action-tools.js`, `assistant.action-prompt.js`, tests.
+
+**Done:** búsqueda acotada a 10; propuesta con id real; servicio `changeProductAvailability`; sin escritura hasta confirmar; advertencia si el producto ya está en ese estado.
+
+#### [ ] Tarea 5 — Tarjeta de confirmación en el chat
+
+**Archivos:** `AssistantChat.jsx`, `AssistantChat.css`, `AssistantChat.test.jsx`, `docs/frontend-integration.md`.
+
+**Done:** tarjeta con resumen, objetivo, cambio, advertencias, vencimiento y botones; doble confirmación bloqueada; confirmar/cancelar reales contra la API; estados de error y vencimiento; sin HTML del modelo.
+
+#### [ ] Tarea 6 — `search_announcements` + `set_announcement_active`
+
+**Done:** publicar aviso con advertencia de push; ocultar sin push; ventana de fechas validada por el servicio; una sola notificación ante doble confirmación.
+
+#### [ ] Tarea 7 — `search_videos` + `set_video_active`
+
+**Done:** publicar solo `READY`; `DELETED` no se publica; ocultar siempre; sin llamadas a YouTube.
+
+#### [ ] Tarea 8 — `search_categories` + `set_category_active`
+
+**Done:** advertencia de que los productos de la categoría dejan de mostrarse; sin borrado ni cambio de productos.
+
+#### [ ] Tarea 9 — Prompt, documentación y aceptación
+
+**Done:** prompt con reglas de 2B; `docs/frontend-integration.md` actualizado; aceptación con checksums antes/después, doble confirmación, vencimiento, conflicto, token ajeno, cambio de rol, push único y flujo real en navegador con ambos roles.
+
+### Aceptación de Fase 2B
+
+- Una propuesta no modifica tablas de negocio; solo escribe `ai_pending_actions`.
+- Ningún cambio ocurre sin `POST confirm` del mismo usuario autenticado.
+- El cliente no puede alterar herramienta, objetivo ni argumentos al confirmar.
+- Un doble clic o una repetición de `confirm` ejecuta la acción una sola vez.
+- Token vencido, cancelado, ajeno o de otro usuario no ejecuta nada.
+- Si el objetivo cambió desde la propuesta, la confirmación falla sin escribir.
+- Si al usuario se le quita el rol, no puede confirmar.
+- Publicar un aviso envía push como máximo una vez; ocultar no envía nada.
+- No existe ninguna herramienta de creación, borrado, usuarios, configuración ni YouTube remoto.
+- No se registran tokens planos, SQL, stacks ni resultados completos en logs o respuestas.
+- `cd server && npm test`, `cd frontend && npm test` y `cd frontend && npm run build` pasan.
+
+### Decisiones abiertas para aprobar
+
+1. **Catálogo y orden:** producto → aviso → video → categoría.
+2. **Push al publicar aviso:** aceptado con advertencia explícita en la tarjeta.
+3. **Tarjeta no recuperable tras recargar:** se evita persistir el token en el historial; la acción vence en 10 minutos.
+4. **Límites:** 10 minutos de vigencia y 5 acciones pendientes por usuario.
+5. **Búsquedas con ids internos:** necesarias para identificar el objetivo; el nombre visible se resuelve y se muestra en la tarjeta.
+6. **Ejecución interrumpida (`EXECUTING` > 60 s):** se marca `FAILED` y se pide verificación manual, sin reintento automático.
