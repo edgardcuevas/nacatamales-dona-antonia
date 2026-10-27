@@ -3,6 +3,10 @@ const env = require("../../config/env");
 
 const assistantProvider = require("./assistant.provider");
 const assistantRepository = require("./assistant.repository");
+const assistantToolRegistry = require("./assistant.tools");
+const {
+  runAssistantToolTurn,
+} = require("./assistant.tool-orchestrator");
 const {
   buildSystemInstruction,
 } = require("./assistant.prompt");
@@ -318,7 +322,10 @@ async function sendMessage({ currentUser, input }) {
   let providerFailure = null;
 
   try {
-    result = await provider.chat({
+    result = await runAssistantToolTurn({
+      provider,
+      toolRegistry: assistantToolRegistry,
+      role: currentUser.role,
       systemInstruction,
       messages: [
         ...history,

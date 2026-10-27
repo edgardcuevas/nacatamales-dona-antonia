@@ -5,16 +5,16 @@ import './AssistantChat.css'
 
 const SUGGESTIONS_BY_ROLE = {
   ADMIN: [
-    '¿Cómo agrego un producto?',
-    '¿Cómo publico un anuncio?',
-    '¿Cómo subo un video?',
-    '¿Cómo creo un usuario?',
+    '¿Cuál es la configuración actual del horario?',
+    '¿Cuántos productos tengo?',
+    '¿Qué avisos están activos?',
+    'Muéstrame los videos ocultos.',
   ],
   EDITOR: [
-    '¿Cómo agrego un producto?',
-    '¿Cómo publico un anuncio?',
-    '¿Cómo subo un video?',
-    '¿Qué no puedo hacer como editor?',
+    '¿Cuál es la configuración actual del horario?',
+    '¿Cuántos productos tengo?',
+    '¿Qué avisos están activos?',
+    'Muéstrame los videos ocultos.',
   ],
 }
 
@@ -235,8 +235,9 @@ export default function AssistantChat() {
         <div>
           <h2>Asistente</h2>
           <p className="assistant-chat__notice">
-            En esta versión el asistente no consulta datos ni modifica nada:
-            solo explica cómo usar el panel.
+            Consulta el horario, cuenta productos y lista avisos activos o
+            videos ocultos. Solo lectura: no modifica datos ni ejecuta
+            acciones.
           </p>
         </div>
         <button

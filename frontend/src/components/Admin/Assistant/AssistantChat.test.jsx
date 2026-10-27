@@ -26,7 +26,7 @@ const STATUS_ENABLED = {
   enabled: true,
   provider: 'gemini',
   model: 'gemini-test',
-  capabilities: { supportsTools: false, supportsStreaming: false },
+  capabilities: { supportsTools: true, supportsStreaming: false },
 }
 
 const EMPTY_CONVERSATIONS = { conversations: [] }
@@ -189,13 +189,16 @@ describe('AssistantChat', () => {
     await screen.findByText('Asistente')
 
     const suggestion = screen.getByRole('button', {
-      name: '¿Cómo agrego un producto?',
+      name: '¿Cuántos productos tengo?',
     })
     fireEvent.click(suggestion)
 
     expect(screen.getByLabelText('Mensaje').value).toBe(
-      '¿Cómo agrego un producto?',
+      '¿Cuántos productos tengo?',
     )
+    expect(
+      screen.getByText(/Solo lectura: no modifica datos ni ejecuta acciones/),
+    ).toBeTruthy()
   })
 
   it('expone la lista de mensajes como log accesible', async () => {

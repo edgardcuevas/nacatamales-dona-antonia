@@ -134,8 +134,50 @@ test("public announcement repository applies schedule, type, active media, and o
     capturedSql,
     /a\.sort_order ASC,[\s\S]*a\.created_at DESC,[\s\S]*a\.id DESC/
   );
+  assert.doesNotMatch(capturedSql, /LIMIT \?/);
   assert.deepEqual(capturedParameters, ["INFO"]);
   assert.doesNotMatch(capturedSql, /SELECT \*/);
+});
+
+test("public announcement repository applies a parameterized result limit", async () => {
+  let capturedSql = "";
+  let capturedParameters;
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      capturedSql = sql;
+      capturedParameters = parameters;
+      return [[createAnnouncement()], []];
+    }
+  );
+
+  const result =
+    await announcementRepository.listPublicAnnouncements({
+      limit: 21,
+    });
+
+  assert.equal(result.length, 1);
+  assert.match(capturedSql, /a\.is_active = 1/);
+  assert.match(
+    capturedSql,
+    /a\.starts_at IS NULL OR a\.starts_at <= CURRENT_TIMESTAMP/
+  );
+  assert.match(
+    capturedSql,
+    /a\.ends_at IS NULL OR a\.ends_at > CURRENT_TIMESTAMP/
+  );
+  assert.match(capturedSql, /LIMIT \?\s*$/);
+  assert.deepEqual(capturedParameters, [21]);
+});
+
+test("public announcement repository rejects invalid internal limits", async () => {
+  await assert.rejects(
+    announcementRepository.listPublicAnnouncements({
+      limit: 101,
+    }),
+    /Invalid public announcement limit/
+  );
 });
 
 test("public announcement list returns approved DTO fields and image contract", async () => {

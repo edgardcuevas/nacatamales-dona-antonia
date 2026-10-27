@@ -1,9 +1,9 @@
 
 ---
 
-## 19. Asistente de administración (Fase 1)
+## 19. Asistente de administración (Fases 1 y 2A)
 
-Chat dentro del panel para `ADMIN` y `EDITOR`. En esta versión **no consulta datos en vivo ni modifica nada**: solo explica cómo usar el panel. El historial se persiste por usuario en MySQL. El proveedor por defecto es Gemini (`gemini-3.5-flash`), detrás de un adaptador intercambiable.
+Chat dentro del panel para `ADMIN` y `EDITOR`. En Fase 2A puede consultar información real mediante herramientas de solo lectura; no puede modificar datos de negocio ni ejecutar acciones. El historial se persiste por usuario en MySQL. El proveedor por defecto es Gemini, detrás de un adaptador intercambiable.
 
 ### 19.1 Autenticación
 
@@ -14,6 +14,23 @@ authenticate -> requireActiveUser -> authorizeRoles("ADMIN", "EDITOR")
 ```
 
 Excepto `GET /usage`, que es solo `ADMIN`.
+
+### 19.1.1 Consultas permitidas en Fase 2A
+
+El servidor proporciona exclusivamente estas herramientas de lectura a ambos roles:
+
+| Herramienta | Información devuelta |
+|---|---|
+| `get_current_schedule` | Horarios públicos general y de fritanga; valores sin configurar se devuelven como `null`. |
+| `count_products` | Conteo total de productos, sin devolver filas ni filtros libres. |
+| `list_active_announcements` | Hasta 20 avisos activos y vigentes, con indicador de truncamiento si hay más. |
+| `list_videos` | Hasta 20 videos ocultos, con estado de carga/publicación; no consulta YouTube. |
+
+Las cuatro definiciones pasan por el registro central de herramientas. El servidor filtra las declaraciones por el rol activo y vuelve a validar el nombre, el modo `read`, el rol y los argumentos en cada ejecución. Ni el navegador ni el modelo pueden aportar handlers, permisos, consultas SQL o límites. No existen herramientas de creación, edición, eliminación ni acciones externas en Fase 2A.
+
+Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor; las herramientas tienen argumentos y cantidades de filas acotados.
+
+El cliente solo envía `{ conversationId?, message }`; no envía resultados de herramientas ni historial. La ruta `DELETE /conversations/:id` elimina únicamente una conversación propia del historial del asistente y no es una herramienta disponible para el modelo.
 
 ### 19.2 Endpoints
 

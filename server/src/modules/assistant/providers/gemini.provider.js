@@ -2,6 +2,10 @@ const {
   ASSISTANT_PROVIDERS,
   ASSISTANT_TEMPERATURE,
   ASSISTANT_THINKING_BUDGET,
+  MAX_TOOL_ARGUMENT_CHARS,
+  MAX_TOOL_CALLS_PER_RESPONSE,
+  MAX_TOOL_DECLARATIONS,
+  MAX_TOOL_RESULT_CHARS,
   MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
   MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
   MIN_ASSISTANT_TIMEOUT_MS,
@@ -16,6 +20,15 @@ const {
 const GEMINI_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta";
 const MODEL_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
+const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const GEMINI_SCHEMA_TYPES = Object.freeze({
+  array: "ARRAY",
+  boolean: "BOOLEAN",
+  integer: "INTEGER",
+  number: "NUMBER",
+  object: "OBJECT",
+  string: "STRING",
+});
 const BLOCKED_FINISH_REASONS = new Set([
   "SAFETY",
   "RECITATION",
@@ -135,31 +148,312 @@ function extractText(candidate) {
     .join("");
 }
 
+function isPlainObject(value) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return (
+    prototype === Object.prototype ||
+    prototype === null
+  );
+}
+
+function normalizeToolArguments(value) {
+  if (!isPlainObject(value)) {
+    throw invalidResponse();
+  }
+
+  let serialized;
+
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw invalidResponse();
+  }
+
+  if (
+    typeof serialized !== "string" ||
+    serialized.length > MAX_TOOL_ARGUMENT_CHARS
+  ) {
+    throw invalidResponse();
+  }
+
+  return value;
+}
+
+function normalizeToolCalls(candidate) {
+  const parts = candidate?.content?.parts;
+
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+
+  const functionCallParts = parts.filter(
+    (part) => part && part.functionCall !== undefined
+  );
+
+  if (
+    functionCallParts.length >
+    MAX_TOOL_CALLS_PER_RESPONSE
+  ) {
+    throw invalidResponse();
+  }
+
+  return functionCallParts.map((part) => {
+    const call = part.functionCall;
+
+    if (
+      !isPlainObject(call) ||
+      typeof call.name !== "string" ||
+      !TOOL_NAME_PATTERN.test(call.name) ||
+      (call.id !== undefined &&
+        (typeof call.id !== "string" ||
+          call.id.length === 0 ||
+          call.id.length > 128)) ||
+      (part.thoughtSignature !== undefined &&
+        (typeof part.thoughtSignature !== "string" ||
+          part.thoughtSignature.length === 0 ||
+          part.thoughtSignature.length > 20_000)) ||
+      (call.args !== undefined &&
+        !isPlainObject(call.args))
+    ) {
+      throw invalidResponse();
+    }
+
+    return {
+      name: call.name,
+      arguments: normalizeToolArguments(call.args ?? {}),
+      ...(call.id === undefined ? {} : { id: call.id }),
+      ...(part.thoughtSignature === undefined
+        ? {}
+        : { thoughtSignature: part.thoughtSignature }),
+    };
+  });
+}
+
+function normalizeSchema(schema) {
+  if (
+    !isPlainObject(schema) ||
+    !Object.hasOwn(GEMINI_SCHEMA_TYPES, schema.type)
+  ) {
+    throw invalidRequest();
+  }
+
+  const normalized = {
+    type: GEMINI_SCHEMA_TYPES[schema.type],
+  };
+
+  if (schema.type === "object") {
+    if (
+      !isPlainObject(schema.properties) ||
+      schema.additionalProperties !== false
+    ) {
+      throw invalidRequest();
+    }
+
+    normalized.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(
+        ([name, propertySchema]) => [
+          name,
+          normalizeSchema(propertySchema),
+        ]
+      )
+    );
+
+    if (schema.required !== undefined) {
+      if (!Array.isArray(schema.required)) {
+        throw invalidRequest();
+      }
+      normalized.required = [...schema.required];
+    }
+  } else if (schema.type === "array") {
+    normalized.items = normalizeSchema(schema.items);
+  } else if (schema.enum !== undefined) {
+    if (!Array.isArray(schema.enum)) {
+      throw invalidRequest();
+    }
+    normalized.enum = [...schema.enum];
+  }
+
+  return normalized;
+}
+
+function normalizeToolDeclarations(tools) {
+  if (tools === undefined) {
+    return [];
+  }
+
+  if (
+    !Array.isArray(tools) ||
+    tools.length > MAX_TOOL_DECLARATIONS
+  ) {
+    throw invalidRequest();
+  }
+
+  const names = new Set();
+
+  return tools.map((tool) => {
+    if (
+      !isPlainObject(tool) ||
+      typeof tool.name !== "string" ||
+      !TOOL_NAME_PATTERN.test(tool.name) ||
+      typeof tool.description !== "string" ||
+      tool.description.trim() === "" ||
+      !isPlainObject(tool.parameters)
+    ) {
+      throw invalidRequest();
+    }
+
+    if (names.has(tool.name)) {
+      throw invalidRequest();
+    }
+    names.add(tool.name);
+
+    const parameters = normalizeSchema(tool.parameters);
+    if (parameters.type !== "OBJECT") {
+      throw invalidRequest();
+    }
+
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters,
+    };
+  });
+}
+
 function normalizeMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw invalidRequest();
   }
 
   return messages.map((message) => {
-    if (
-      !message ||
-      typeof message !== "object" ||
-      Array.isArray(message) ||
-      (message.role !== "user" &&
-        message.role !== "assistant") ||
-      typeof message.content !== "string" ||
-      message.content.trim() === ""
-    ) {
+    if (!isPlainObject(message)) {
       throw invalidRequest();
     }
 
-    return {
-      role:
-        message.role === "assistant"
-          ? "model"
-          : "user",
-      parts: [{ text: message.content }],
-    };
+    if (
+      message.role === "user" ||
+      message.role === "assistant"
+    ) {
+      const isAssistantToolTurn =
+        message.role === "assistant" &&
+        Array.isArray(message.toolCalls) &&
+        message.toolCalls.length > 0;
+      const hasText =
+        typeof message.content === "string" &&
+        message.content.trim() !== "";
+
+      if (!hasText && !isAssistantToolTurn) {
+        throw invalidRequest();
+      }
+
+      const parts = [];
+
+      if (hasText) {
+        parts.push({ text: message.content });
+      }
+
+      if (isAssistantToolTurn) {
+        if (
+          message.toolCalls.length >
+          MAX_TOOL_CALLS_PER_RESPONSE
+        ) {
+          throw invalidRequest();
+        }
+
+        for (const call of message.toolCalls) {
+          if (
+            !isPlainObject(call) ||
+            typeof call.name !== "string" ||
+            !TOOL_NAME_PATTERN.test(call.name) ||
+            (call.id !== undefined &&
+              (typeof call.id !== "string" ||
+                call.id.length === 0 ||
+                call.id.length > 128)) ||
+            (call.thoughtSignature !== undefined &&
+              (typeof call.thoughtSignature !== "string" ||
+                call.thoughtSignature.length === 0 ||
+                call.thoughtSignature.length > 20_000))
+          ) {
+            throw invalidRequest();
+          }
+
+          parts.push({
+            functionCall: {
+              name: call.name,
+              args: normalizeToolArguments(
+                call.arguments
+              ),
+              ...(call.id === undefined
+                ? {}
+                : { id: call.id }),
+            },
+            ...(call.thoughtSignature === undefined
+              ? {}
+              : {
+                  thoughtSignature:
+                    call.thoughtSignature,
+                }),
+          });
+        }
+      }
+
+      return {
+        role:
+          message.role === "assistant"
+            ? "model"
+            : "user",
+        parts,
+      };
+    }
+
+    if (
+      message.role === "tool" &&
+      typeof message.name === "string" &&
+      TOOL_NAME_PATTERN.test(message.name) &&
+      typeof message.content === "string" &&
+      message.content.length <= MAX_TOOL_RESULT_CHARS &&
+      (message.id === undefined ||
+        (typeof message.id === "string" &&
+          message.id.length > 0 &&
+          message.id.length <= 128))
+    ) {
+      let toolResult;
+
+      try {
+        toolResult = JSON.parse(message.content);
+      } catch {
+        throw invalidRequest();
+      }
+
+      if (!isPlainObject(toolResult)) {
+        throw invalidRequest();
+      }
+
+      return {
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              name: message.name,
+              response: { result: toolResult },
+              ...(message.id === undefined
+                ? {}
+                : { id: message.id }),
+            },
+          },
+        ],
+      };
+    }
+
+    throw invalidRequest();
   });
 }
 
@@ -180,12 +474,17 @@ function normalizeResponse(payload, configuredModel) {
       ? candidate.finishReason
       : null;
   const text = extractText(candidate);
+  const toolCalls = normalizeToolCalls(candidate);
   const blocked =
     typeof payload.promptFeedback?.blockReason ===
       "string" ||
     BLOCKED_FINISH_REASONS.has(finishReason);
 
-  if (!blocked && text.trim() === "") {
+  if (
+    !blocked &&
+    text.trim() === "" &&
+    toolCalls.length === 0
+  ) {
     throw invalidResponse();
   }
 
@@ -206,6 +505,7 @@ function normalizeResponse(payload, configuredModel) {
     },
     finishReason,
     blocked,
+    toolCalls,
   };
 }
 
@@ -251,6 +551,7 @@ function createGeminiProvider({
   async function chat({
     systemInstruction,
     messages,
+    tools,
     maxOutputTokens: requestedMaxOutputTokens,
     timeoutMs: requestedTimeoutMs,
   } = {}) {
@@ -260,6 +561,8 @@ function createGeminiProvider({
     );
 
     const contents = normalizeMessages(messages);
+    const normalizedTools =
+      normalizeToolDeclarations(tools);
     const effectiveMaxOutputTokens =
       requestedMaxOutputTokens ?? maxOutputTokens;
     const effectiveTimeoutMs =
@@ -278,6 +581,26 @@ function createGeminiProvider({
       MAX_ASSISTANT_TIMEOUT_MS
     );
 
+    const requestBody = {
+      systemInstruction: {
+        parts: [{ text: systemInstruction }],
+      },
+      contents,
+      generationConfig: {
+        maxOutputTokens: effectiveMaxOutputTokens,
+        temperature: ASSISTANT_TEMPERATURE,
+        thinkingConfig: {
+          thinkingBudget: ASSISTANT_THINKING_BUDGET,
+        },
+      },
+    };
+
+    if (normalizedTools.length > 0) {
+      requestBody.tools = [
+        { functionDeclarations: normalizedTools },
+      ];
+    }
+
     let response;
 
     try {
@@ -289,21 +612,7 @@ function createGeminiProvider({
             "content-type": "application/json",
             "x-goog-api-key": normalizedApiKey,
           },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
-            },
-            contents,
-            generationConfig: {
-              maxOutputTokens:
-                effectiveMaxOutputTokens,
-              temperature: ASSISTANT_TEMPERATURE,
-              thinkingConfig: {
-                thinkingBudget:
-                  ASSISTANT_THINKING_BUDGET,
-              },
-            },
-          }),
+          body: JSON.stringify(requestBody),
           signal: AbortSignal.timeout(
             effectiveTimeoutMs
           ),
@@ -350,7 +659,7 @@ function createGeminiProvider({
     id: ASSISTANT_PROVIDERS.GEMINI,
     model,
     capabilities: Object.freeze({
-      supportsTools: false,
+      supportsTools: true,
       supportsStreaming: false,
     }),
     chat,

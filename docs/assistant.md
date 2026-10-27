@@ -1,6 +1,6 @@
 # Asistente Inteligente de Administración
 
-Plan vivo de la Fase 1. Estado: **Fase 1 completada (tareas 1–9)**.
+Plan vivo del asistente. Estado: **Fase 1 completada; diseño de Fase 2A aprobado; tareas 1–10 de Fase 2A completadas; aceptación final pendiente**.
 Última actualización: 2026-10-26.
 
 ## Cómo retomar el trabajo
@@ -340,3 +340,153 @@ Validación final:
 - No hay escrituras fuera de las tres tablas del asistente.
 - No hay mensajes ni claves en logs.
 - `cd server && npm test`, `cd frontend && npm test` y `cd frontend && npm run build` pasan.
+
+## Fase 2A — Consultas de solo lectura
+
+Estado: diseño aprobado el 2026-10-26. Las cuatro herramientas y la integración UX están implementadas; falta la aceptación final en navegador y con el proveedor en vivo.
+
+### Alcance aprobado
+
+El asistente podrá consultar datos reales mediante herramientas registradas en el servidor. ADMIN y EDITOR podrán usar las lecturas autorizadas abajo. No se implementarán herramientas de escritura, SQL generado por el modelo ni acciones externas. El prompt informa al modelo de este alcance, pero la seguridad se aplica en servidor y no depende del prompt.
+
+Orden obligatorio para incorporar herramientas:
+
+1. `get_current_schedule`
+2. `count_products`
+3. `list_active_announcements`
+4. `list_videos`
+
+`list_videos` se deja al final porque es el módulo con mayor complejidad operativa. Todas las herramientas pasan por el registro central y reutilizan servicios de dominio existentes; si un servicio no permite una lectura acotada, solo se podrá añadir la extensión de lectura necesaria sin cambiar el comportamiento público actual.
+
+### Arquitectura y registro
+
+```text
+authenticate -> requireActiveUser -> authorizeRoles -> assistantRateLimiter
+  -> validator -> assistant.controller -> assistant.service
+  -> provider con declaraciones por rol
+  -> tool registry (resolución exacta + permisos + validación)
+  -> handler de solo lectura -> servicio del módulo -> DTO reducido
+  -> resultado acotado -> provider -> respuesta final
+```
+
+El registro central será inmutable y cada definición incluirá nombre único, descripción, esquema estricto de argumentos, `allowedRoles`, `mode: "read"`, límites y handler. El proveedor solo recibe las herramientas permitidas al rol de `request.currentUser.role`. En cada ejecución el servidor vuelve a resolver el nombre del registro y revalida rol, modo y argumentos; no acepta nombres, permisos, consultas ni límites decididos por el cliente o por el modelo. En Fase 2A, el registro y el ejecutor rechazan cualquier modo distinto de lectura.
+
+| Herramienta | Fuente de dominio aprobada | Contrato de lectura |
+|---|---|---|
+| `get_current_schedule` | `settingsService.getPublicSettings()` | Solo horarios públicos general y de fritanga; no devuelve historia, contacto ni coordenadas |
+| `count_products` | `productService.listAdministrativeProducts()` | Invoca página 1, límite 1 y filtros fijos; responde con `pagination.totalItems`, sin listar productos |
+| `list_active_announcements` | `announcementService.listPublicAnnouncements()` | Solo anuncios activos y vigentes según fechas; consulta 21 filas mediante límite enlazado, devuelve como máximo 20 y conserva sin límite por defecto el comportamiento de la ruta pública |
+| `list_videos` | `videoService.listAdministrativeVideos()` | Solo `isActive: false`, con página/límite fijados por el servidor; incluye estado de carga necesario para distinguir ocultos de eliminados, sin acciones de YouTube |
+
+Los DTOs incluirán únicamente campos necesarios para responder. En especial no se expondrán IDs externos, campos de sesión, secretos, tokens, configuración privada ni datos que no estén en el alcance de la herramienta. Los filtros y límites del registro son constantes del servidor, no parámetros libres del usuario.
+
+### Permisos, ciclo y controles de coste
+
+- El rol se relee desde `request.currentUser.role` después de `requireActiveUser`. ADMIN y EDITOR quedan autorizados únicamente para las herramientas que explícitamente los incluyan.
+- El proveedor puede solicitar una herramienta, pero no ejecutarla. El servicio del asistente valida cada solicitud y llama al handler del registro; el handler solo invoca el servicio de dominio aprobado.
+- El ciclo queda acotado a un máximo de 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor por mensaje. No hay reintentos de herramientas ni bucles abiertos.
+- Se conserva el rate limit de 10 solicitudes por minuto y 100 por día por usuario. Cada handler tendrá timeout y límites de filas fijos.
+- Los errores enviados al modelo son mensajes genéricos y acotados; no contienen SQL, stack traces ni datos internos. Métricas futuras registran nombre, resultado, latencia y error, nunca argumentos o resultados completos.
+- Los resultados se normalizan y limitan en un punto común del ejecutor, después de producir el DTO y antes de enviarlo al proveedor. Ningún handler puede omitir esa etapa.
+
+### Presupuesto global de resultados
+
+Se añadirá `MAX_TOOL_RESULT_CHARS = 6000` como máximo de caracteres serializados por resultado de herramienta enviado al modelo. Es un límite compartido aplicado por el ejecutor a todas las herramientas; no es configurable por el modelo ni por la petición. La serialización usada para comprobar el tope debe ser la misma que se envía al proveedor.
+
+Si un resultado supera el presupuesto, el normalizador recorta datos de forma segura, conserva una respuesta estructurada válida y establece `truncated: true` junto con una nota explícita de que el resultado fue truncado. También garantiza que el envoltorio y la nota cuentan dentro de los 6000 caracteres. Se prefieren listas limitadas desde la consulta; este límite es una defensa adicional, no sustituto de la paginación.
+
+### Compatibilidad futura con Fase 2B
+
+El registro reserva `mode` y `allowedRoles` como metadatos de política, pero durante 2A solo admite `read`; no habrá handlers ni rutas de escritura. La Fase 2B requerirá un ejecutor separado, confirmación humana vinculada a usuario e intención, permisos explícitos, idempotencia y servicios de dominio existentes. Esta compatibilidad organizativa no habilita escritura anticipadamente.
+
+### Roadmap definitivo
+
+Una tarea por vez. Cada tarea se valida y documenta antes de iniciar la siguiente; un fallo de validación detiene el roadmap. Las tareas de herramientas se mantienen en el orden aprobado.
+
+#### [x] Tarea 1 — Cierre del contrato y alcance
+
+**Archivos:** este documento; contratos actuales de los servicios de configuración, productos, anuncios y videos.
+
+**Done:** alcance solo lectura, roles, orden de herramientas, DTOs de alto nivel, controles de coste y diseño de truncamiento aprobados. Se verificó que horario, conteo de productos y listados administrativos se apoyan en servicios existentes; se identificó que el listado público de anuncios requiere una consulta acotada antes de conectarlo.
+
+**Validación:** inspección de las firmas y rutas actuales. No se ejecutaron consultas ni se cambió código: esta tarea cierra el diseño y no requiere validar datos de runtime.
+
+#### [x] Tarea 2 — Registro central de herramientas de solo lectura
+
+**Archivos:** `assistant.tool-registry.js`, `tests/unit/assistant-tool-registry.test.js`.
+
+**Done:** registro inmutable con nombres únicos, esquemas estrictos de objetos/arrays/primitivos, `allowedRoles`, modo obligatorio `read` y rechazo de herramientas desconocidas, argumentos extra, modos de escritura y campos de esquema no soportados. Las declaraciones para el proveedor omiten handlers y se filtran por rol; cada ejecución vuelve a validar el rol, la herramienta y los argumentos. No hay herramientas de dominio conectadas todavía.
+
+**Validación:** `cd server && node --test tests/unit/assistant-tool-registry.test.js` (6/6) y `cd server && npm test` (673/673). Se cubrieron registro vacío, aislamiento por rol, declaraciones inmutables sin handlers, argumentos anidados y extra, herramienta desconocida, modo de escritura y esquema permisivo.
+
+#### [x] Tarea 3 — Límite global de resultados de herramientas
+
+**Archivos:** `assistant.constants.js`, `assistant.tool-result.js`, `assistant.tool-registry.js`, `tests/unit/assistant-tool-result.test.js`, `tests/unit/assistant-tool-registry.test.js`.
+
+**Done:** `MAX_TOOL_RESULT_CHARS = 6000`; el ejecutor del registro serializa todos los resultados antes de devolverlos al orquestador. Los resultados grandes se representan como JSON válido con `truncated: true`, `notice` explícito y una vista previa, contando también el envoltorio dentro del límite.
+
+**Validación:** tests de límite exacto, objetos/listas normales, objetos largos, Unicode, resultados no serializables y truncamiento a través del registro; `serialized.length <= 6000` en todos los casos. `cd server && npm test`: 679/679.
+
+#### [x] Tarea 4 — Contrato de herramientas del proveedor
+
+**Archivos:** `assistant.provider.js`, `providers/gemini.provider.js`, tests del adaptador.
+
+**Done:** Gemini recibe declaraciones normalizadas a su esquema; normaliza texto y solicitudes de herramientas por separado, acepta el historial de llamada/respuesta, y valida el formato, tamaño de argumentos y cantidad de llamadas. El adaptador no ejecuta handlers.
+
+**Validación:** `cd server && node --test tests/unit/assistant-provider.test.js` (14/14), `cd server && npm test` (683/683). Llamada de humo real a Gemini con datos sintéticos confirmó que el modelo devolvió `count_products`; no se envió información de usuarios ni del negocio.
+
+#### [x] Tarea 5 — Orquestación, permisos y límites por turno
+
+**Archivos:** `assistant.tools.js`, `assistant.tool-registry.js`, `assistant.tool-orchestrator.js`, `assistant.service.js`, `assistant.prompt.js`, tests del registro/orquestador.
+
+**Done:** el servicio delega cada turno al orquestador; ciclo acotado de hasta 2 ejecuciones secuenciales y 3 llamadas al proveedor; revalidación de rol, nombre, modo y argumentos antes de ejecutar. Al cerrar esta tarea no había herramientas de dominio registradas; se incorporan por separado y en orden en las tareas siguientes. Errores de solicitudes de herramienta inválidas se normalizan como error del proveedor; fallos de servicios no se silencian. Se agregan tokens de todas las llamadas del turno. El prompt indica solo lectura y no afirma acceso cuando no recibe una herramienta adecuada.
+
+**Validación:** tests del orquestador y regresión HTTP; `cd server && npm test` (689/689 antes de añadir las herramientas de dominio). Pruebas cubren autorización, herramienta desconocida, argumentos, límites, ejecución secuencial, agregación de tokens y propagación de errores. En la validación real del flujo con Gemini, el proveedor devolvió `INVALID_ARGUMENT`; se corrigió la conservación del `id` y `thoughtSignature` de Gemini 3, pero la repetición quedó bloqueada por cuota del proveedor (`RESOURCE_EXHAUSTED`).
+
+#### [x] Tarea 6 — Herramienta `get_current_schedule`
+
+**Archivos:** `assistant.tools.js`, `tests/unit/assistant-tool-schedule.test.js`.
+
+**Done:** `get_current_schedule` se registra para ADMIN y EDITOR y reutiliza `settingsService.getPublicSettings()`. Devuelve solo horario general y de fritanga; valores no configurados se preservan como `null`. Sin efectos secundarios.
+
+**Validación:** `cd server && node --test tests/unit/assistant-tool-schedule.test.js tests/unit/assistant-tool-orchestrator.test.js` (8/8). Ejecución directa del registro contra la base de desarrollo confirmó lectura del horario general y que el horario de fritanga está sin configurar (`null`); se imprimieron solo presencia/tipos, no contenido.
+
+#### [x] Tarea 7 — Herramienta `count_products`
+
+**Archivos:** `assistant.tools.js`, `tests/unit/assistant-tool-products.test.js`.
+
+**Done:** `count_products` está disponible para ADMIN y EDITOR. Reutiliza `productService.listAdministrativeProducts()` con página 1, límite 1 y orden fijos; expone solo `totalProducts`, sin filtros libres ni filas.
+
+**Validación:** tests de DTO mínimo, argumentos fijos y cero productos (incluidos en la suite completa). Contra la base de desarrollo, la herramienta y `listAdministrativeProducts()` devolvieron ambos 5.
+
+#### [x] Tarea 8 — Herramienta `list_active_announcements`
+
+**Archivos:** `assistant.tools.js`, `announcement.repository.js`, `tests/unit/assistant-tool-announcements.test.js`, `tests/unit/announcement-public.test.js`.
+
+**Done:** `list_active_announcements` está disponible para ambos roles y reutiliza el servicio/consulta públicos con el mismo predicado de publicación y ventana temporal. El límite es un parámetro SQL enlazado (máximo 100 en repositorio); la herramienta consulta 21, devuelve como máximo 20, solo campos de texto/fechas y marca `truncated` si quedan más. La ruta pública existente conserva su consulta sin límite por defecto.
+
+**Validación:** tests de límite enlazado, límite inválido, campos mínimos, truncamiento, lista vacía y contrato público sin cambio. Ejecución del registro contra la base de desarrollo devolvió 0 avisos activos y `truncated: false`.
+
+#### [x] Tarea 9 — Herramienta `list_videos`
+
+**Archivos:** `assistant.tools.js`, `tests/unit/assistant-tool-videos.test.js`.
+
+**Done:** `list_videos` se registra para ADMIN y EDITOR, consulta solo `isActive: false` con límite 21 y devuelve como máximo 20 DTOs mínimos con `uploadStatus` y `privacyStatus`. Incluye filas `DELETED` sin polling; no consulta YouTube ni ofrece acciones de publicar, borrar o modificar.
+
+**Validación:** tests de filtros fijos, truncamiento, DTO y `DELETED`; ejecución contra la base de desarrollo comparada con `listAdministrativeVideos()` confirmó 0 ocultos, 0 devueltos y ningún activo incluido.
+
+#### [x] Tarea 10 — Integración del endpoint y experiencia del chat
+
+**Archivos:** controlador/servicio/rutas del asistente, `AssistantChat.jsx`, pruebas frontend/backend y `docs/frontend-integration.md`.
+
+**Done:** el cliente sigue enviando solo mensaje e ID de conversación; su aviso y sugerencias reflejan las cuatro consultas disponibles y dejan explícito el modo de solo lectura. El servidor entrega las herramientas del registro al proveedor y solo responde con la contestación final, sin aceptar resultados, permisos ni solicitudes de herramienta del cliente.
+
+**Validación:** test HTTP del ciclo completo de lectura con rol EDITOR: verifica las declaraciones disponibles, la ejecución de `get_current_schedule`, el contexto mínimo enviado al proveedor y que el DTO interno no se filtra en la respuesta HTTP. Tests frontend verifican sugerencias y aviso de solo lectura. La validación visual en navegador queda pendiente.
+
+#### [ ] Tarea 11 — Aceptación de seguridad y documentación de Fase 2A
+
+**Archivos:** este documento, documentación de integración y pruebas de regresión relacionadas.
+
+**Done:** evidencia de no mutación de datos de negocio, autorización repetida por ejecución, límite de resultado, cuotas y errores sin detalles internos; documentación de `docs/frontend-integration.md` alineada con Fase 2A.
+
+**Validación:** `cd server && npm test` (700/700); `cd frontend && npm test` (164/164); `cd frontend && npm run build` (correcto). Pendiente el flujo real en navegador con ambos roles, las cuatro preguntas de ejemplo, pregunta ambigua y petición de escritura. Confirmar que no se producen cambios ni efectos externos. La repetición del ciclo completo con Gemini queda pendiente de cuota del proveedor; el smoke test inicial solo confirmó la llamada de herramienta.

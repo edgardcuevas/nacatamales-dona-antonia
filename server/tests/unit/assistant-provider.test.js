@@ -319,6 +319,7 @@ test("Gemini provider maps messages, system instruction and generation config", 
     },
     finishReason: "STOP",
     blocked: false,
+    toolCalls: [],
   });
 });
 
@@ -372,6 +373,274 @@ test("Gemini provider returns a blocked result instead of throwing", async () =>
     inputTokens: 10,
     outputTokens: null,
   });
+});
+
+test("Gemini provider declares tools and normalizes function-call responses", async () => {
+  let capturedBody;
+  const provider = createProvider(
+    async (_url, options) => {
+      capturedBody = JSON.parse(options.body);
+
+      return jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: "count_products",
+                    id: "call-123",
+                    args: { categoryId: 8 },
+                  },
+                  thoughtSignature: "signature-123",
+                },
+              ],
+            },
+            finishReason: "STOP",
+          },
+        ],
+      });
+    }
+  );
+
+  const result = await provider.chat({
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "¿Cuántos?" }],
+    tools: [
+      {
+        name: "count_products",
+        description: "Cuenta productos.",
+        parameters: {
+          type: "object",
+          properties: {
+            categoryId: { type: "integer" },
+          },
+          required: ["categoryId"],
+          additionalProperties: false,
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(capturedBody.tools, [
+    {
+      functionDeclarations: [
+        {
+          name: "count_products",
+          description: "Cuenta productos.",
+          parameters: {
+            type: "OBJECT",
+            properties: {
+              categoryId: { type: "INTEGER" },
+            },
+            required: ["categoryId"],
+          },
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(result.toolCalls, [
+    {
+      name: "count_products",
+      arguments: { categoryId: 8 },
+      id: "call-123",
+      thoughtSignature: "signature-123",
+    },
+  ]);
+  assert.equal(result.text, "");
+});
+
+test("Gemini provider sends assistant tool calls and bounded tool results", async () => {
+  let capturedBody;
+  const provider = createProvider(
+    async (_url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "Hay 4 productos." }],
+            },
+            finishReason: "STOP",
+          },
+        ],
+      });
+    }
+  );
+
+  await provider.chat({
+    systemInstruction: "Sistema.",
+    messages: [
+      { role: "user", content: "Cuenta." },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            name: "count_products",
+            arguments: {},
+            id: "call-123",
+            thoughtSignature: "signature-123",
+          },
+        ],
+      },
+      {
+        role: "tool",
+        name: "count_products",
+        content: '{"total":4}',
+        id: "call-123",
+      },
+    ],
+  });
+
+  assert.deepEqual(capturedBody.contents.slice(1), [
+    {
+      role: "model",
+      parts: [
+        {
+          functionCall: {
+            name: "count_products",
+            args: {},
+            id: "call-123",
+          },
+          thoughtSignature: "signature-123",
+        },
+      ],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "count_products",
+            response: { result: { total: 4 } },
+            id: "call-123",
+          },
+        },
+      ],
+    },
+  ]);
+});
+
+test("Gemini provider rejects malformed, oversized and excessive tool calls", async () => {
+  const responses = [
+    {
+      functionCall: {
+        name: "count_products",
+        args: [],
+      },
+    },
+    {
+      functionCall: {
+        name: "count_products",
+        args: { filter: "x".repeat(2_001) },
+      },
+    },
+    {
+      functionCall: {
+        name: "bad-name",
+        args: {},
+      },
+    },
+  ];
+
+  for (const functionCall of responses) {
+    const provider = createProvider(async () =>
+      jsonResponse({
+        candidates: [
+          {
+            content: { parts: [functionCall] },
+            finishReason: "STOP",
+          },
+        ],
+      })
+    );
+
+    await expectProviderError(
+      provider.chat({
+        systemInstruction: "Sistema.",
+        messages: [{ role: "user", content: "Consulta." }],
+      }),
+      ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
+    );
+  }
+
+  const excessiveProvider = createProvider(async () =>
+    jsonResponse({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { functionCall: { name: "first", args: {} } },
+              { functionCall: { name: "second", args: {} } },
+              { functionCall: { name: "third", args: {} } },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+    })
+  );
+
+  await expectProviderError(
+    excessiveProvider.chat({
+      systemInstruction: "Sistema.",
+      messages: [{ role: "user", content: "Consulta." }],
+    }),
+    ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
+  );
+});
+
+test("Gemini provider rejects invalid tool declarations and tool messages", async () => {
+  const provider = createProvider(async () =>
+    jsonResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "ok" }] },
+        },
+      ],
+    })
+  );
+
+  await expectProviderError(
+    provider.chat({
+      systemInstruction: "Sistema.",
+      messages: [{ role: "user", content: "Hola" }],
+      tools: [
+        {
+          name: "count_products",
+          description: "Cuenta.",
+          parameters: {
+            type: "object",
+            properties: {},
+            additionalProperties: true,
+          },
+        },
+      ],
+    }),
+    ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
+  );
+
+  for (const content of [
+    "{malformed",
+    "[]",
+    "x".repeat(6_001),
+  ]) {
+    await expectProviderError(
+      provider.chat({
+        systemInstruction: "Sistema.",
+        messages: [
+          { role: "user", content: "Hola" },
+          {
+            role: "tool",
+            name: "count_products",
+            content,
+          },
+        ],
+      }),
+      ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
+    );
+  }
 });
 
 test("Gemini provider maps upstream statuses to stable provider errors", async () => {
@@ -529,7 +798,7 @@ test("assistant provider factory exposes capabilities and rejects unknown provid
   assert.equal(provider.id, "gemini");
   assert.equal(provider.model, "gemini-test");
   assert.deepEqual(provider.capabilities, {
-    supportsTools: false,
+    supportsTools: true,
     supportsStreaming: false,
   });
   assert.equal(

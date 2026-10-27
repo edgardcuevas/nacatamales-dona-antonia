@@ -44,6 +44,9 @@ const assistantRepository = require(
 const assistantProvider = require(
   "../../src/modules/assistant/assistant.provider"
 );
+const settingsService = require(
+  "../../src/modules/settings/settings.service"
+);
 const {
   AssistantProviderError,
 } = require(
@@ -86,7 +89,10 @@ const state = {
     usage: { inputTokens: 12, outputTokens: 8 },
     finishReason: "STOP",
     blocked: false,
+    toolCalls: [],
   },
+  providerResponses: null,
+  providerInputs: [],
   usageAggregates: {
     totals: {
       totalQueries: 3,
@@ -118,12 +124,18 @@ const fakeProvider = {
   id: "gemini",
   model: "gemini-test",
   capabilities: Object.freeze({
-    supportsTools: false,
+    supportsTools: true,
     supportsStreaming: false,
   }),
-  chat: async () => {
+  chat: async (input) => {
+    state.providerInputs.push(input);
+
     if (state.providerError) {
       throw state.providerError;
+    }
+
+    if (state.providerResponses?.length > 0) {
+      return state.providerResponses.shift();
     }
 
     return state.providerResponse;
@@ -241,7 +253,10 @@ afterEach(() => {
     usage: { inputTokens: 12, outputTokens: 8 },
     finishReason: "STOP",
     blocked: false,
+    toolCalls: [],
   };
+  state.providerResponses = null;
+  state.providerInputs = [];
   state.providerError = null;
   mock.restoreAll();
   mock.method(
@@ -349,7 +364,7 @@ test("GET /status reports the provider and capabilities", async () => {
   assert.equal(result.body.data.provider, "gemini");
   assert.equal(result.body.data.model, "gemini-test");
   assert.deepEqual(result.body.data.capabilities, {
-    supportsTools: false,
+    supportsTools: true,
     supportsStreaming: false,
   });
 });
@@ -419,6 +434,82 @@ test("POST /messages creates a conversation and returns 201", async () => {
   assert.equal(
     result.body.data.prunedConversationId,
     null
+  );
+});
+
+test("POST /messages executes a role-authorized read tool and returns only the final answer", async () => {
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  state.providerResponses = [
+    {
+      text: "",
+      model: "gemini-3.6-flash",
+      usage: { inputTokens: 10, outputTokens: 2 },
+      finishReason: "STOP",
+      blocked: false,
+      toolCalls: [
+        {
+          name: "get_current_schedule",
+          arguments: {},
+          id: "call-schedule",
+          thoughtSignature: "signature-schedule",
+        },
+      ],
+    },
+    {
+      text: "El horario general es de lunes a viernes.",
+      model: "gemini-3.6-flash",
+      usage: { inputTokens: 20, outputTokens: 8 },
+      finishReason: "STOP",
+      blocked: false,
+      toolCalls: [],
+    },
+  ];
+  mock.method(
+    settingsService,
+    "getPublicSettings",
+    async () => ({
+      scheduleText: "Lunes a viernes, 8:00 a 17:00",
+      fritangaScheduleText: null,
+      businessName: "No debe exponerse",
+    })
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("EDITOR"),
+    body: { message: "¿Cuál es el horario?" },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(
+    result.body.data.reply.content,
+    "El horario general es de lunes a viernes."
+  );
+  assert.deepEqual(
+    state.providerInputs[0].tools.map((tool) => tool.name),
+    [
+      "get_current_schedule",
+      "count_products",
+      "list_active_announcements",
+      "list_videos",
+    ]
+  );
+  const toolMessage =
+    state.providerInputs[1].messages.at(-1);
+  assert.equal(toolMessage.role, "tool");
+  assert.equal(toolMessage.id, "call-schedule");
+  assert.deepEqual(JSON.parse(toolMessage.content), {
+    scheduleText: "Lunes a viernes, 8:00 a 17:00",
+    fritangaScheduleText: null,
+  });
+  assert.equal(
+    JSON.stringify(result.body).includes("No debe exponerse"),
+    false
   );
 });
 

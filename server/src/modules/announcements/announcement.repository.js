@@ -1,6 +1,7 @@
 const pool = require("../../database/pool");
 
 const {
+  MAX_LIMIT,
   ANNOUNCEMENT_SORT_FIELDS,
   ANNOUNCEMENT_SORT_ORDERS,
 } = require("./announcement.constants");
@@ -109,9 +110,29 @@ function getAnnouncementJoin() {
   `;
 }
 
-async function listPublicAnnouncements({ type } = {}) {
+async function listPublicAnnouncements({
+  type,
+  limit,
+} = {}) {
+  if (
+    limit !== undefined &&
+    (!Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_LIMIT)
+  ) {
+    throw new Error(
+      "Invalid public announcement limit"
+    );
+  }
+
   const { whereSql, parameters } =
     buildPublicAnnouncementWhere({ type });
+  const limitSql =
+    limit === undefined ? "" : "LIMIT ?";
+  const queryParameters =
+    limit === undefined
+      ? parameters
+      : [...parameters, limit];
   const [rows] = await pool.execute(
     `
       SELECT
@@ -137,8 +158,9 @@ async function listPublicAnnouncements({ type } = {}) {
         a.sort_order ASC,
         a.created_at DESC,
         a.id DESC
+      ${limitSql}
     `,
-    parameters
+    queryParameters
   );
 
   return rows;
