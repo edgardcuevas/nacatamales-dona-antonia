@@ -1,6 +1,6 @@
 # Asistente Inteligente de Administración
 
-Plan vivo del asistente. Estado: **Fase 1 completada; diseño de Fase 2A aprobado; tareas 1–10 de Fase 2A completadas; aceptación final pendiente**.
+Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B pendiente de diseño**.
 Última actualización: 2026-10-26.
 
 ## Cómo retomar el trabajo
@@ -343,7 +343,7 @@ Validación final:
 
 ## Fase 2A — Consultas de solo lectura
 
-Estado: diseño aprobado el 2026-10-26. Las cuatro herramientas y la integración UX están implementadas; falta la aceptación final en navegador y con el proveedor en vivo.
+Estado: **completada y aceptada el 2026-10-26**. Las cuatro herramientas, el registro, los límites y la integración UX están implementados y validados en navegador, con base de datos real y proveedor simulado. La única comprobación pendiente es una conversación completa contra Gemini en vivo, bloqueada por cuota del proveedor (`429 RATE_LIMITED`).
 
 ### Alcance aprobado
 
@@ -385,7 +385,7 @@ Los DTOs incluirán únicamente campos necesarios para responder. En especial no
 - El rol se relee desde `request.currentUser.role` después de `requireActiveUser`. ADMIN y EDITOR quedan autorizados únicamente para las herramientas que explícitamente los incluyan.
 - El proveedor puede solicitar una herramienta, pero no ejecutarla. El servicio del asistente valida cada solicitud y llama al handler del registro; el handler solo invoca el servicio de dominio aprobado.
 - El ciclo queda acotado a un máximo de 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor por mensaje. No hay reintentos de herramientas ni bucles abiertos.
-- Se conserva el rate limit de 10 solicitudes por minuto y 100 por día por usuario. Cada handler tendrá timeout y límites de filas fijos.
+- Se conserva el rate limit de 10 solicitudes por minuto y 100 por día por usuario (aplica a todas las rutas del asistente, incluidas las de lectura). Cada handler tiene un timeout fijo de 10 s (`MAX_TOOL_HANDLER_TIMEOUT_MS`) y límites de filas fijos; agotarlo responde `504 ASSISTANT_TIMEOUT`.
 - Los errores enviados al modelo son mensajes genéricos y acotados; no contienen SQL, stack traces ni datos internos. Métricas futuras registran nombre, resultado, latencia y error, nunca argumentos o resultados completos.
 - Los resultados se normalizan y limitan en un punto común del ejecutor, después de producir el DTO y antes de enviarlo al proveedor. Ningún handler puede omitir esa etapa.
 
@@ -481,12 +481,21 @@ Una tarea por vez. Cada tarea se valida y documenta antes de iniciar la siguient
 
 **Done:** el cliente sigue enviando solo mensaje e ID de conversación; su aviso y sugerencias reflejan las cuatro consultas disponibles y dejan explícito el modo de solo lectura. El servidor entrega las herramientas del registro al proveedor y solo responde con la contestación final, sin aceptar resultados, permisos ni solicitudes de herramienta del cliente.
 
-**Validación:** test HTTP del ciclo completo de lectura con rol EDITOR: verifica las declaraciones disponibles, la ejecución de `get_current_schedule`, el contexto mínimo enviado al proveedor y que el DTO interno no se filtra en la respuesta HTTP. Tests frontend verifican sugerencias y aviso de solo lectura. La validación visual en navegador queda pendiente.
+**Validación:** test HTTP del ciclo completo de lectura con rol EDITOR: verifica las declaraciones disponibles, la ejecución de `get_current_schedule`, el contexto mínimo enviado al proveedor y que el DTO interno no se filtra en la respuesta HTTP. Tests frontend verifican sugerencias y aviso de solo lectura. La validación visual en navegador se completó en la Tarea 11.
 
-#### [ ] Tarea 11 — Aceptación de seguridad y documentación de Fase 2A
+#### [x] Tarea 11 — Aceptación de seguridad y documentación de Fase 2A
 
-**Archivos:** este documento, documentación de integración y pruebas de regresión relacionadas.
+**Archivos:** este documento, `docs/frontend-integration.md`, `assistant.constants.js`, `assistant.tool-registry.js`, `assistant.tool-orchestrator.js`, `tests/unit/assistant-tool-registry.test.js`, `tests/unit/assistant-tool-orchestrator.test.js`.
 
-**Done:** evidencia de no mutación de datos de negocio, autorización repetida por ejecución, límite de resultado, cuotas y errores sin detalles internos; documentación de `docs/frontend-integration.md` alineada con Fase 2A.
+**Done:** evidencia de no mutación de datos de negocio, autorización repetida por ejecución, límite de resultado, cuotas y errores sin detalles internos; documentación de `docs/frontend-integration.md` alineada con Fase 2A. Se cerró además la brecha entre el diseño y el código: cada handler tiene timeout propio de 10 s (`MAX_TOOL_HANDLER_TIMEOUT_MS`) y su agotamiento se reporta como `504 ASSISTANT_TIMEOUT`, no como error de argumentos.
 
-**Validación:** `cd server && npm test` (700/700); `cd frontend && npm test` (164/164); `cd frontend && npm run build` (correcto). Pendiente el flujo real en navegador con ambos roles, las cuatro preguntas de ejemplo, pregunta ambigua y petición de escritura. Confirmar que no se producen cambios ni efectos externos. La repetición del ciclo completo con Gemini queda pendiente de cuota del proveedor; el smoke test inicial solo confirmó la llamada de herramienta.
+Hecho 2026-10-26: 3 tests nuevos (timeout de handler en el registro, validación del timeout y mapeo a timeout del turno); suite 703/703.
+
+Validación real:
+
+- `cd server && npm test`: 703/703. `cd frontend && npm test`: 164/164. `cd frontend && npm run build`: verde.
+- HTTP contra la base de desarrollo y el servidor real, con el proveedor simulado en proceso: 72 comprobaciones. Cubrió ADMIN y EDITOR, las cuatro herramientas (8 ejecuciones, 4 por rol), pregunta ambigua, petición de escritura, fallo del proveedor, timeout de herramienta, aislamiento de conversaciones, `403` de métricas para EDITOR y los límites de resultado. Resultado: 12 conversaciones, 24 mensajes y 14 eventos de uso; las nueve tablas de negocio conservaron checksum y filas, `users` no cambió salvo `last_login_at`, cero peticiones salientes y ningún detalle interno en las respuestas `502`/`504`.
+- Navegador real (Chrome headless, build de producción servido junto a la API en un solo origen, con `VITE_API_BASE_URL` apuntando al origen local de la prueba): 27 comprobaciones. Login por el formulario real con ambos roles, apertura de la sección Asistente, aviso de solo lectura, cuatro sugerencias, envío de mensaje y respuesta renderizada. Incluyó la pregunta ambigua y la petición de escritura, que se responden sin ejecutar herramientas. El navegador envió solo `message` y `conversationId`; no hubo peticiones externas salvo las fuentes del sitio.
+- Gemini en vivo: la clave sigue respondiendo `429 RATE_LIMITED` (cuota), así que no se pudo repetir una conversación completa con el modelo. No es un fallo de código y no bloquea la aceptación de solo lectura, que quedó demostrada con el ciclo real de herramientas.
+
+**Pendiente fuera de Fase 2A:** repetir una conversación real con Gemini cuando el proveedor restablezca la cuota. Registrar el resultado aquí antes de iniciar Fase 2B.

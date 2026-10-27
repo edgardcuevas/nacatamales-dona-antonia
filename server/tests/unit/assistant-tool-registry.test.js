@@ -209,6 +209,40 @@ test("nested arguments are checked against their exact schema", async () => {
   assert.equal(handlerCalls, 1);
 });
 
+test("a handler that never answers is stopped by the handler timeout", async () => {
+  const registry = createAssistantToolRegistry(
+    [
+      createTool({
+        handler: () => new Promise(() => {}),
+      }),
+    ],
+    { handlerTimeoutMs: 20 }
+  );
+
+  await assert.rejects(
+    registry.executeToolCall({
+      name: "count_products",
+      arguments: { categoryId: 1 },
+      role: "ADMIN",
+    }),
+    (error) =>
+      error instanceof AssistantToolError &&
+      error.code === TOOL_ERROR_CODES.TIMEOUT
+  );
+});
+
+test("the handler timeout must be a positive integer", () => {
+  for (const handlerTimeoutMs of [0, -1, 1.5, "10", null]) {
+    assert.throws(
+      () =>
+        createAssistantToolRegistry([], {
+          handlerTimeoutMs,
+        }),
+      /positive assistant tool timeout/
+    );
+  }
+});
+
 test("every executed tool result is serialized and bounded", async () => {
   const registry = createAssistantToolRegistry([
     createTool({

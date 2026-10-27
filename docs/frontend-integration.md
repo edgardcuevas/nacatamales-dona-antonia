@@ -28,7 +28,7 @@ El servidor proporciona exclusivamente estas herramientas de lectura a ambos rol
 
 Las cuatro definiciones pasan por el registro central de herramientas. El servidor filtra las declaraciones por el rol activo y vuelve a validar el nombre, el modo `read`, el rol y los argumentos en cada ejecución. Ni el navegador ni el modelo pueden aportar handlers, permisos, consultas SQL o límites. No existen herramientas de creación, edición, eliminación ni acciones externas en Fase 2A.
 
-Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor; las herramientas tienen argumentos y cantidades de filas acotados.
+Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor; las herramientas tienen argumentos y cantidades de filas acotados. Cada handler tiene un timeout fijo de 10 s; si se agota, la petición responde `504 ASSISTANT_TIMEOUT`.
 
 El cliente solo envía `{ conversationId?, message }`; no envía resultados de herramientas ni historial. La ruta `DELETE /conversations/:id` elimina únicamente una conversación propia del historial del asistente y no es una herramienta disponible para el modelo.
 
@@ -76,7 +76,7 @@ El cliente **no envía historial**: el servidor carga y recorta a 10 mensajes / 
 | `ASSISTANT_CONVERSATION_NOT_FOUND` | 404 | La conversación no existe o no es del usuario. |
 | `ASSISTANT_CONVERSATION_FULL` | 409 | La conversación ya tiene 100 mensajes. |
 | `RATE_LIMIT_EXCEEDED` | 429 | Más de 10 consultas por minuto o 100 por día para ese usuario. |
-| `ASSISTANT_TIMEOUT` | 504 | El proveedor no respondió a tiempo. |
+| `ASSISTANT_TIMEOUT` | 504 | El proveedor no respondió a tiempo o una herramienta superó su límite de 10 s. |
 | `ASSISTANT_PROVIDER_ERROR` | 502 | Error, bloqueo o cuota del proveedor. |
 | `FORBIDDEN` | 403 | `GET /usage` pedido por un `EDITOR`. |
 

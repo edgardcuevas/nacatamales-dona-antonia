@@ -3,6 +3,9 @@ const TOOL_ROLES = Object.freeze([
   "EDITOR",
 ]);
 const {
+  MAX_TOOL_HANDLER_TIMEOUT_MS,
+} = require("./assistant.constants");
+const {
   serializeAssistantToolResult,
 } = require("./assistant.tool-result");
 
@@ -19,6 +22,7 @@ const TOOL_ERROR_CODES = Object.freeze({
   UNKNOWN_TOOL: "UNKNOWN_TOOL",
   FORBIDDEN_TOOL: "FORBIDDEN_TOOL",
   INVALID_TOOL_ARGUMENTS: "INVALID_TOOL_ARGUMENTS",
+  TIMEOUT: "TOOL_TIMEOUT",
 });
 
 class AssistantToolError extends Error {
@@ -353,10 +357,54 @@ function normalizeTool(definition) {
   });
 }
 
-function createAssistantToolRegistry(definitions = []) {
+function executeWithTimeout(
+  handler,
+  toolArguments,
+  timeoutMs
+) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new AssistantToolError(
+          TOOL_ERROR_CODES.TIMEOUT,
+          "The assistant tool took too long"
+        )
+      );
+    }, timeoutMs);
+
+    timer.unref?.();
+
+    Promise.resolve()
+      .then(() => handler(toolArguments))
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+  });
+}
+
+function createAssistantToolRegistry(
+  definitions = [],
+  { handlerTimeoutMs = MAX_TOOL_HANDLER_TIMEOUT_MS } = {}
+) {
   if (!Array.isArray(definitions)) {
     throw new TypeError(
       "Assistant tool definitions must be an array"
+    );
+  }
+
+  if (
+    !Number.isSafeInteger(handlerTimeoutMs) ||
+    handlerTimeoutMs <= 0
+  ) {
+    throw new TypeError(
+      "A positive assistant tool timeout is required"
     );
   }
 
@@ -432,8 +480,10 @@ function createAssistantToolRegistry(definitions = []) {
     validateToolCall(toolCall);
     const { name, arguments: toolArguments } = toolCall;
     const tool = tools.get(name);
-    const result = await tool.handler(
-      deepFreeze(cloneSchema(toolArguments))
+    const result = await executeWithTimeout(
+      tool.handler,
+      deepFreeze(cloneSchema(toolArguments)),
+      handlerTimeoutMs
     );
 
     return serializeAssistantToolResult(result);

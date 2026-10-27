@@ -4,6 +4,7 @@ const {
 } = require("./assistant.constants");
 const {
   AssistantToolError,
+  TOOL_ERROR_CODES,
 } = require("./assistant.tool-registry");
 const {
   ASSISTANT_PROVIDER_ERROR_CODES,
@@ -143,6 +144,13 @@ async function runAssistantToolTurn({
         });
       } catch (error) {
         if (error instanceof AssistantToolError) {
+          if (error.code === TOOL_ERROR_CODES.TIMEOUT) {
+            throw new AssistantProviderError(
+              ASSISTANT_PROVIDER_ERROR_CODES.TIMEOUT,
+              { retryable: true }
+            );
+          }
+
           throw createInvalidToolRequestError();
         }
         throw error;

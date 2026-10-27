@@ -270,6 +270,33 @@ test("the provider-call limit prevents an extra tool execution", async () => {
   assert.equal(handlerCalls, 2);
 });
 
+test("a tool handler timeout is reported as a provider timeout", async () => {
+  const registry = createAssistantToolRegistry(
+    [
+      createTool({
+        handler: () => new Promise(() => {}),
+      }),
+    ],
+    { handlerTimeoutMs: 20 }
+  );
+
+  await assert.rejects(
+    runAssistantToolTurn({
+      provider: {
+        chat: async () =>
+          response({ toolCalls: [functionCall()] }),
+      },
+      toolRegistry: registry,
+      role: "ADMIN",
+      systemInstruction: "Solo lectura.",
+      messages: [{ role: "user", content: "Consulta" }],
+    }),
+    (error) =>
+      error instanceof AssistantProviderError &&
+      error.code === "TIMEOUT"
+  );
+});
+
 test("provider tool-call errors are normalized without swallowing handler failures", async () => {
   const registry = createAssistantToolRegistry([
     createTool({
