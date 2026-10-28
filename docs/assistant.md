@@ -1,7 +1,7 @@
 # Asistente Inteligente de Administración
 
-Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B con diseño propuesto, pendiente de aprobación**.
-Última actualización: 2026-10-26.
+Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; diseño de Fase 2B aprobado el 2026-10-27; Tareas 1, 2 y 3 completadas**.
+Última actualización: 2026-10-27.
 
 ## Cómo retomar el trabajo
 
@@ -726,31 +726,39 @@ El texto de la propuesta y el resumen de la tarjeta los genera el servidor, no e
 
 Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna tarea se inicia sin aprobación explícita de este diseño.
 
-#### [ ] Tarea 1 — Aprobación del diseño
+#### [x] Tarea 1 — Aprobación del diseño
 
 **Archivos:** este documento.
 
 **Done:** alcance, catálogo, orden, estados, permisos, límites y decisiones abiertas aprobados por el usuario.
 
-#### [ ] Tarea 2 — Migración, repositorio y máquina de estados
+**Validación:** el usuario aprobó explícitamente el diseño completo el 2026-10-27 y pidió documentar la decisión. Se aprueban las seis decisiones listadas abajo.
 
-**Archivos:** `database/migrations/20261027120000_create_ai_pending_actions.js`, `assistant.action.repository.js`, tests.
+#### [x] Tarea 2 — Migración, repositorio y máquina de estados
+
+**Archivos:** `database/migrations/20261027120000_create_ai_pending_actions.js`, `assistant.action.repository.js`, `assistant.action.constants.js`, tests.
 
 **Done:** tabla e índices; inserción con token hasheado; claim atómico; expiración; cancelación; transiciones idempotentes; token ajeno invisible.
 
-#### [ ] Tarea 3 — Ejecutor y endpoints de confirmación
+**Validación:** `npm test` pasó 722/722 tests; las 19 pruebas del repositorio de acciones también pasan de forma aislada. En la base de desarrollo se aplicó, revirtió y reaplicó la migración; se verificaron tabla, índices y FK. Un flujo real comprobó token hasheado, aislamiento por usuario, claim y repetición idempotente, cancelación, expiración y ejecución interrumpida; las filas temporales se limpiaron.
 
-**Archivos:** `assistant.action-registry.js`, `assistant.action-executor.js`, `assistant.action.service.js`, `assistant.action.controller.js`, `assistant.action.validator.js`, rutas, tests.
+#### [x] Tarea 3 — Ejecutor y endpoints de confirmación
+
+**Archivos:** `assistant.action-registry.js`, `assistant.action-executor.js`, `assistant.action.service.js`, `assistant.action.controller.js`, `assistant.action.validator.js`, rutas, `assistant.repository.js`, tests.
 
 **Done:** registro de escritura separado; revalidación de rol, tool, argumentos y objetivo; comparación `before_json`; `POST confirm` y `cancel`; errores nuevos; mensaje de resultado en la conversación.
 
-#### [ ] Tarea 4 — `search_products` + `set_product_availability`
+**Validación:** `npm test` pasó 756/756 tests; las pruebas enfocadas de servicio, ejecutor, validación, rutas y repositorio pasaron 43/43. En flujo real contra la API y MySQL, cancelar cambió `PENDING` a `CANCELLED`; confirmar una herramienta no registrada respondió `409 ASSISTANT_ACTION_NOT_CONFIRMABLE` y persistió `FAILED`. La ejecución exitosa de la primera herramienta de dominio se comprobó en la Tarea 4. Las filas temporales se limpiaron.
+
+#### [x] Tarea 4 — `search_products` + `set_product_availability`
 
 **Archivos:** `assistant.tools.js`, `assistant.action-tools.js`, `assistant.action-prompt.js`, tests.
 
 **Done:** búsqueda acotada a 10; propuesta con id real; servicio `changeProductAvailability`; sin escritura hasta confirmar; advertencia si el producto ya está en ese estado.
 
-#### [ ] Tarea 5 — Tarjeta de confirmación en el chat
+**Validación:** `npm test` pasó 774/774 tests; las pruebas enfocadas de búsqueda, acción y orquestación pasaron 36/36. En flujo real contra MySQL de desarrollo, `search_products` encontró un producto temporal; la propuesta quedó `PENDING` y no cambió su disponibilidad; al confirmar, la acción quedó `EXECUTED` y el producto cambió a no disponible. El producto, la conversación y la acción temporales se eliminaron.
+
+#### [x] Tarea 5 — Tarjeta de confirmación en el chat
 
 **Archivos:** `AssistantChat.jsx`, `AssistantChat.css`, `AssistantChat.test.jsx`, `docs/frontend-integration.md`.
 
@@ -786,7 +794,7 @@ Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna
 - No se registran tokens planos, SQL, stacks ni resultados completos en logs o respuestas.
 - `cd server && npm test`, `cd frontend && npm test` y `cd frontend && npm run build` pasan.
 
-### Decisiones abiertas para aprobar
+### Decisiones aprobadas
 
 1. **Catálogo y orden:** producto → aviso → video → categoría.
 2. **Push al publicar aviso:** aceptado con advertencia explícita en la tarjeta.

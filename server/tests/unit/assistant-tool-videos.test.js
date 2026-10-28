@@ -83,6 +83,7 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
         [
           "get_current_schedule",
           "count_products",
+          "search_products",
           "list_active_announcements",
           "list_videos",
         ]

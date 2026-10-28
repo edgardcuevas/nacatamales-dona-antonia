@@ -18,6 +18,10 @@ const {
   deleteAssistantConversationController,
   getAssistantUsageController,
 } = require("./assistant.controller");
+const {
+  confirmAssistantActionController,
+  cancelAssistantActionController,
+} = require("./assistant.action.controller");
 
 const {
   assistantRateLimiter,
@@ -32,6 +36,10 @@ const {
   validateAssistantMessageListQuery,
   validateAssistantUsageQuery,
 } = require("./assistant.validator");
+const {
+  validateAssistantActionToken,
+  validateEmptyAssistantActionBody,
+} = require("./assistant.action.validator");
 
 const router = express.Router();
 
@@ -67,6 +75,20 @@ router.post(
   "/messages",
   validateAssistantMessageBody,
   sendAssistantMessageController
+);
+
+router.post(
+  "/actions/:token/confirm",
+  validateAssistantActionToken,
+  validateEmptyAssistantActionBody,
+  confirmAssistantActionController
+);
+
+router.post(
+  "/actions/:token/cancel",
+  validateAssistantActionToken,
+  validateEmptyAssistantActionBody,
+  cancelAssistantActionController
 );
 
 router.get(

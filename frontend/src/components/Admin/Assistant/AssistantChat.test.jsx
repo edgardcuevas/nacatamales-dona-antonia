@@ -130,6 +130,64 @@ describe('AssistantChat', () => {
     ).toBeTruthy()
   })
 
+  it('muestra la tarjeta de confirmación y confirma la acción', async () => {
+    get.mockResolvedValueOnce(STATUS_ENABLED)
+    get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
+    const token = 'A'.repeat(43)
+
+    post.mockResolvedValueOnce({
+      conversation: { id: 9, title: 'Hola' },
+      userMessage: { role: 'user', content: 'Hola' },
+      reply: {
+        role: 'assistant',
+        content: 'Preparé la acción. Confirmala para aplicarla.',
+      },
+      prunedConversationId: null,
+      pendingAction: {
+        token,
+        summary: 'Marcar el producto como no disponible',
+        target: { type: 'product', id: 12, label: 'Nacatamal de pollo' },
+        changes: [{ field: 'isAvailable', from: true, to: false }],
+        warnings: [],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    })
+
+    post.mockResolvedValueOnce({
+      action: {
+        id: 1,
+        tool: 'set_product_availability',
+        summary: 'Marcar el producto como no disponible',
+        target: { type: 'product', id: 12, label: 'Nacatamal de pollo' },
+        status: 'EXECUTED',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+      result: { target: { label: 'Nacatamal de pollo' }, isAvailable: false },
+      alreadyExecuted: false,
+    })
+
+    render(<AssistantChat />)
+    await screen.findByText('Asistente')
+
+    fireEvent.change(screen.getByLabelText('Mensaje'), {
+      target: { value: 'Hola' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    expect(await screen.findByText('Confirmación pendiente')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }))
+
+    await waitFor(() =>
+      expect(post).toHaveBeenNthCalledWith(
+        2,
+        `/admin/assistant/actions/${token}/confirm`,
+        {},
+      ),
+    )
+    expect(await screen.findByText(/La acción quedó confirmada/)).toBeTruthy()
+  })
+
   it('avisa cuando la conversación se podó', async () => {
     get.mockResolvedValueOnce(STATUS_ENABLED)
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)

@@ -62,6 +62,7 @@ test("get_current_schedule is available to both roles and returns only schedule 
         [
           "get_current_schedule",
           "count_products",
+          "search_products",
           "list_active_announcements",
           "list_videos",
         ]

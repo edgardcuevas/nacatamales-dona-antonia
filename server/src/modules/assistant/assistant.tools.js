@@ -1,5 +1,7 @@
 const {
   createAssistantToolRegistry,
+  AssistantToolError,
+  TOOL_ERROR_CODES,
 } = require("./assistant.tool-registry");
 const settingsService = require(
   "../settings/settings.service"
@@ -16,6 +18,7 @@ const videoService = require(
 const {
   MAX_ASSISTANT_ANNOUNCEMENT_RESULTS,
   MAX_ASSISTANT_VIDEO_RESULTS,
+  MAX_ASSISTANT_PRODUCT_RESULTS,
 } = require("./assistant.constants");
 
 const assistantToolRegistry =
@@ -66,6 +69,57 @@ const assistantToolRegistry =
 
         return {
           totalProducts: data.pagination.totalItems,
+        };
+      },
+    },
+    {
+      name: "search_products",
+      description:
+        "Busca productos por nombre para identificar un producto existente.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async ({ query }) => {
+        const normalizedQuery = query.trim();
+
+        if (
+          normalizedQuery.length === 0 ||
+          normalizedQuery.length > 120
+        ) {
+          throw new AssistantToolError(
+            TOOL_ERROR_CODES.INVALID_TOOL_ARGUMENTS,
+            "The product search query is invalid"
+          );
+        }
+
+        const data =
+          await productService.listAdministrativeProducts({
+            page: 1,
+            limit: MAX_ASSISTANT_PRODUCT_RESULTS,
+            name: normalizedQuery,
+            sortBy: "name",
+            sortOrder: "asc",
+          });
+
+        return {
+          products: data.products
+            .slice(0, MAX_ASSISTANT_PRODUCT_RESULTS)
+            .map((product) => ({
+              id: product.id,
+              name: product.name,
+              isActive: product.isActive,
+              isAvailable: product.isAvailable,
+            })),
+          truncated:
+            data.pagination.totalItems >
+            MAX_ASSISTANT_PRODUCT_RESULTS,
         };
       },
     },

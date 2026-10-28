@@ -522,3 +522,169 @@ test("a conversation owned by someone else is reported as missing", async () => 
 
   assert.equal(removed, false);
 });
+
+test("appending an action result writes one assistant message to the owner's conversation", async () => {
+  const { connection, calls } = createFakeConnection(
+    (sql) => {
+      const query = normalizeSql(sql);
+
+      if (query.startsWith("UPDATE ai_conversations")) {
+        return [{ affectedRows: 1 }];
+      }
+
+      if (query.startsWith("INSERT INTO ai_messages")) {
+        return [{ insertId: 31 }];
+      }
+
+      throw new Error(`Unexpected query: ${query}`);
+    }
+  );
+  useConnection(connection);
+
+  const appended =
+    await repository.appendAssistantMessageToConversation({
+      conversationId: 8,
+      userId: 3,
+      message: {
+        role: "assistant",
+        content: "Se actualizó el producto.",
+      },
+    });
+
+  assert.equal(appended, true);
+  assert.deepEqual(
+    calls.map((call) => call.kind),
+    ["begin", "execute", "execute", "commit", "release"]
+  );
+  assert.match(
+    normalizeSql(calls[1].sql),
+    /UPDATE ai_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = \? AND user_id = \?/
+  );
+  assert.deepEqual(calls[1].parameters, [8, 3]);
+  assert.deepEqual(calls[2].parameters, [
+    8,
+    "assistant",
+    "Se actualizó el producto.",
+    null,
+    null,
+    null,
+    null,
+  ]);
+});
+
+test("appending an action result to another user's conversation writes nothing", async () => {
+  const { connection, calls } = createFakeConnection(
+    () => [{ affectedRows: 0 }]
+  );
+  useConnection(connection);
+
+  const appended =
+    await repository.appendAssistantMessageToConversation({
+      conversationId: 8,
+      userId: 3,
+      message: {
+        role: "assistant",
+        content: "Se actualizó el producto.",
+      },
+    });
+
+  assert.equal(appended, false);
+  assert.equal(
+    calls.filter((call) => call.kind === "execute").length,
+    1
+  );
+  assert.equal(
+    calls.some((call) => call.kind === "commit"),
+    true
+  );
+});
+
+test("creating a conversation shell prunes old conversations before proposal", async () => {
+  const { connection, calls } = createFakeConnection(
+    (sql) => {
+      const query = normalizeSql(sql);
+
+      if (query.startsWith("INSERT INTO ai_conversations")) {
+        return [{ insertId: 31 }];
+      }
+
+      if (query.startsWith("SELECT id FROM ai_conversations")) {
+        return [[]];
+      }
+
+      throw new Error(`Unexpected query: ${query}`);
+    }
+  );
+  useConnection(connection);
+
+  const created = await repository.createConversationShell({
+    userId: 7,
+    title: "Marcá el producto",
+  });
+
+  assert.deepEqual(created, {
+    conversationId: 31,
+    prunedConversationIds: [],
+  });
+  assert.deepEqual(
+    calls.map((call) => call.kind),
+    ["begin", "execute", "execute", "commit", "release"]
+  );
+  assert.deepEqual(calls[1].parameters, [
+    7,
+    "Marcá el producto",
+  ]);
+});
+
+test("appending an action turn checks ownership before inserting both messages", async () => {
+  const { connection, calls } = createFakeConnection(
+    (sql) => {
+      const query = normalizeSql(sql);
+
+      if (query.startsWith("SELECT id FROM ai_conversations")) {
+        return [[{ id: 8 }]];
+      }
+
+      if (query.startsWith("UPDATE ai_conversations")) {
+        return [{ affectedRows: 0 }];
+      }
+
+      if (query.startsWith("INSERT INTO ai_messages")) {
+        return [{ insertId: calls.length }];
+      }
+
+      throw new Error(`Unexpected query: ${query}`);
+    }
+  );
+  useConnection(connection);
+
+  const appended =
+    await repository.appendActionTurnToConversation({
+      conversationId: 8,
+      userId: 3,
+      userMessage: {
+        role: "user",
+        content: "Marcá el producto.",
+      },
+      assistantMessage: {
+        role: "assistant",
+        content: "Preparé la acción.",
+      },
+    });
+
+  assert.equal(appended, true);
+  assert.equal(
+    calls.filter(
+      (call) =>
+        call.kind === "execute" &&
+        normalizeSql(call.sql).startsWith(
+          "INSERT INTO ai_messages"
+        )
+    ).length,
+    2
+  );
+  assert.equal(
+    calls.some((call) => call.kind === "commit"),
+    true
+  );
+});

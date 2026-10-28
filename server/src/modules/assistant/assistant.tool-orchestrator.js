@@ -46,6 +46,7 @@ function aggregateUsage(results) {
 async function runAssistantToolTurn({
   provider,
   toolRegistry,
+  actionRegistry,
   role,
   systemInstruction,
   messages,
@@ -67,6 +68,21 @@ async function runAssistantToolTurn({
   }
 
   const tools = toolRegistry.getToolDeclarations(role);
+  const actionTools = actionRegistry
+    ? actionRegistry.getActionDeclarations(role)
+    : [];
+  const toolNames = new Set();
+
+  for (const tool of [...tools, ...actionTools]) {
+    if (toolNames.has(tool.name)) {
+      throw new TypeError(
+        `Duplicate assistant tool name: ${tool.name}`
+      );
+    }
+    toolNames.add(tool.name);
+  }
+
+  const toolDeclarations = [...tools, ...actionTools];
   const providerMessages = [...messages];
   const providerResults = [];
   let toolExecutions = 0;
@@ -79,7 +95,7 @@ async function runAssistantToolTurn({
     const result = await provider.chat({
       systemInstruction,
       messages: providerMessages,
-      tools,
+      tools: toolDeclarations,
       maxOutputTokens,
       timeoutMs,
     });
@@ -103,6 +119,36 @@ async function runAssistantToolTurn({
       return {
         ...result,
         usage: aggregateUsage(providerResults),
+      };
+    }
+
+    const actionCalls = actionRegistry
+      ? toolCalls.filter((toolCall) =>
+          actionRegistry.getActionDefinition(
+            toolCall?.name
+          )
+        )
+      : [];
+
+    if (actionCalls.length > 0) {
+      if (toolCalls.length !== 1) {
+        throw createInvalidToolRequestError();
+      }
+
+      const actionCall =
+        actionRegistry.validateActionCall({
+          ...actionCalls[0],
+          role,
+        });
+
+      if (!actionCall) {
+        throw createInvalidToolRequestError();
+      }
+
+      return {
+        ...result,
+        usage: aggregateUsage(providerResults),
+        pendingActionRequest: actionCall,
       };
     }
 

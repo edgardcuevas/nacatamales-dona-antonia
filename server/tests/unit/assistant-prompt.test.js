@@ -183,6 +183,24 @@ test("the ADMIN prompt carries the rules, the date and every module", () => {
   assert.ok(prompt.length <= MAX_PROMPT_CHARS);
 });
 
+test("the action prompt allows proposals but never claims execution", () => {
+  const prompt = buildSystemInstruction({
+    role: "EDITOR",
+    now: new Date("2026-10-27T12:00:00.000Z"),
+    actionToolsEnabled: true,
+  });
+
+  assert.match(prompt, /Acciones con confirmación humana/);
+  assert.match(prompt, /search_products/);
+  assert.match(prompt, /solo preparan propuestas/);
+  assert.match(prompt, /nunca afirmes que el cambio ya se aplicó/);
+  assert.doesNotMatch(
+    prompt,
+    /Nunca modificás registros ni ejecutás acciones/
+  );
+  assert.ok(prompt.length <= MAX_PROMPT_CHARS);
+});
+
 test("the EDITOR prompt marks Usuarios as restricted instead of hiding it", () => {
   const prompt = buildSystemInstruction({
     role: "EDITOR",

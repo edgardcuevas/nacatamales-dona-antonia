@@ -117,3 +117,101 @@ test("count_products reports zero without returning product rows", async () => {
     mock.restoreAll();
   }
 });
+
+test("search_products returns at most ten minimal, real product records", async () => {
+  const listProducts = mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: Array.from({ length: 10 }, (_, index) => ({
+        id: index + 1,
+        name: `Producto ${index + 1}`,
+        isActive: true,
+        isAvailable: index % 2 === 0,
+        price: 999,
+        description: "Must not be exposed",
+      })),
+      pagination: {
+        page: 1,
+        limit: 10,
+        totalItems: 12,
+        totalPages: 2,
+      },
+    })
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some((tool) => tool.name === "search_products")
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "search_products",
+        arguments: { query: "  pollo  " },
+        role: "EDITOR",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.equal(result.products.length, 10);
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.products[0], {
+      id: 1,
+      name: "Producto 1",
+      isActive: true,
+      isAvailable: true,
+    });
+    assert.doesNotMatch(serialized, /Must not be exposed|999/);
+    assert.deepEqual(listProducts.mock.calls[0].arguments[0], {
+      page: 1,
+      limit: 10,
+      name: "pollo",
+      sortBy: "name",
+      sortOrder: "asc",
+    });
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("search_products rejects blank and oversized queries", async () => {
+  let listCalls = 0;
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => {
+      listCalls += 1;
+      return {
+        products: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          totalItems: 0,
+          totalPages: 0,
+        },
+      };
+    }
+  );
+
+  try {
+    for (const query of ["   ", "a".repeat(121)]) {
+      await assert.rejects(
+        assistantToolRegistry.executeToolCall({
+          name: "search_products",
+          arguments: { query },
+          role: "ADMIN",
+        }),
+        (error) =>
+          error.code === "INVALID_TOOL_ARGUMENTS"
+      );
+    }
+
+    assert.equal(listCalls, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});

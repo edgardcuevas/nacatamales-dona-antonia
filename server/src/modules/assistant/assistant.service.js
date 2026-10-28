@@ -4,6 +4,12 @@ const env = require("../../config/env");
 const assistantProvider = require("./assistant.provider");
 const assistantRepository = require("./assistant.repository");
 const assistantToolRegistry = require("./assistant.tools");
+const assistantActionRegistry = require(
+  "./assistant.action-registry"
+);
+const assistantActionService = require(
+  "./assistant.action.service"
+);
 const {
   runAssistantToolTurn,
 } = require("./assistant.tool-orchestrator");
@@ -95,6 +101,205 @@ async function recordUsageEvent(payload) {
       error?.code ?? error?.name ?? "unknown"
     );
   }
+}
+
+async function cleanupUnpublishedAction({
+  pendingAction,
+  currentUser,
+}) {
+  if (!pendingAction?.token) {
+    return;
+  }
+
+  try {
+    await assistantActionService.cancelAction({
+      currentUser,
+      token: pendingAction.token,
+    });
+  } catch (error) {
+    console.error(
+      "Assistant action cleanup failed:",
+      error?.code ?? error?.name ?? "unknown"
+    );
+  }
+}
+
+async function cleanupEmptyConversation({
+  conversationId,
+  userId,
+}) {
+  if (conversationId === null) {
+    return;
+  }
+
+  try {
+    await assistantRepository.deleteConversationByIdForUser({
+      conversationId,
+      userId,
+    });
+  } catch (error) {
+    console.error(
+      "Assistant conversation cleanup failed:",
+      error?.code ?? error?.name ?? "unknown"
+    );
+  }
+}
+
+async function saveActionProposalTurn({
+  currentUser,
+  input,
+  existingConversation,
+  provider,
+  result,
+  latencyMs,
+}) {
+  const userId = currentUser.id;
+  const title = existingConversation
+    ? existingConversation.title ?? null
+    : buildConversationTitle(input.message);
+  let conversationId =
+    existingConversation?.id ?? null;
+  let prunedConversationId = null;
+  let createdConversation = false;
+  let proposal;
+
+  try {
+    if (conversationId === null) {
+      const created =
+        await assistantRepository.createConversationShell({
+          userId,
+          title,
+        });
+      conversationId = created.conversationId;
+      prunedConversationId =
+        created.prunedConversationIds[0] ?? null;
+      createdConversation = true;
+    }
+
+    proposal = await assistantActionService.proposeAction({
+      currentUser,
+      conversationId,
+      toolName: result.pendingActionRequest.name,
+      arguments:
+        result.pendingActionRequest.arguments,
+    });
+  } catch (error) {
+    if (createdConversation) {
+      await cleanupEmptyConversation({
+        conversationId,
+        userId,
+      });
+    }
+
+    await recordUsageEvent({
+      userId,
+      conversationId:
+        existingConversation?.id ?? null,
+      provider: provider.id,
+      model: result.model ?? provider.model,
+      status: "SUCCESS",
+      errorCode: null,
+      inputTokens: result.usage?.inputTokens ?? null,
+      outputTokens: result.usage?.outputTokens ?? null,
+      latencyMs,
+    });
+    throw error;
+  }
+
+  let replyContent;
+
+  if (proposal.status === "CREATED") {
+    replyContent =
+      "Preparé la acción. Confirmala para aplicarla.";
+  } else if (proposal.status === "PENDING_LIMIT") {
+    replyContent =
+      "Tenés demasiadas confirmaciones pendientes. Confirmá o cancelá una antes de pedir otra.";
+  } else {
+    replyContent =
+      "No encontré el objetivo solicitado. Aclarame cuál querés cambiar.";
+  }
+
+  const assistantMessage = {
+    role: "assistant",
+    content: replyContent,
+    provider: provider.id,
+    model: result.model ?? provider.model,
+    inputTokens: result.usage?.inputTokens ?? null,
+    outputTokens: result.usage?.outputTokens ?? null,
+  };
+
+  try {
+    const appended =
+      await assistantRepository.appendActionTurnToConversation(
+        {
+          conversationId,
+          userId,
+          userMessage: {
+            role: "user",
+            content: input.message,
+          },
+          assistantMessage,
+        }
+      );
+
+    if (!appended) {
+      throw createConversationNotFoundError();
+    }
+  } catch (error) {
+    await cleanupUnpublishedAction({
+      pendingAction: proposal.pendingAction,
+      currentUser,
+    });
+
+    if (createdConversation) {
+      await cleanupEmptyConversation({
+        conversationId,
+        userId,
+      });
+    }
+
+    await recordUsageEvent({
+      userId,
+      conversationId:
+        existingConversation?.id ?? null,
+      provider: provider.id,
+      model: assistantMessage.model,
+      status: "SUCCESS",
+      errorCode: null,
+      inputTokens: assistantMessage.inputTokens,
+      outputTokens: assistantMessage.outputTokens,
+      latencyMs,
+    });
+    throw error;
+  }
+
+  await recordUsageEvent({
+    userId,
+    conversationId,
+    provider: provider.id,
+    model: assistantMessage.model,
+    status: "SUCCESS",
+    errorCode: null,
+    inputTokens: assistantMessage.inputTokens,
+    outputTokens: assistantMessage.outputTokens,
+    latencyMs,
+  });
+
+  return {
+    conversation: {
+      id: conversationId,
+      title,
+    },
+    userMessage: {
+      role: "user",
+      content: input.message,
+    },
+    reply: assistantMessage,
+    prunedConversationId,
+    ...(proposal.pendingAction
+      ? { pendingAction: proposal.pendingAction }
+      : {}),
+  };
 }
 
 function mapProviderError(error) {
@@ -315,6 +520,10 @@ async function sendMessage({ currentUser, input }) {
   const systemInstruction = buildSystemInstruction({
     role: currentUser.role,
     pushEnabled: env.webPush.enabled,
+    actionToolsEnabled:
+      assistantActionRegistry.getActionDeclarations(
+        currentUser.role
+      ).length > 0,
   });
 
   const startedAt = Date.now();
@@ -325,6 +534,7 @@ async function sendMessage({ currentUser, input }) {
     result = await runAssistantToolTurn({
       provider,
       toolRegistry: assistantToolRegistry,
+      actionRegistry: assistantActionRegistry,
       role: currentUser.role,
       systemInstruction,
       messages: [
@@ -368,6 +578,17 @@ async function sendMessage({ currentUser, input }) {
     });
 
     throw createProviderError();
+  }
+
+  if (result.pendingActionRequest) {
+    return saveActionProposalTurn({
+      currentUser,
+      input,
+      existingConversation: conversation,
+      provider,
+      result,
+      latencyMs,
+    });
   }
 
   const userMessage = {

@@ -53,6 +53,33 @@ function formatTime(value) {
   }
 }
 
+function formatActionDate(value) {
+  if (!value) {
+    return 'Sin vencimiento'
+  }
+
+  try {
+    return new Date(value).toLocaleString('es-NI', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    })
+  } catch {
+    return 'Sin vencimiento'
+  }
+}
+
+function isActionExpired(expiresAt) {
+  if (!expiresAt) {
+    return false
+  }
+
+  try {
+    return new Date(expiresAt).getTime() <= Date.now()
+  } catch {
+    return false
+  }
+}
+
 export default function AssistantChat() {
   const { user } = useAuth()
   const role = user?.role === 'EDITOR' ? 'EDITOR' : 'ADMIN'
@@ -62,6 +89,7 @@ export default function AssistantChat() {
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [messages, setMessages] = useState([])
+  const [pendingAction, setPendingAction] = useState(null)
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSending, setIsSending] = useState(false)
@@ -69,6 +97,8 @@ export default function AssistantChat() {
   const [prunedId, setPrunedId] = useState(null)
 
   const inFlightRef = useRef(false)
+  const confirmInFlightRef = useRef(false)
+  const cancelInFlightRef = useRef(false)
   const composerRef = useRef(null)
   const listRef = useRef(null)
 
@@ -124,6 +154,7 @@ export default function AssistantChat() {
 
   async function loadConversation(conversationId) {
     setErrorMessage(null)
+    setPendingAction(null)
     try {
       const data = await api.get(
         `/admin/assistant/conversations/${conversationId}/messages?limit=50`
@@ -138,10 +169,18 @@ export default function AssistantChat() {
   function startNewConversation() {
     setActiveId(null)
     setMessages([])
+    setPendingAction(null)
     setInput('')
     setErrorMessage(null)
     setPrunedId(null)
     composerRef.current?.focus()
+  }
+
+  function appendAssistantOutcome(content) {
+    setMessages((previous) => [
+      ...previous,
+      { role: 'assistant', content },
+    ])
   }
 
   async function handleSend(event) {
@@ -180,6 +219,7 @@ export default function AssistantChat() {
         { role: 'user', content: text },
         data.reply,
       ])
+      setPendingAction(data.pendingAction || null)
       setInput('')
 
       if (data.prunedConversationId) {
@@ -191,6 +231,52 @@ export default function AssistantChat() {
       inFlightRef.current = false
       setIsSending(false)
       composerRef.current?.focus()
+    }
+  }
+
+  async function handlePendingActionDecision(kind) {
+    if (!pendingAction?.token) {
+      return
+    }
+
+    const inFlightRefForKind =
+      kind === 'confirm' ? confirmInFlightRef : cancelInFlightRef
+
+    if (inFlightRefForKind.current) {
+      return
+    }
+
+    inFlightRefForKind.current = true
+    setErrorMessage(null)
+
+    try {
+      const method = kind === 'confirm' ? 'confirm' : 'cancel'
+      const data = await api.post(
+        `/admin/assistant/actions/${pendingAction.token}/${method}`,
+        {}
+      )
+
+      if (kind === 'confirm') {
+        const result = data?.result
+        const isAvailable = result?.isAvailable
+        const targetLabel = result?.target?.label || pendingAction.target?.label
+        const message =
+          isAvailable === true
+            ? `La acción quedó confirmada: ${targetLabel} está disponible.`
+            : isAvailable === false
+              ? `La acción quedó confirmada: ${targetLabel} está no disponible.`
+              : 'La acción quedó confirmada.'
+
+        appendAssistantOutcome(message)
+      } else {
+        appendAssistantOutcome('La acción quedó cancelada.')
+      }
+
+      setPendingAction(null)
+    } catch (error) {
+      setErrorMessage(describeError(error))
+    } finally {
+      inFlightRefForKind.current = false
     }
   }
 
@@ -314,6 +400,87 @@ export default function AssistantChat() {
           </article>
         ))}
       </div>
+
+      {pendingAction && (
+        <div
+          className="assistant-chat__pending"
+          role="status"
+          aria-live="polite"
+        >
+          <h3>Confirmación pendiente</h3>
+          <p className="assistant-chat__pending-summary">
+            {pendingAction.summary || 'Hay una acción pendiente.'}
+          </p>
+
+          <dl className="assistant-chat__pending-meta">
+            <div>
+              <dt>Objetivo</dt>
+              <dd>{pendingAction.target?.label || 'Objetivo no disponible'}</dd>
+            </div>
+            <div>
+              <dt>Vence</dt>
+              <dd>{formatActionDate(pendingAction.expiresAt)}</dd>
+            </div>
+          </dl>
+
+          {pendingAction.changes?.length > 0 && (
+            <div className="assistant-chat__pending-section">
+              <h4>Cambio</h4>
+              <ul>
+                {pendingAction.changes.map((change, index) => (
+                  <li key={`${change.field || 'change'}-${index}`}>
+                    {change.field || 'campo'}: {String(change.from)} →{' '}
+                    {String(change.to)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {pendingAction.warnings?.length > 0 && (
+            <div className="assistant-chat__pending-section assistant-chat__pending-section--warning">
+              <h4>Advertencias</h4>
+              <ul>
+                {pendingAction.warnings.map((warning, index) => (
+                  <li key={`${warning}-${index}`}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {isActionExpired(pendingAction.expiresAt) && (
+            <p className="assistant-chat__pending-expired">
+              La confirmación venció. Pedila de nuevo.
+            </p>
+          )}
+
+          <div className="assistant-chat__pending-actions">
+            <button
+              type="button"
+              onClick={() => handlePendingActionDecision('confirm')}
+              disabled={
+                confirmInFlightRef.current ||
+                cancelInFlightRef.current ||
+                isActionExpired(pendingAction.expiresAt)
+              }
+            >
+              {confirmInFlightRef.current ? 'Confirmando…' : 'Confirmar'}
+            </button>
+            <button
+              type="button"
+              className="assistant-chat__pending-cancel"
+              onClick={() => handlePendingActionDecision('cancel')}
+              disabled={
+                confirmInFlightRef.current ||
+                cancelInFlightRef.current ||
+                isActionExpired(pendingAction.expiresAt)
+              }
+            >
+              {cancelInFlightRef.current ? 'Cancelando…' : 'Cancelar'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {errorMessage && (
         <p className="assistant-chat__error" role="alert">

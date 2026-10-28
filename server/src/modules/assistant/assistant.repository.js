@@ -155,6 +155,33 @@ async function createConversationWithMessages({
   });
 }
 
+async function createConversationShell({
+  userId,
+  title,
+}) {
+  return withTransaction(async (connection) => {
+    const [result] = await connection.execute(
+      `
+        INSERT INTO ai_conversations (user_id, title)
+        VALUES (?, ?)
+      `,
+      [userId, title ?? null]
+    );
+
+    const conversationId = Number(result.insertId);
+    const prunedConversationIds =
+      await pruneExcessConversations(
+        connection,
+        userId
+      );
+
+    return {
+      conversationId,
+      prunedConversationIds,
+    };
+  });
+}
+
 // El filtro por user_id esta en el UPDATE del hilo, asi que una
 // conversacion ajena no recibe mensajes ni se puede usar para escribir.
 async function appendMessagesToConversation({
@@ -189,6 +216,80 @@ async function appendMessagesToConversation({
     );
 
     return { conversationId };
+  });
+}
+
+async function appendActionTurnToConversation({
+  conversationId,
+  userId,
+  userMessage,
+  assistantMessage,
+}) {
+  return withTransaction(async (connection) => {
+    const [rows] = await connection.execute(
+      `
+        SELECT id
+        FROM ai_conversations
+        WHERE id = ? AND user_id = ?
+        FOR UPDATE
+      `,
+      [conversationId, userId]
+    );
+
+    if (rows.length === 0) {
+      return false;
+    }
+
+    await connection.execute(
+      `
+        UPDATE ai_conversations
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND user_id = ?
+      `,
+      [conversationId, userId]
+    );
+
+    await insertMessage(
+      connection,
+      conversationId,
+      userMessage
+    );
+    await insertMessage(
+      connection,
+      conversationId,
+      assistantMessage
+    );
+
+    return true;
+  });
+}
+
+async function appendAssistantMessageToConversation({
+  conversationId,
+  userId,
+  message,
+}) {
+  return withTransaction(async (connection) => {
+    const [result] = await connection.execute(
+      `
+        UPDATE ai_conversations
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND user_id = ?
+      `,
+      [conversationId, userId]
+    );
+
+    if (result.affectedRows !== 1) {
+      return false;
+    }
+
+    await insertMessage(
+      connection,
+      conversationId,
+      message
+    );
+
+    return true;
   });
 }
 
@@ -422,7 +523,10 @@ async function listRecentMessages({
 
 module.exports = {
   createConversationWithMessages,
+  createConversationShell,
   appendMessagesToConversation,
+  appendActionTurnToConversation,
+  appendAssistantMessageToConversation,
   findConversationByIdForUser,
   listConversationsByUser,
   deleteConversationByIdForUser,

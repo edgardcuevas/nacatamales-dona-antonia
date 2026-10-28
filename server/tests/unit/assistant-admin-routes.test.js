@@ -44,6 +44,12 @@ const assistantRepository = require(
 const assistantProvider = require(
   "../../src/modules/assistant/assistant.provider"
 );
+const productService = require(
+  "../../src/modules/products/product.service"
+);
+const actionRepository = require(
+  "../../src/modules/assistant/assistant.action.repository"
+);
 const settingsService = require(
   "../../src/modules/settings/settings.service"
 );
@@ -188,6 +194,11 @@ mock.method(
   "getUsageAggregates",
   async () => state.usageAggregates
 );
+mock.method(
+  assistantRepository,
+  "insertUsageEvent",
+  async () => 1
+);
 
 before(async () => {
   server = app.listen(0);
@@ -309,6 +320,11 @@ afterEach(() => {
     assistantRepository,
     "getUsageAggregates",
     async () => state.usageAggregates
+  );
+  mock.method(
+    assistantRepository,
+    "insertUsageEvent",
+    async () => 1
   );
 });
 
@@ -437,6 +453,111 @@ test("POST /messages creates a conversation and returns 201", async () => {
   );
 });
 
+test("POST /messages creates a pending action without changing the product", async () => {
+  state.providerResponse = {
+    text: "Ignorar el texto del modelo.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 18, outputTokens: 6 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [
+      {
+        name: "set_product_availability",
+        arguments: {
+          productId: 12,
+          isAvailable: false,
+        },
+      },
+    ],
+  };
+
+  const product = {
+    id: 12,
+    name: "Nacatamal de pollo",
+    isAvailable: true,
+    isActive: true,
+    updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+  };
+  let inserted;
+  let savedTurn;
+  let productWrites = 0;
+  mock.method(
+    productService,
+    "getProductById",
+    async () => product
+  );
+  mock.method(
+    productService,
+    "changeProductAvailability",
+    async () => {
+      productWrites += 1;
+      return product;
+    }
+  );
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async (input) => {
+      inserted = input;
+      return {
+        status: "CREATED",
+        actionId: 31,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+  mock.method(
+    assistantRepository,
+    "createConversationShell",
+    async () => ({
+      conversationId: 9,
+      prunedConversationIds: [],
+    })
+  );
+  mock.method(
+    assistantRepository,
+    "appendActionTurnToConversation",
+    async (input) => {
+      savedTurn = input;
+      return true;
+    }
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Marcá el nacatamal de pollo como agotado." },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(
+    result.body.data.reply.content,
+    "Preparé la acción. Confirmala para aplicarla."
+  );
+  assert.equal(result.body.data.pendingAction.tool, "set_product_availability");
+  assert.equal(
+    result.body.data.pendingAction.summary,
+    "Marcar «Nacatamal de pollo» como no disponible"
+  );
+  assert.deepEqual(result.body.data.pendingAction.changes, [
+    { field: "isAvailable", from: true, to: false },
+  ]);
+  assert.deepEqual(inserted.before, {
+    isAvailable: true,
+    updatedAt: "2026-10-27T12:00:00.000Z",
+  });
+  assert.equal(inserted.targetId, 12);
+  assert.deepEqual(savedTurn.userMessage, {
+    role: "user",
+    content: "Marcá el nacatamal de pollo como agotado.",
+  });
+  assert.equal(
+    savedTurn.assistantMessage.content,
+    result.body.data.reply.content
+  );
+  assert.equal(productWrites, 0);
+});
+
 test("POST /messages executes a role-authorized read tool and returns only the final answer", async () => {
   state.currentUser = {
     id: 2,
@@ -495,8 +616,10 @@ test("POST /messages executes a role-authorized read tool and returns only the f
     [
       "get_current_schedule",
       "count_products",
+      "search_products",
       "list_active_announcements",
       "list_videos",
+      "set_product_availability",
     ]
   );
   const toolMessage =
