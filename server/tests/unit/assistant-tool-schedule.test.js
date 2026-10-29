@@ -67,6 +67,7 @@ test("get_current_schedule is available to both roles and returns only schedule 
           "search_announcements",
           "list_videos",
           "search_videos",
+          "search_categories",
         ]
       );
     }

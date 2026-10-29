@@ -38,8 +38,52 @@ function logServerError(error, request) {
   );
 }
 
+function handleStreamingError(error, request, response) {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+
+  let statusCode = 500;
+  let code = "INTERNAL_SERVER_ERROR";
+  let message = "An unexpected error occurred";
+
+  if (error instanceof AppError) {
+    statusCode = error.statusCode;
+    code = error.code;
+    message = error.message;
+
+    if (statusCode >= 500) {
+      logServerError(error, request);
+    }
+  } else {
+    console.error("Unhandled request error:", error);
+  }
+
+  response.write(
+    `event: error\ndata: ${JSON.stringify({
+      success: false,
+      error: { code, message },
+    })}\n\n`
+  );
+  response.end();
+}
+
 function errorHandler(error, request, response, next) {
   if (response.headersSent) {
+    const contentType = response.getHeader("Content-Type");
+
+    if (
+      !response.destroyed &&
+      typeof contentType === "string" &&
+      contentType.startsWith("text/event-stream")
+    ) {
+      return handleStreamingError(
+        error,
+        request,
+        response
+      );
+    }
+
     return next(error);
   }
 

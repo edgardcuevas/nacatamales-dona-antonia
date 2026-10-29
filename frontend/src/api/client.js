@@ -189,6 +189,201 @@ async function performRequest(path, options) {
   }
 }
 
+function createRequestError(body, status) {
+  const error = new Error(
+    body?.error?.message || 'Error de red'
+  )
+  error.code = body?.error?.code || 'UNKNOWN_ERROR'
+  error.status = status
+  return error
+}
+
+async function rawStreamRequest(path, body, signal) {
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    credentials: 'include',
+    signal,
+  })
+
+  if (!response.ok) {
+    const bodyData = await response.json().catch(() => null)
+    throw createRequestError(bodyData, response.status)
+  }
+
+  if (
+    !response.headers.get('content-type')?.startsWith('text/event-stream') ||
+    !response.body
+  ) {
+    const error = new Error('La transmisión se interrumpió.')
+    error.code = 'ASSISTANT_STREAM_INTERRUPTED'
+    error.status = response.status
+    throw error
+  }
+
+  return response
+}
+
+async function consumeAssistantStream(response, onTextChunk) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let completedData
+  let completed = false
+
+  function dispatchFrame(frame) {
+    let event = 'message'
+    const data = []
+
+    for (const line of frame.split(/\r?\n/)) {
+      if (line.startsWith(':')) {
+        continue
+      }
+
+      const separator = line.indexOf(':')
+      const field =
+        separator === -1 ? line : line.slice(0, separator)
+      const value =
+        separator === -1
+          ? ''
+          : line.slice(separator + 1).replace(/^ /, '')
+
+      if (field === 'event') {
+        event = value
+      } else if (field === 'data') {
+        data.push(value)
+      }
+    }
+
+    if (data.length === 0) {
+      return
+    }
+
+    let payload
+    try {
+      payload = JSON.parse(data.join('\n'))
+    } catch {
+      const error = new Error('La transmisión del asistente no es válida.')
+      error.code = 'ASSISTANT_STREAM_INTERRUPTED'
+      throw error
+    }
+
+    if (event === 'chunk') {
+      if (typeof payload?.text !== 'string') {
+        const error = new Error('La transmisión del asistente no es válida.')
+        error.code = 'ASSISTANT_STREAM_INTERRUPTED'
+        throw error
+      }
+      onTextChunk(payload.text)
+      return
+    }
+
+    if (event === 'complete') {
+      if (!payload?.success || !payload.data) {
+        const error = new Error('La transmisión terminó sin respuesta.')
+        error.code = 'ASSISTANT_STREAM_INTERRUPTED'
+        throw error
+      }
+      completedData = payload.data
+      completed = true
+      return
+    }
+
+    if (event === 'error') {
+      throw createRequestError(payload, response.status)
+    }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      let separator = buffer.match(/\r?\n\r?\n/)
+
+      while (separator) {
+        dispatchFrame(buffer.slice(0, separator.index))
+        buffer = buffer.slice(separator.index + separator[0].length)
+        separator = buffer.match(/\r?\n\r?\n/)
+      }
+    }
+
+    buffer += decoder.decode()
+    if (buffer.trim() !== '') {
+      dispatchFrame(buffer)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (!completed) {
+    const error = new Error('La transmisión del asistente se interrumpió.')
+    error.code = 'ASSISTANT_STREAM_INTERRUPTED'
+    throw error
+  }
+
+  return completedData
+}
+
+async function performStreamRequest(
+  path,
+  body,
+  { onTextChunk, signal } = {},
+) {
+  const hadSession = Boolean(accessToken)
+  let response
+
+  try {
+    response = await rawStreamRequest(path, body, signal)
+  } catch (error) {
+    if (error.status !== 401 || NO_RETRY_PATHS.includes(path)) {
+      throw error
+    }
+
+    try {
+      await refreshAccessToken()
+    } catch (refreshError) {
+      if (
+        hadSession &&
+        (refreshError.status === 401 || refreshError.status === 403)
+      ) {
+        sessionExpiredHandler?.()
+      }
+      throw refreshError
+    }
+
+    try {
+      response = await rawStreamRequest(path, body, signal)
+    } catch (retryError) {
+      if (hadSession && retryError.status === 401) {
+        sessionExpiredHandler?.()
+      }
+      throw retryError
+    }
+  }
+
+  const data = await consumeAssistantStream(
+    response,
+    onTextChunk,
+  )
+  invalidateCache()
+  return data
+}
+
 async function request(path, options = {}) {
   const method = options.method || 'GET'
   const cacheable = isCacheableRead(path, method)
@@ -263,6 +458,8 @@ export const api = {
       body: file,
       headers: { 'Content-Type': file.type, ...extraHeaders },
     }),
+  streamPost: (path, data, options) =>
+    performStreamRequest(path, data, options),
 }
 
 export const authApi = {

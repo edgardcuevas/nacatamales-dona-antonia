@@ -52,6 +52,8 @@ async function runAssistantToolTurn({
   messages,
   maxOutputTokens,
   timeoutMs,
+  streamFinal = false,
+  onTextChunk,
 }) {
   if (
     !provider ||
@@ -64,6 +66,16 @@ async function runAssistantToolTurn({
   ) {
     throw new TypeError(
       "A provider and assistant tool registry are required"
+    );
+  }
+
+  if (
+    streamFinal &&
+    (typeof provider.chatStream !== "function" ||
+      typeof onTextChunk !== "function")
+  ) {
+    throw new TypeError(
+      "A streaming provider and text chunk callback are required"
     );
   }
 
@@ -87,11 +99,53 @@ async function runAssistantToolTurn({
   const providerResults = [];
   let toolExecutions = 0;
 
+  async function getStreamingFinalResult() {
+    const result = await provider.chatStream(
+      {
+        systemInstruction,
+        messages: providerMessages,
+        tools: [],
+        maxOutputTokens,
+        timeoutMs,
+      },
+      onTextChunk
+    );
+
+    providerResults.push(result);
+
+    if (
+      result.blocked ||
+      !Array.isArray(result.toolCalls) ||
+      result.toolCalls.length > 0
+    ) {
+      if (!result.blocked) {
+        throw createInvalidToolRequestError();
+      }
+
+      return {
+        ...result,
+        usage: aggregateUsage(providerResults),
+      };
+    }
+
+    return {
+      ...result,
+      usage: aggregateUsage(providerResults),
+    };
+  }
+
   for (
     let providerCalls = 1;
     providerCalls <= MAX_PROVIDER_CALLS_PER_MESSAGE;
     providerCalls += 1
   ) {
+    if (
+      streamFinal &&
+      providerCalls === MAX_PROVIDER_CALLS_PER_MESSAGE
+    ) {
+      return getStreamingFinalResult();
+    }
+
     const result = await provider.chat({
       systemInstruction,
       messages: providerMessages,
@@ -116,6 +170,10 @@ async function runAssistantToolTurn({
     }
 
     if (toolCalls.length === 0) {
+      if (streamFinal) {
+        return getStreamingFinalResult();
+      }
+
       return {
         ...result,
         usage: aggregateUsage(providerResults),

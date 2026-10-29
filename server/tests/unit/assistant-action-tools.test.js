@@ -38,6 +38,9 @@ const announcementService = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const categoryService = require(
+  "../../src/modules/categories/category.service"
+);
 const actionRegistry = require(
   "../../src/modules/assistant/assistant.action-registry"
 );
@@ -83,6 +86,16 @@ function video(overrides = {}) {
   };
 }
 
+function category(overrides = {}) {
+  return {
+    id: 21,
+    name: "Bebidas",
+    isActive: true,
+    updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 test("assistant actions are write-only and validate exact arguments", () => {
   const declarations =
     actionRegistry.getActionDeclarations("EDITOR");
@@ -92,6 +105,7 @@ test("assistant actions are write-only and validate exact arguments", () => {
       "set_product_availability",
       "set_announcement_active",
       "set_video_active",
+      "set_category_active",
     ]
   );
   assert.deepEqual(
@@ -105,6 +119,10 @@ test("assistant actions are write-only and validate exact arguments", () => {
   assert.deepEqual(
     declarations[2].parameters.required,
     ["videoId", "isActive"]
+  );
+  assert.deepEqual(
+    declarations[3].parameters.required,
+    ["categoryId", "isActive"]
   );
   assert.throws(
     () => actionRegistry.getActionDeclarations("USER"),
@@ -135,6 +153,35 @@ test("assistant actions are write-only and validate exact arguments", () => {
         productId: 12,
         isAvailable: false,
         categoryId: 2,
+      },
+      role: "ADMIN",
+    }),
+    null
+  );
+  assert.deepEqual(
+    actionRegistry.validateActionCall({
+      name: "set_category_active",
+      arguments: {
+        categoryId: 21,
+        isActive: false,
+      },
+      role: "EDITOR",
+    }),
+    {
+      name: "set_category_active",
+      arguments: {
+        categoryId: 21,
+        isActive: false,
+      },
+    }
+  );
+  assert.equal(
+    actionRegistry.validateActionCall({
+      name: "set_category_active",
+      arguments: {
+        categoryId: 21,
+        isActive: false,
+        name: "Otra",
       },
       role: "ADMIN",
     }),
@@ -576,6 +623,143 @@ test("a stale video upload status never calls the status service", async () => {
         before: {
           isActive: false,
           uploadStatus: "READY",
+          updatedAt: "2026-10-27T12:00:00.000Z",
+        },
+      },
+      role: "ADMIN",
+    }),
+    (error) =>
+      error.code === "ASSISTANT_ACTION_CONFLICT"
+  );
+
+  assert.equal(writeCalls, 0);
+});
+
+test("confirming a category action reuses status service without touching products", async () => {
+  const calls = [];
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async (categoryId) => {
+      calls.push(["getCategoryById", categoryId]);
+      return category();
+    }
+  );
+  mock.method(
+    categoryService,
+    "changeCategoryStatus",
+    async (input) => {
+      calls.push(["changeCategoryStatus", input]);
+      return category({
+        isActive: input.isActive,
+        updatedAt: new Date("2026-10-27T12:01:00.000Z"),
+      });
+    }
+  );
+
+  const result = await executePendingAction({
+    action: {
+      toolName: "set_category_active",
+      targetType: "category",
+      targetId: 21,
+      targetLabel: "Bebidas",
+      arguments: { categoryId: 21, isActive: false },
+      before: {
+        isActive: true,
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      },
+    },
+    role: "EDITOR",
+  });
+
+  assert.deepEqual(result, {
+    result: {
+      target: {
+        id: 21,
+        label: "Bebidas",
+      },
+      isActive: false,
+    },
+    message: "La categoría «Bebidas» ahora está oculta.",
+  });
+  assert.deepEqual(calls, [
+    ["getCategoryById", 21],
+    [
+      "changeCategoryStatus",
+      { categoryId: 21, isActive: false },
+    ],
+  ]);
+});
+
+test("category action warns that hiding affects visibility only", () => {
+  const action = actionRegistry.getActionDefinition(
+    "set_category_active"
+  );
+  const target = category();
+
+  assert.deepEqual(
+    action.getWarnings({
+      target,
+      arguments: {
+        categoryId: 21,
+        isActive: false,
+      },
+    }),
+    [
+      "Al ocultar esta categoría, sus productos dejarán de mostrarse en el menú. Los productos no se borran ni se modifican.",
+    ]
+  );
+  assert.deepEqual(
+    action.getWarnings({
+      target,
+      arguments: {
+        categoryId: 21,
+        isActive: true,
+      },
+    }),
+    ["La categoría ya está en ese estado."]
+  );
+  assert.deepEqual(
+    action.getWarnings({
+      target: category({ isActive: false }),
+      arguments: {
+        categoryId: 21,
+        isActive: true,
+      },
+    }),
+    []
+  );
+});
+
+test("a stale category snapshot never calls the status service", async () => {
+  let writeCalls = 0;
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () =>
+      category({
+        updatedAt: new Date("2026-10-27T12:01:00.000Z"),
+      })
+  );
+  mock.method(
+    categoryService,
+    "changeCategoryStatus",
+    async () => {
+      writeCalls += 1;
+      return category();
+    }
+  );
+
+  await assert.rejects(
+    executePendingAction({
+      action: {
+        toolName: "set_category_active",
+        targetType: "category",
+        targetId: 21,
+        targetLabel: "Bebidas",
+        arguments: { categoryId: 21, isActive: false },
+        before: {
+          isActive: true,
           updatedAt: "2026-10-27T12:00:00.000Z",
         },
       },

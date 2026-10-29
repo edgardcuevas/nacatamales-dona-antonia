@@ -1,6 +1,6 @@
 # Asistente Inteligente de Administración
 
-Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; diseño de Fase 2B aprobado el 2026-10-27; Tareas 1 a 7 completadas**.
+Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B completada y aceptada; streaming de respuestas completado; Tareas 1 a 9 de Fase 2B completadas**.
 Última actualización: 2026-10-28.
 
 ## Cómo retomar el trabajo
@@ -496,13 +496,13 @@ Validación real:
 - `cd server && npm test`: 703/703. `cd frontend && npm test`: 164/164. `cd frontend && npm run build`: verde.
 - HTTP contra la base de desarrollo y el servidor real, con el proveedor simulado en proceso: 72 comprobaciones. Cubrió ADMIN y EDITOR, las cuatro herramientas (8 ejecuciones, 4 por rol), pregunta ambigua, petición de escritura, fallo del proveedor, timeout de herramienta, aislamiento de conversaciones, `403` de métricas para EDITOR y los límites de resultado. Resultado: 12 conversaciones, 24 mensajes y 14 eventos de uso; las nueve tablas de negocio conservaron checksum y filas, `users` no cambió salvo `last_login_at`, cero peticiones salientes y ningún detalle interno en las respuestas `502`/`504`.
 - Navegador real (Chrome headless, build de producción servido junto a la API en un solo origen, con `VITE_API_BASE_URL` apuntando al origen local de la prueba): 27 comprobaciones. Login por el formulario real con ambos roles, apertura de la sección Asistente, aviso de solo lectura, cuatro sugerencias, envío de mensaje y respuesta renderizada. Incluyó la pregunta ambigua y la petición de escritura, que se responden sin ejecutar herramientas. El navegador envió solo `message` y `conversationId`; no hubo peticiones externas salvo las fuentes del sitio.
-- Gemini en vivo: la clave sigue respondiendo `429 RATE_LIMITED` (cuota), así que no se pudo repetir una conversación completa con el modelo. No es un fallo de código y no bloquea la aceptación de solo lectura, que quedó demostrada con el ciclo real de herramientas.
+- Gemini en vivo: el 2026-10-28 una conversación real con rol EDITOR recibió respuesta de `gemini-3.6-flash`; el servicio persistió los dos mensajes y el evento de uso. La conversación y el usuario temporales se eliminaron. Un primer intento encontró una indisponibilidad transitoria; el reintento completo pasó.
 
-**Pendiente fuera de Fase 2A:** repetir una conversación real con Gemini cuando el proveedor restablezca la cuota. Registrar el resultado aquí antes de iniciar Fase 2B.
+**Pendiente fuera de Fase 2A:** ninguno. La conversación en vivo pendiente quedó validada después de completar Fase 2B.
 
 ## Fase 2B — Acciones con confirmación humana
 
-Estado: **diseño propuesto el 2026-10-26, pendiente de aprobación**. No hay código, migración ni endpoints de Fase 2B.
+Estado: **diseño aprobado el 2026-10-27; implementación y aceptación completadas el 2026-10-28**. El alcance y la evidencia de cierre están registrados en las tareas 1 a 9 de esta fase.
 
 ### Alcance propuesto
 
@@ -780,13 +780,19 @@ Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna
 
 **Validación:** `cd server && npm test` pasó 789/789; las pruebas enfocadas de acciones, búsqueda, prompt, proveedor y ruta pasaron 84/84. En MySQL de test se comprobó búsqueda, propuesta sin mutación, publicación de un video `READY`, repetición idempotente, rechazo de publicar un `DELETED` y ocultación permitida del mismo; no hubo llamadas a YouTube y se limpiaron los registros temporales.
 
-#### [ ] Tarea 8 — `search_categories` + `set_category_active`
+#### [x] Tarea 8 — `search_categories` + `set_category_active`
 
 **Done:** advertencia de que los productos de la categoría dejan de mostrarse; sin borrado ni cambio de productos.
 
-#### [ ] Tarea 9 — Prompt, documentación y aceptación
+**Implementación:** búsqueda administrativa por nombre limitada a 10 categorías, con DTO mínimo; acción de activar u ocultar que delega en `changeCategoryStatus`. La propuesta incluye el estado actual en su instantánea y advierte que ocultar una categoría retira sus productos del menú, pero no los borra ni modifica. El límite local de herramientas Gemini subió de 10 a 12 para admitir el catálogo completo.
 
-**Done:** prompt con reglas de 2B; `docs/frontend-integration.md` actualizado; aceptación con checksums antes/después, doble confirmación, vencimiento, conflicto, token ajeno, cambio de rol, push único y flujo real en navegador con ambos roles.
+**Validación:** `cd server && npm test` pasó 796/796; las pruebas enfocadas de búsqueda, acciones, rutas, prompt y proveedor pasaron 91/91. En MySQL de test se comprobó búsqueda, propuesta sin mutación, ocultación confirmada, conservación del producto asociado con su estado intacto y confirmación repetida idempotente; los registros temporales se limpiaron.
+
+#### [x] Tarea 9 — Prompt, documentación y aceptación
+
+**Done:** prompt con reglas de 2B; `docs/frontend-integration.md` actualizado para herramientas, propuestas y endpoints de confirmación; aviso del chat corregido para explicar que los cambios requieren confirmación.
+
+**Validación:** `cd server && npm test` pasó 796/796; `cd frontend && npm test` pasó 165/165; `cd frontend && npm run build` compiló correctamente. En MySQL de test, checksums de categoría y producto no cambiaron al proponer; solo cambió el objetivo confirmado, y la repetición no volvió a escribir. También se verificaron vencimiento, conflicto por estado obsoleto, token ajeno y rol no permitido sin mutación; la suite cubre el reclamo idempotente de push. En navegador se inició sesión como `ADMIN` y `EDITOR` y ambos confirmaron por la UI contra los endpoints y la base reales. Para no llamar al proveedor externo, se simuló únicamente la respuesta de `POST /messages` con propuestas creadas por el servicio real. Los registros temporales se limpiaron.
 
 ### Aceptación de Fase 2B
 
@@ -810,3 +816,35 @@ Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna
 4. **Límites:** 10 minutos de vigencia y 5 acciones pendientes por usuario.
 5. **Búsquedas con ids internos:** necesarias para identificar el objetivo; el nombre visible se resuelve y se muestra en la tarjeta.
 6. **Ejecución interrumpida (`EXECUTING` > 60 s):** se marca `FAILED` y se pide verificación manual, sin reintento automático.
+
+## Streaming de respuestas (incremento posterior a Fase 2B)
+
+Estado: **completado y validado el 2026-10-28**. El alcance inicial de Fase 1 lo excluía; se incorporó después de cerrar 2B, sin cambiar el contrato JSON existente.
+
+### Decisiones
+
+- **Ruta nueva y aditiva.** `POST /admin/assistant/messages/stream` comparte autenticación, rol, rate limit, validación, persistencia y errores con `POST /messages`. El endpoint JSON sigue disponible.
+- **Solo la respuesta final se transmite.** El orquestador usa llamadas normales para decidir y ejecutar herramientas; recién cuando ya no hay más herramientas por ejecutar hace una llamada final en modo streaming. Los turnos intermedios y los nombres/argumentos de herramientas nunca llegan al navegador como `chunk`.
+- **Las propuestas de escritura no se transmiten.** `set_*` se resuelve antes del streaming y solo aparece en `complete.data.pendingAction`, igual que en la respuesta JSON. Nunca se muestra una tarjeta mientras el texto todavía se está generando.
+- **El texto persistido es el transmitido.** El proveedor acumula las partes de la respuesta en streaming, y el servicio guarda exactamente esa concatenación. No se persiste nada si el flujo falla antes de `complete`.
+- **Degradación explícita.** `GET /status` publica `capabilities.supportsStreaming`; el cliente elige `api.streamPost` o cae en `api.post` si el proveedor no lo soporta.
+
+### Implementación
+
+- `gemini.provider.js` añade `chatStream` contra `streamGenerateContent?alt=sse`, con parser SSE incremental que tolera frames partidos, ignora `thought` y rechaza eventos malformados o vacíos.
+- `assistant.tool-orchestrator.js` incorpora `streamFinal`/`onTextChunk`; mantiene el techo de 3 llamadas al proveedor y 2 ejecuciones de herramientas por mensaje.
+- `assistant.controller.js` responde `text/event-stream` con `chunk` y `complete`. `error.middleware.js` convierte un fallo posterior a las cabeceras en un `event: error` saneado en vez de intentar una respuesta JSON.
+- `frontend/src/api/client.js` añade `api.streamPost`, que reutiliza el refresco de token de una sola vez y rechaza flujos incompletos con `ASSISTANT_STREAM_INTERRUPTED`.
+- `AssistantChat.jsx` muestra el texto parcial y lo reemplaza por el mensaje persistido al recibir `complete`; ante un error descarta el parcial y muestra el mensaje de error.
+
+### Coste
+
+Para transmitir solo la respuesta final, un turno sin herramientas puede gastar dos llamadas al proveedor: una normal para decidir que no hay herramientas y otra en streaming para producir el texto. El evento de uso se registra una sola vez por turno y agrega los tokens de todas las llamadas.
+
+### Validación
+
+- `cd server && npm test`: 804/804. `cd frontend && npm test`: 169/169. `cd frontend && npm run build`: verde.
+- HTTP real contra el servidor y MySQL de desarrollo, con Gemini en vivo: un turno de texto puro transmitió 1 `chunk` y un turno con herramienta de lectura transmitió 3 `chunk`; en ambos la concatenación coincidió con `complete.data.reply.content`, se persistieron exactamente dos mensajes por conversación, hubo dos eventos `SUCCESS` de uso, ningún `pendingAction` y ningún nombre de herramienta en los fragmentos. Los usuarios, conversaciones y eventos temporales se eliminaron.
+- Un segundo par de turnos en la misma conversación comprobó la rama `conversationId`: mismo id, historial de cuatro mensajes en orden y el contenido de cada respuesta igual al transmitido. También se limpió.
+- Navegador real (Chrome headless contra Vite y la API, rol `EDITOR`): login por el formulario, apertura de Asistente, envío y render incremental. La petición fue a `/api/admin/assistant/messages/stream` con `200`; llegaron 5 eventos SSE (4 `chunk`, 328 caracteres) y se observaron 5 muestras parciales del DOM antes de `complete`. El texto final del DOM coincidió con el persistido, no apareció tarjeta de confirmación y el turno guardó dos mensajes. Los datos temporales se eliminaron.
+- El caso de error posterior a las cabeceras está cubierto por la prueba de ruta con proveedor simulado (`event: error` saneado, sin detalles internos).

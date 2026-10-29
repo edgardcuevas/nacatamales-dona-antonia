@@ -194,6 +194,9 @@ test("the action prompt allows proposals but never claims execution", () => {
   assert.match(prompt, /search_products/);
   assert.match(prompt, /search_announcements/);
   assert.match(prompt, /search_videos/);
+  assert.match(prompt, /search_categories/);
+  assert.match(prompt, /sus productos dejarán de mostrarse/);
+  assert.match(prompt, /no se borrarán ni modificarán/);
   assert.match(prompt, /uploadStatus sea READY/);
   assert.match(prompt, /Nunca propongas publicar un video DELETED/);
   assert.match(prompt, /notificación push/);

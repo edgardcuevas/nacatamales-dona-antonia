@@ -477,7 +477,11 @@ async function deleteConversation({
   return { conversationId, deleted: true };
 }
 
-async function sendMessage({ currentUser, input }) {
+async function sendMessage({
+  currentUser,
+  input,
+  onTextChunk,
+}) {
   const provider = getProvider();
   const userId = currentUser.id;
 
@@ -543,6 +547,8 @@ async function sendMessage({ currentUser, input }) {
         ...history,
         { role: "user", content: input.message },
       ],
+      streamFinal: onTextChunk !== undefined,
+      onTextChunk,
     });
   } catch (error) {
     providerFailure = error;

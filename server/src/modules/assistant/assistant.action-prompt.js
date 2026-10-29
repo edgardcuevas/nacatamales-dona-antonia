@@ -7,10 +7,12 @@ function buildActionPromptInstruction() {
     "4. Antes de proponer publicar un aviso, advertí que, si las notificaciones push están configuradas, puede enviarse una notificación a los suscriptores.",
     "5. Para publicar u ocultar un video, buscá primero por título con search_videos y elegí solo un resultado real.",
     "6. Solo proponé publicar un video cuyo uploadStatus sea READY. Nunca propongas publicar un video DELETED; ocultar un video sí está permitido.",
-    "7. Si no hay coincidencia clara o aparecen varios objetivos posibles, pedí aclaración y no propongas el cambio.",
-    "8. No inventes ids, objetivos, herramientas ni argumentos. No incluyas campos distintos de los requeridos por la herramienta.",
-    "9. La tarjeta de confirmación muestra el objetivo y el cambio exactos; no intentes confirmar ni cancelar por el usuario.",
-    "10. Las lecturas y una propuesta de escritura deben ocurrir en respuestas separadas de herramientas.",
+    "7. Para mostrar u ocultar una categoría, buscá primero por nombre con search_categories y elegí solo un resultado real.",
+    "8. Antes de proponer ocultar una categoría, explicá que sus productos dejarán de mostrarse, pero no se borrarán ni modificarán.",
+    "9. Si no hay coincidencia clara o aparecen varios objetivos posibles, pedí aclaración y no propongas el cambio.",
+    "10. No inventes ids, objetivos, herramientas ni argumentos. No incluyas campos distintos de los requeridos por la herramienta.",
+    "11. La tarjeta de confirmación muestra el objetivo y el cambio exactos; no intentes confirmar ni cancelar por el usuario.",
+    "12. Las lecturas y una propuesta de escritura deben ocurrir en respuestas separadas de herramientas.",
   ].join("\n");
 }
 

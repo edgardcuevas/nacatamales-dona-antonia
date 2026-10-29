@@ -509,6 +509,35 @@ function normalizeResponse(payload, configuredModel) {
   };
 }
 
+function parseSseFrame(frame) {
+  let event = "message";
+  const data = [];
+
+  for (const line of frame.split(/\r?\n/)) {
+    if (line.startsWith(":")) {
+      continue;
+    }
+
+    const separator = line.indexOf(":");
+    const field =
+      separator === -1 ? line : line.slice(0, separator);
+    const value =
+      separator === -1
+        ? ""
+        : line.slice(separator + 1).replace(/^ /, "");
+
+    if (field === "event") {
+      event = value;
+    } else if (field === "data") {
+      data.push(value);
+    }
+  }
+
+  return data.length === 0
+    ? null
+    : { event, data: data.join("\n") };
+}
+
 function createGeminiProvider({
   apiKey,
   model,
@@ -548,13 +577,12 @@ function createGeminiProvider({
 
   const normalizedApiKey = apiKey.trim();
 
-  async function chat({
+  function createRequestBody({
     systemInstruction,
     messages,
     tools,
     maxOutputTokens: requestedMaxOutputTokens,
-    timeoutMs: requestedTimeoutMs,
-  } = {}) {
+  }) {
     assertNonEmptyString(
       systemInstruction,
       "systemInstruction"
@@ -565,20 +593,12 @@ function createGeminiProvider({
       normalizeToolDeclarations(tools);
     const effectiveMaxOutputTokens =
       requestedMaxOutputTokens ?? maxOutputTokens;
-    const effectiveTimeoutMs =
-      requestedTimeoutMs ?? timeoutMs;
 
     assertIntegerInRange(
       effectiveMaxOutputTokens,
       "maxOutputTokens",
       MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
       MAX_ASSISTANT_MAX_OUTPUT_TOKENS
-    );
-    assertIntegerInRange(
-      effectiveTimeoutMs,
-      "timeoutMs",
-      MIN_ASSISTANT_TIMEOUT_MS,
-      MAX_ASSISTANT_TIMEOUT_MS
     );
 
     const requestBody = {
@@ -601,21 +621,39 @@ function createGeminiProvider({
       ];
     }
 
+    return requestBody;
+  }
+
+  async function requestGemini({
+    endpoint,
+    body,
+    timeoutMs: requestedTimeoutMs,
+    accept,
+  }) {
+    const effectiveTimeoutMs =
+      requestedTimeoutMs ?? timeoutMs;
+
+    assertIntegerInRange(
+      effectiveTimeoutMs,
+      "timeoutMs",
+      MIN_ASSISTANT_TIMEOUT_MS,
+      MAX_ASSISTANT_TIMEOUT_MS
+    );
+
     let response;
 
     try {
       response = await fetchImpl(
-        `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`,
+        `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:${endpoint}`,
         {
           method: "POST",
           headers: {
             "content-type": "application/json",
             "x-goog-api-key": normalizedApiKey,
+            ...(accept ? { accept } : {}),
           },
-          body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(
-            effectiveTimeoutMs
-          ),
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(effectiveTimeoutMs),
         }
       );
     } catch (error) {
@@ -644,6 +682,42 @@ function createGeminiProvider({
       throw mapHttpStatus(response.status);
     }
 
+    return response;
+  }
+
+  async function chat({
+    systemInstruction,
+    messages,
+    tools,
+    maxOutputTokens: requestedMaxOutputTokens,
+    timeoutMs: requestedTimeoutMs,
+  } = {}) {
+    assertNonEmptyString(
+      systemInstruction,
+      "systemInstruction"
+    );
+
+    const effectiveTimeoutMs =
+      requestedTimeoutMs ?? timeoutMs;
+
+    assertIntegerInRange(
+      effectiveTimeoutMs,
+      "timeoutMs",
+      MIN_ASSISTANT_TIMEOUT_MS,
+      MAX_ASSISTANT_TIMEOUT_MS
+    );
+
+    const response = await requestGemini({
+      endpoint: "generateContent",
+      body: createRequestBody({
+        systemInstruction,
+        messages,
+        tools,
+        maxOutputTokens: requestedMaxOutputTokens,
+      }),
+      timeoutMs: effectiveTimeoutMs,
+    });
+
     let payload;
 
     try {
@@ -655,14 +729,208 @@ function createGeminiProvider({
     return normalizeResponse(payload, model);
   }
 
+  async function chatStream(
+    {
+      systemInstruction,
+      messages,
+      tools,
+      maxOutputTokens: requestedMaxOutputTokens,
+      timeoutMs: requestedTimeoutMs,
+    } = {},
+    onTextChunk
+  ) {
+    if (typeof onTextChunk !== "function") {
+      throw new TypeError("A text chunk callback is required");
+    }
+
+    const response = await requestGemini({
+      endpoint: "streamGenerateContent?alt=sse",
+      body: createRequestBody({
+        systemInstruction,
+        messages,
+        tools,
+        maxOutputTokens: requestedMaxOutputTokens,
+      }),
+      timeoutMs: requestedTimeoutMs,
+      accept: "text/event-stream",
+    });
+
+    if (
+      !response.body ||
+      typeof response.body.getReader !== "function"
+    ) {
+      throw invalidResponse(response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parts = [];
+    let buffer = "";
+    let modelVersion;
+    let usageMetadata;
+    let finishReason = null;
+    let blockReason;
+    let receivedPayload = false;
+
+    function processPayload(payload) {
+      if (!payload || typeof payload !== "object") {
+        throw invalidResponse(response.status);
+      }
+
+      if (payload.error !== undefined) {
+        throw invalidResponse(response.status);
+      }
+
+      receivedPayload = true;
+
+      const candidate = Array.isArray(payload.candidates)
+        ? payload.candidates[0]
+        : null;
+
+      if (candidate?.content?.parts) {
+        if (!Array.isArray(candidate.content.parts)) {
+          throw invalidResponse(response.status);
+        }
+
+        for (const part of candidate.content.parts) {
+          if (!part || typeof part !== "object") {
+            throw invalidResponse(response.status);
+          }
+
+          if (typeof part.text === "string") {
+            parts.push(part);
+
+            if (part.thought !== true && part.text !== "") {
+              onTextChunk(part.text);
+            }
+          } else if (part.functionCall !== undefined) {
+            parts.push(part);
+          }
+        }
+      }
+
+      if (typeof candidate?.finishReason === "string") {
+        finishReason = candidate.finishReason;
+      }
+
+      if (typeof payload.modelVersion === "string") {
+        modelVersion = payload.modelVersion;
+      }
+
+      if (payload.usageMetadata !== undefined) {
+        usageMetadata = payload.usageMetadata;
+      }
+
+      if (payload.promptFeedback !== undefined) {
+        blockReason = payload.promptFeedback.blockReason;
+      }
+    }
+
+    function processFrame(frame) {
+      const parsed = parseSseFrame(frame);
+
+      if (!parsed) {
+        return;
+      }
+
+      if (parsed.event === "error") {
+        throw invalidResponse(response.status);
+      }
+
+      if (parsed.event !== "message") {
+        return;
+      }
+
+      let payload;
+
+      try {
+        payload = JSON.parse(parsed.data);
+      } catch {
+        throw invalidResponse(response.status);
+      }
+
+      processPayload(payload);
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let separator = buffer.match(/\r?\n\r?\n/);
+
+        while (separator) {
+          const frame = buffer.slice(0, separator.index);
+          buffer = buffer.slice(
+            separator.index + separator[0].length
+          );
+          processFrame(frame);
+          separator = buffer.match(/\r?\n\r?\n/);
+        }
+      }
+
+      buffer += decoder.decode();
+
+      if (buffer.trim() !== "") {
+        processFrame(buffer);
+      }
+
+      if (!receivedPayload) {
+        throw invalidResponse(response.status);
+      }
+
+      return normalizeResponse(
+        {
+          modelVersion,
+          usageMetadata,
+          promptFeedback:
+            blockReason === undefined
+              ? undefined
+              : { blockReason },
+          candidates: [
+            {
+              content: { parts },
+              finishReason,
+            },
+          ],
+        },
+        model
+      );
+    } catch (error) {
+      if (error instanceof AssistantProviderError) {
+        throw error;
+      }
+
+      if (isTimeoutError(error)) {
+        throw new AssistantProviderError(
+          ASSISTANT_PROVIDER_ERROR_CODES.TIMEOUT,
+          { retryable: true }
+        );
+      }
+
+      throw new AssistantProviderError(
+        ASSISTANT_PROVIDER_ERROR_CODES.UNAVAILABLE,
+        { retryable: true }
+      );
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   return Object.freeze({
     id: ASSISTANT_PROVIDERS.GEMINI,
     model,
     capabilities: Object.freeze({
       supportsTools: true,
-      supportsStreaming: false,
+      supportsStreaming: true,
     }),
     chat,
+    chatStream,
   });
 }
 

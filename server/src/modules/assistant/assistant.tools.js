@@ -15,11 +15,15 @@ const announcementService = require(
 const videoService = require(
   "../videos/video.service"
 );
+const categoryService = require(
+  "../categories/category.service"
+);
 const {
   MAX_ASSISTANT_ANNOUNCEMENT_RESULTS,
   MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS,
   MAX_ASSISTANT_VIDEO_RESULTS,
   MAX_ASSISTANT_VIDEO_SEARCH_RESULTS,
+  MAX_ASSISTANT_CATEGORY_SEARCH_RESULTS,
   MAX_ASSISTANT_PRODUCT_RESULTS,
 } = require("./assistant.constants");
 
@@ -302,6 +306,57 @@ const assistantToolRegistry =
           truncated:
             data.pagination.totalItems >
             MAX_ASSISTANT_VIDEO_SEARCH_RESULTS,
+        };
+      },
+    },
+    {
+      name: "search_categories",
+      description:
+        "Busca categorías por nombre para identificar una categoría existente.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async ({ query }) => {
+        const normalizedQuery = query.trim();
+
+        if (
+          normalizedQuery.length === 0 ||
+          normalizedQuery.length > 120
+        ) {
+          throw new AssistantToolError(
+            TOOL_ERROR_CODES.INVALID_TOOL_ARGUMENTS,
+            "The category search query is invalid"
+          );
+        }
+
+        const data =
+          await categoryService.listAdministrativeCategories({
+            page: 1,
+            limit:
+              MAX_ASSISTANT_CATEGORY_SEARCH_RESULTS + 1,
+            name: normalizedQuery,
+            sortBy: "name",
+            sortOrder: "asc",
+          });
+
+        return {
+          categories: data.categories
+            .slice(0, MAX_ASSISTANT_CATEGORY_SEARCH_RESULTS)
+            .map((category) => ({
+              id: category.id,
+              name: category.name,
+              isActive: category.isActive,
+            })),
+          truncated:
+            data.pagination.totalItems >
+            MAX_ASSISTANT_CATEGORY_SEARCH_RESULTS,
         };
       },
     },

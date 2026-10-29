@@ -100,6 +100,29 @@ function jsonResponse(payload, status = 200) {
   };
 }
 
+function sseResponse(payloads, status = 200) {
+  const contents = payloads
+    .map(
+      (payload) =>
+        `data: ${JSON.stringify(payload)}\r\n\r\n`
+    )
+    .join("");
+  const encoded = new TextEncoder().encode(contents);
+
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoded.slice(0, 17));
+        controller.enqueue(encoded.slice(17, 48));
+        controller.enqueue(encoded.slice(48));
+        controller.close();
+      },
+    }),
+  };
+}
+
 function createProvider(
   fetchImpl,
   overrides = {}
@@ -344,6 +367,104 @@ test("Gemini provider joins text parts, ignores thoughts and tolerates missing u
   const result = await provider.chat({
     systemInstruction: "Sistema",
     messages: [{ role: "user", content: "Hola" }],
+  });
+
+  test("Gemini provider streams final text across split SSE frames", async () => {
+    let captured;
+    const provider = createProvider(
+      async (url, options) => {
+        captured = { url, options };
+        return sseResponse([
+          {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    { text: "Hola " },
+                    { thought: true, text: "interno" },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: "mundo" }],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 12,
+              candidatesTokenCount: 2,
+            },
+            modelVersion: "gemini-stream-test",
+          },
+        ]);
+      }
+    );
+    const chunks = [];
+
+    const result = await provider.chatStream(
+      {
+        systemInstruction: "Sos el asistente.",
+        messages: [{ role: "user", content: "Hola" }],
+        tools: [],
+      },
+      (chunk) => chunks.push(chunk)
+    );
+
+    assert.match(
+      captured.url,
+      /\/models\/gemini-test:streamGenerateContent\?alt=sse$/
+    );
+    assert.equal(
+      captured.options.headers.accept,
+      "text/event-stream"
+    );
+    assert.equal(
+      JSON.parse(captured.options.body).tools,
+      undefined
+    );
+    assert.deepEqual(chunks, ["Hola ", "mundo"]);
+    assert.deepEqual(result, {
+      text: "Hola mundo",
+      model: "gemini-stream-test",
+      usage: { inputTokens: 12, outputTokens: 2 },
+      finishReason: "STOP",
+      blocked: false,
+      toolCalls: [],
+    });
+    assert.equal(provider.capabilities.supportsStreaming, true);
+  });
+
+  test("Gemini provider rejects malformed streamed events", async () => {
+    const provider = createProvider(async () => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode("data: not-json\n\n")
+          );
+          controller.close();
+        },
+      }),
+    }));
+
+    await expectProviderError(
+      provider.chatStream(
+        {
+          systemInstruction: "Sistema.",
+          messages: [{ role: "user", content: "Hola" }],
+          tools: [],
+        },
+        () => {}
+      ),
+      ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
+    );
   });
 
   assert.equal(result.text, "Hola mundo");
@@ -631,7 +752,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
     },
   });
   const declarations = Array.from(
-    { length: 10 },
+    { length: 12 },
     (_, index) => validDeclaration(index)
   );
 
@@ -646,7 +767,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
       messages: [{ role: "user", content: "Hola" }],
       tools: [
         ...declarations,
-        validDeclaration(10),
+        validDeclaration(12),
       ],
     }),
     ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
@@ -830,7 +951,7 @@ test("assistant provider factory exposes capabilities and rejects unknown provid
   assert.equal(provider.model, "gemini-test");
   assert.deepEqual(provider.capabilities, {
     supportsTools: true,
-    supportsStreaming: false,
+    supportsStreaming: true,
   });
   assert.equal(
     Object.isFrozen(provider.capabilities),

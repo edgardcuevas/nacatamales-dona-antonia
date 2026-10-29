@@ -89,6 +89,7 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
           "search_announcements",
           "list_videos",
           "search_videos",
+          "search_categories",
         ]
       );
     }

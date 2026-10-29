@@ -50,6 +50,9 @@ const productService = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const categoryService = require(
+  "../../src/modules/categories/category.service"
+);
 const actionRepository = require(
   "../../src/modules/assistant/assistant.action.repository"
 );
@@ -102,6 +105,9 @@ const state = {
   },
   providerResponses: null,
   providerInputs: [],
+  streamingInputs: [],
+  streamingChunks: ["Respuesta ", "del asistente"],
+  streamingResponse: null,
   usageAggregates: {
     totals: {
       totalQueries: 3,
@@ -134,7 +140,7 @@ const fakeProvider = {
   model: "gemini-test",
   capabilities: Object.freeze({
     supportsTools: true,
-    supportsStreaming: false,
+    supportsStreaming: true,
   }),
   chat: async (input) => {
     state.providerInputs.push(input);
@@ -148,6 +154,22 @@ const fakeProvider = {
     }
 
     return state.providerResponse;
+  },
+  chatStream: async (input, onTextChunk) => {
+    state.streamingInputs.push(input);
+
+    if (state.providerError) {
+      throw state.providerError;
+    }
+
+    const result =
+      state.streamingResponse ?? state.providerResponse;
+
+    for (const chunk of state.streamingChunks) {
+      onTextChunk(chunk);
+    }
+
+    return result;
   },
 };
 
@@ -271,6 +293,9 @@ afterEach(() => {
   };
   state.providerResponses = null;
   state.providerInputs = [];
+  state.streamingInputs = [];
+  state.streamingChunks = ["Respuesta ", "del asistente"];
+  state.streamingResponse = null;
   state.providerError = null;
   mock.restoreAll();
   mock.method(
@@ -362,6 +387,46 @@ async function request(path, options = {}) {
   };
 }
 
+async function requestStream(path, options = {}) {
+  const headers = {};
+
+  if (options.accessToken) {
+    headers.authorization = `Bearer ${options.accessToken}`;
+  }
+
+  if (options.body !== undefined) {
+    headers["content-type"] = "application/json";
+    headers.accept = "text/event-stream";
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: options.method ?? "POST",
+    headers,
+    body:
+      options.body === undefined
+        ? undefined
+        : JSON.stringify(options.body),
+  });
+
+  return {
+    status: response.status,
+    contentType: response.headers.get("content-type"),
+    body: await response.text(),
+  };
+}
+
+function parseAssistantStream(body) {
+  return Array.from(
+    body.matchAll(
+      /event: ([^\r\n]+)\r?\ndata: ([^\r\n]+)\r?\n\r?\n/g
+    ),
+    ([, event, data]) => ({
+      event,
+      data: JSON.parse(data),
+    })
+  );
+}
+
 test("assistant routes require authentication", async () => {
   const result = await request("/api/admin/assistant/status");
 
@@ -384,7 +449,7 @@ test("GET /status reports the provider and capabilities", async () => {
   assert.equal(result.body.data.model, "gemini-test");
   assert.deepEqual(result.body.data.capabilities, {
     supportsTools: true,
-    supportsStreaming: false,
+    supportsStreaming: true,
   });
 });
 
@@ -642,6 +707,253 @@ test("POST /messages explains why a non-ready video cannot be published", async 
   );
 });
 
+test("POST /messages warns that hiding a category only hides its products", async () => {
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  state.providerResponse = {
+    text: "Ignorar el texto del modelo.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 18, outputTokens: 6 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [
+      {
+        name: "set_category_active",
+        arguments: { categoryId: 21, isActive: false },
+      },
+    ],
+  };
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () => ({
+      id: 21,
+      name: "Bebidas",
+      isActive: true,
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    })
+  );
+  let inserted;
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async (input) => {
+      inserted = input;
+      return {
+        status: "CREATED",
+        actionId: 31,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+  let statusChanges = 0;
+  mock.method(
+    categoryService,
+    "changeCategoryStatus",
+    async () => {
+      statusChanges += 1;
+      throw new Error("Status must not change before confirmation");
+    }
+  );
+  mock.method(
+    assistantRepository,
+    "createConversationShell",
+    async () => ({
+      conversationId: 9,
+      prunedConversationIds: [],
+    })
+  );
+  mock.method(
+    assistantRepository,
+    "appendActionTurnToConversation",
+    async () => true
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("EDITOR"),
+    body: { message: "Ocultá la categoría Bebidas." },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(
+    result.body.data.pendingAction.tool,
+    "set_category_active"
+  );
+  assert.match(
+    result.body.data.pendingAction.warnings.join(" "),
+    /sus productos dejarán de mostrarse/
+  );
+  assert.match(
+    result.body.data.pendingAction.warnings.join(" "),
+    /no se borran ni se modifican/
+  );
+  assert.equal(inserted.targetId, 21);
+  assert.equal(statusChanges, 0);
+});
+
+test("POST /messages/stream emits only final answer chunks and the completed response", async () => {
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  state.providerResponse = {
+    text: "Este texto de planificación no debe transmitirse.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 10, outputTokens: 2 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [],
+  };
+  state.streamingResponse = {
+    text: "Respuesta final.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 20, outputTokens: 8 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [],
+  };
+  state.streamingChunks = ["Respuesta ", "final."];
+
+  const result = await requestStream(
+    "/api/admin/assistant/messages/stream",
+    {
+      accessToken: token("EDITOR"),
+      body: { message: "Hola" },
+    }
+  );
+  const events = parseAssistantStream(result.body);
+
+  assert.equal(result.status, 200);
+  assert.match(result.contentType, /^text\/event-stream/);
+  assert.deepEqual(
+    events.map(({ event, data }) => [event, data]),
+    [
+      ["chunk", { text: "Respuesta " }],
+      ["chunk", { text: "final." }],
+      [
+        "complete",
+        {
+          success: true,
+          message: "Assistant message answered successfully",
+          data: {
+            conversation: { id: 9, title: "Hola" },
+            userMessage: { role: "user", content: "Hola" },
+            reply: {
+              role: "assistant",
+              content: "Respuesta final.",
+              provider: "gemini",
+              model: "gemini-3.6-flash",
+              inputTokens: 30,
+              outputTokens: 10,
+            },
+            prunedConversationId: null,
+          },
+        },
+      ],
+    ]
+  );
+  assert.deepEqual(state.streamingInputs[0].tools, []);
+  assert.equal(
+    result.body.includes("Este texto de planificación"),
+    false
+  );
+});
+
+test("POST /messages/stream hides read-tool turns until the final answer", async () => {
+  state.providerResponses = [
+    {
+      text: "No transmitir texto interno.",
+      model: "gemini-3.6-flash",
+      usage: { inputTokens: 10, outputTokens: 2 },
+      finishReason: "STOP",
+      blocked: false,
+      toolCalls: [
+        {
+          name: "get_current_schedule",
+          arguments: {},
+        },
+      ],
+    },
+  ];
+  state.streamingResponse = {
+    text: "El horario es de 8 a 17.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 20, outputTokens: 8 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [],
+  };
+  state.streamingChunks = ["El horario ", "es de 8 a 17."];
+  mock.method(
+    settingsService,
+    "getPublicSettings",
+    async () => ({
+      scheduleText: "8:00 a 17:00",
+      fritangaScheduleText: null,
+    })
+  );
+
+  const result = await requestStream(
+    "/api/admin/assistant/messages/stream",
+    {
+      accessToken: token("ADMIN"),
+      body: { message: "¿Cuál es el horario?" },
+    }
+  );
+  const events = parseAssistantStream(result.body);
+
+  assert.deepEqual(
+    events
+      .filter(({ event }) => event === "chunk")
+      .map(({ data }) => data.text),
+    ["El horario ", "es de 8 a 17."]
+  );
+  assert.equal(
+    result.body.includes("No transmitir texto interno"),
+    false
+  );
+  assert.equal(
+    state.streamingInputs[0].messages.at(-1).role,
+    "tool"
+  );
+});
+
+test("POST /messages/stream reports provider errors as sanitized SSE events", async () => {
+  state.providerError = new AssistantProviderError(
+    "TIMEOUT",
+    { retryable: true }
+  );
+
+  const result = await requestStream(
+    "/api/admin/assistant/messages/stream",
+    {
+      accessToken: token("ADMIN"),
+      body: { message: "Hola" },
+    }
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(parseAssistantStream(result.body), [
+    {
+      event: "error",
+      data: {
+        success: false,
+        error: {
+          code: "ASSISTANT_TIMEOUT",
+          message: "The assistant took too long to answer",
+        },
+      },
+    },
+  ]);
+});
+
 test("POST /messages executes a role-authorized read tool and returns only the final answer", async () => {
   state.currentUser = {
     id: 2,
@@ -705,9 +1017,11 @@ test("POST /messages executes a role-authorized read tool and returns only the f
       "search_announcements",
       "list_videos",
       "search_videos",
+      "search_categories",
       "set_product_availability",
       "set_announcement_active",
       "set_video_active",
+      "set_category_active",
     ]
   );
   const toolMessage =

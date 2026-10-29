@@ -77,6 +77,47 @@ async function sendAssistantMessageController(
   );
 }
 
+function writeAssistantStreamEvent(
+  response,
+  event,
+  data
+) {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+
+  response.write(
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  );
+}
+
+async function streamAssistantMessageController(
+  request,
+  response
+) {
+  response.status(200).set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  response.flushHeaders();
+
+  const data = await sendMessage({
+    currentUser: request.currentUser,
+    input: request.assistantMessageInput,
+    onTextChunk: (text) =>
+      writeAssistantStreamEvent(response, "chunk", { text }),
+  });
+
+  writeAssistantStreamEvent(response, "complete", {
+    success: true,
+    message: "Assistant message answered successfully",
+    data,
+  });
+  response.end();
+}
+
 async function deleteAssistantConversationController(
   request,
   response
@@ -116,6 +157,7 @@ module.exports = {
   listAssistantConversationsController,
   listAssistantMessagesController,
   sendAssistantMessageController,
+  streamAssistantMessageController,
   deleteAssistantConversationController,
   getAssistantUsageController,
 };

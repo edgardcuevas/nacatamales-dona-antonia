@@ -7,6 +7,9 @@ const announcementService = require(
 const videoService = require(
   "../videos/video.service"
 );
+const categoryService = require(
+  "../categories/category.service"
+);
 
 function isPlainObject(value) {
   if (
@@ -284,8 +287,90 @@ const setVideoActive = {
     }.`,
 };
 
+function validateCategoryStatusArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 2 ||
+    !Number.isSafeInteger(value.categoryId) ||
+    value.categoryId < 1 ||
+    typeof value.isActive !== "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    categoryId: value.categoryId,
+    isActive: value.isActive,
+  };
+}
+
+const setCategoryActive = {
+  name: "set_category_active",
+  mode: "write",
+  targetType: "category",
+  description:
+    "Prepara la activación u ocultación de una categoría para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      categoryId: { type: "integer" },
+      isActive: { type: "boolean" },
+    },
+    required: ["categoryId", "isActive"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: validateCategoryStatusArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.categoryId,
+  getTargetById: (categoryId) =>
+    categoryService.getCategoryById(categoryId),
+  getTargetLabel: (category) => category.name,
+  getSnapshot: (category) => ({
+    isActive: category.isActive,
+    updatedAt: toIsoString(category.updatedAt),
+  }),
+  createSummary: ({ target, arguments: argumentsValue }) =>
+    `${argumentsValue.isActive ? "Mostrar" : "Ocultar"} la categoría «${target.name}»`,
+  getChanges: ({ target, arguments: argumentsValue }) => [
+    {
+      field: "isActive",
+      from: target.isActive,
+      to: argumentsValue.isActive,
+    },
+  ],
+  getWarnings: ({ target, arguments: argumentsValue }) => {
+    if (target.isActive === argumentsValue.isActive) {
+      return ["La categoría ya está en ese estado."];
+    }
+
+    return target.isActive && !argumentsValue.isActive
+      ? [
+          "Al ocultar esta categoría, sus productos dejarán de mostrarse en el menú. Los productos no se borran ni se modifican.",
+        ]
+      : [];
+  },
+  execute: ({ targetId, arguments: argumentsValue }) =>
+    categoryService.changeCategoryStatus({
+      categoryId: targetId,
+      isActive: argumentsValue.isActive,
+    }),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: domainResult.id,
+      label: domainResult.name,
+    },
+    isActive: domainResult.isActive,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `La categoría «${result.target.label}» ahora está ${
+      result.isActive ? "visible" : "oculta"
+    }.`,
+};
+
 module.exports = [
   setProductAvailability,
   setAnnouncementActive,
   setVideoActive,
+  setCategoryActive,
 ];

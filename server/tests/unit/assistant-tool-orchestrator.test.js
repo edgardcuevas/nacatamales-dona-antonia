@@ -148,6 +148,126 @@ test("a registered tool call runs once and returns a final answer", async () => 
   ]);
 });
 
+test("streaming sends only the final response after tool selection", async () => {
+  const registry = createAssistantToolRegistry([createTool()]);
+  const streamedInputs = [];
+  const chunks = [];
+  const provider = {
+    chat: async () =>
+      response({ text: "Respuesta de selección no visible." }),
+    chatStream: async (input, onTextChunk) => {
+      streamedInputs.push(input);
+      onTextChunk("Respuesta ");
+      onTextChunk("final.");
+      return response({
+        text: "Respuesta final.",
+        inputTokens: 10,
+        outputTokens: 5,
+      });
+    },
+  };
+
+  const result = await runAssistantToolTurn({
+    provider,
+    toolRegistry: registry,
+    role: "EDITOR",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "¿Horario?" }],
+    streamFinal: true,
+    onTextChunk: (chunk) => chunks.push(chunk),
+  });
+
+  assert.deepEqual(chunks, ["Respuesta ", "final."]);
+  assert.equal(result.text, "Respuesta final.");
+  assert.equal(streamedInputs.length, 1);
+  assert.deepEqual(streamedInputs[0].tools, []);
+  assert.deepEqual(streamedInputs[0].messages, [
+    { role: "user", content: "¿Horario?" },
+  ]);
+});
+
+test("streaming keeps read-tool turns hidden and includes their result in the final prompt", async () => {
+  const registry = createAssistantToolRegistry([
+    createTool({
+      handler: async () => ({ schedule: "8:00-17:00" }),
+    }),
+  ]);
+  let planningCalls = 0;
+  let streamedInput;
+  const chunks = [];
+  const provider = {
+    chat: async () => {
+      planningCalls += 1;
+      return planningCalls === 1
+        ? response({
+            text: "Texto interno no visible.",
+            toolCalls: [functionCall()],
+          })
+        : response({ text: "Respuesta no transmitida." });
+    },
+    chatStream: async (input, onTextChunk) => {
+      streamedInput = input;
+      onTextChunk("Horario final.");
+      return response({ text: "Horario final." });
+    },
+  };
+
+  await runAssistantToolTurn({
+    provider,
+    toolRegistry: registry,
+    role: "EDITOR",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "¿Horario?" }],
+    streamFinal: true,
+    onTextChunk: (chunk) => chunks.push(chunk),
+  });
+
+  assert.deepEqual(chunks, ["Horario final."]);
+  assert.deepEqual(streamedInput.tools, []);
+  assert.equal(streamedInput.messages.at(-1).role, "tool");
+  assert.deepEqual(
+    JSON.parse(streamedInput.messages.at(-1).content),
+    { schedule: "8:00-17:00" }
+  );
+});
+
+test("streaming does not transmit a pending write proposal", async () => {
+  const streamedChunks = [];
+  let streamCalls = 0;
+
+  const result = await runAssistantToolTurn({
+    provider: {
+      chat: async () =>
+        response({
+          toolCalls: [
+            {
+              name: "set_product_availability",
+              arguments: {
+                productId: 12,
+                isAvailable: false,
+              },
+            },
+          ],
+        }),
+      chatStream: async () => {
+        streamCalls += 1;
+        return response();
+      },
+    },
+    toolRegistry: createAssistantToolRegistry([createTool()]),
+    actionRegistry: createActionRegistry(),
+    role: "ADMIN",
+    systemInstruction: "Proponer, no ejecutar.",
+    messages: [{ role: "user", content: "Agotá pollo." }],
+    streamFinal: true,
+    onTextChunk: (chunk) => streamedChunks.push(chunk),
+  });
+
+  assert.ok(result.pendingActionRequest);
+  assert.equal(streamCalls, 0);
+  assert.deepEqual(streamedChunks, []);
+});
+
   test("a write tool call returns a pending request without executing it", async () => {
     const registry = createAssistantToolRegistry([
       createTool(),

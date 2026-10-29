@@ -35,6 +35,9 @@ const productService = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const categoryService = require(
+  "../../src/modules/categories/category.service"
+);
 const actionRegistry = require(
   "../../src/modules/assistant/assistant.action-registry"
 );
@@ -498,6 +501,52 @@ test("confirm executes a claimed action once and appends a result message", asyn
         uploadStatus: "DELETED",
         updatedAt: "2026-10-27T12:00:00.000Z",
       });
+    });
+  });
+
+  test("category proposal includes visibility warning without changing products", async () => {
+    const assistantActionService = require(
+      "../../src/modules/assistant/assistant.action.service"
+    );
+    mock.method(
+      categoryService,
+      "getCategoryById",
+      async () => ({
+        id: 21,
+        name: "Bebidas",
+        isActive: true,
+        updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+      })
+    );
+    let inserted;
+    mock.method(
+      actionRepository,
+      "createPendingAction",
+      async (input) => {
+        inserted = input;
+        return {
+          status: "CREATED",
+          actionId: 31,
+          expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+        };
+      }
+    );
+
+    const result =
+      await assistantActionService.proposeAction({
+        currentUser,
+        conversationId: 9,
+        toolName: "set_category_active",
+        arguments: { categoryId: 21, isActive: false },
+      });
+
+    assert.equal(result.status, "CREATED");
+    assert.deepEqual(result.pendingAction.warnings, [
+      "Al ocultar esta categoría, sus productos dejarán de mostrarse en el menú. Los productos no se borran ni se modifican.",
+    ]);
+    assert.deepEqual(inserted.before, {
+      isActive: true,
+      updatedAt: "2026-10-27T12:00:00.000Z",
     });
   });
 

@@ -4,11 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 const get = vi.fn()
 const post = vi.fn()
+const streamPost = vi.fn()
 
 vi.mock('../../../api/client', () => ({
   api: {
     get: (...args) => get(...args),
     post: (...args) => post(...args),
+    streamPost: (...args) => streamPost(...args),
     delete: vi.fn(),
   },
 }))
@@ -26,7 +28,7 @@ const STATUS_ENABLED = {
   enabled: true,
   provider: 'gemini',
   model: 'gemini-test',
-  capabilities: { supportsTools: true, supportsStreaming: false },
+  capabilities: { supportsTools: true, supportsStreaming: true },
 }
 
 const EMPTY_CONVERSATIONS = { conversations: [] }
@@ -52,11 +54,15 @@ describe('AssistantChat', () => {
   it('envía un mensaje y muestra la respuesta', async () => {
     get.mockResolvedValueOnce(STATUS_ENABLED)
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
-    post.mockResolvedValue({
+    streamPost.mockImplementation(async (_path, _body, { onTextChunk }) => {
+      onTextChunk('Res')
+      onTextChunk('puesta')
+      return {
       conversation: { id: 9, title: 'Hola' },
       userMessage: { role: 'user', content: 'Hola' },
       reply: { role: 'assistant', content: 'Respuesta' },
       prunedConversationId: null,
+      }
     })
 
     render(<AssistantChat />)
@@ -66,20 +72,55 @@ describe('AssistantChat', () => {
     fireEvent.change(input, { target: { value: 'Hola' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
 
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
-    expect(post).toHaveBeenCalledWith(
-      '/admin/assistant/messages',
+    await waitFor(() => expect(streamPost).toHaveBeenCalledTimes(1))
+    expect(streamPost).toHaveBeenCalledWith(
+      '/admin/assistant/messages/stream',
       { message: 'Hola' },
+      expect.objectContaining({ onTextChunk: expect.any(Function) }),
     )
     expect(await screen.findByText('Respuesta')).toBeTruthy()
     expect(screen.getByText('Vos')).toBeTruthy()
+  })
+
+  it('muestra texto parcial mientras espera el final de la transmisión', async () => {
+    get.mockResolvedValueOnce(STATUS_ENABLED)
+    get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
+    let emitChunk
+    let resolveStream
+    streamPost.mockImplementation(
+      (_path, _body, { onTextChunk }) => {
+        emitChunk = onTextChunk
+        return new Promise((resolve) => {
+          resolveStream = resolve
+        })
+      },
+    )
+
+    render(<AssistantChat />)
+    await screen.findByText('Asistente')
+    fireEvent.change(screen.getByLabelText('Mensaje'), {
+      target: { value: 'Hola' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    emitChunk('Parcial')
+    expect(await screen.findByText('Parcial')).toBeTruthy()
+
+    resolveStream({
+      conversation: { id: 9, title: 'Hola' },
+      userMessage: { role: 'user', content: 'Hola' },
+      reply: { role: 'assistant', content: 'Respuesta final' },
+      prunedConversationId: null,
+    })
+
+    expect(await screen.findByText('Respuesta final')).toBeTruthy()
   })
 
   it('bloquea el doble envío en el mismo tick', async () => {
     get.mockResolvedValueOnce(STATUS_ENABLED)
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
     let resolvePost
-    post.mockImplementation(
+    streamPost.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolvePost = resolve
@@ -96,7 +137,7 @@ describe('AssistantChat', () => {
     fireEvent.click(button)
     fireEvent.click(button)
 
-    expect(post).toHaveBeenCalledTimes(1)
+    expect(streamPost).toHaveBeenCalledTimes(1)
 
     resolvePost({
       conversation: { id: 9, title: 'Hola' },
@@ -113,7 +154,7 @@ describe('AssistantChat', () => {
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
     const error = new Error('boom')
     error.code = 'ASSISTANT_PROVIDER_ERROR'
-    post.mockRejectedValue(error)
+    streamPost.mockRejectedValue(error)
 
     render(<AssistantChat />)
     await screen.findByText('Asistente')
@@ -135,7 +176,7 @@ describe('AssistantChat', () => {
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
     const token = 'A'.repeat(43)
 
-    post.mockResolvedValueOnce({
+    streamPost.mockResolvedValueOnce({
       conversation: { id: 9, title: 'Hola' },
       userMessage: { role: 'user', content: 'Hola' },
       reply: {
@@ -180,7 +221,7 @@ describe('AssistantChat', () => {
 
     await waitFor(() =>
       expect(post).toHaveBeenNthCalledWith(
-        2,
+        1,
         `/admin/assistant/actions/${token}/confirm`,
         {},
       ),
@@ -191,7 +232,7 @@ describe('AssistantChat', () => {
   it('avisa cuando la conversación se podó', async () => {
     get.mockResolvedValueOnce(STATUS_ENABLED)
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
-    post.mockResolvedValue({
+    streamPost.mockResolvedValue({
       conversation: { id: 9, title: 'Hola' },
       userMessage: { role: 'user', content: 'Hola' },
       reply: { role: 'assistant', content: 'Respuesta' },
@@ -255,7 +296,7 @@ describe('AssistantChat', () => {
       '¿Cuántos productos tengo?',
     )
     expect(
-      screen.getByText(/Solo lectura: no modifica datos ni ejecuta acciones/),
+      screen.getByText(/Los cambios solo se aplican cuando los confirmás/),
     ).toBeTruthy()
   })
 

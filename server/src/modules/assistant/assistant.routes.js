@@ -15,6 +15,7 @@ const {
   listAssistantConversationsController,
   listAssistantMessagesController,
   sendAssistantMessageController,
+  streamAssistantMessageController,
   deleteAssistantConversationController,
   getAssistantUsageController,
 } = require("./assistant.controller");
@@ -75,6 +76,12 @@ router.post(
   "/messages",
   validateAssistantMessageBody,
   sendAssistantMessageController
+);
+
+router.post(
+  "/messages/stream",
+  validateAssistantMessageBody,
+  streamAssistantMessageController
 );
 
 router.post(

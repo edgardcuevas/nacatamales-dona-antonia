@@ -28,6 +28,8 @@ const ERROR_MESSAGES = {
     'El asistente tardó demasiado. Intentá de nuevo.',
   ASSISTANT_PROVIDER_ERROR:
     'No se pudo generar una respuesta. Intentá de nuevo.',
+  ASSISTANT_STREAM_INTERRUPTED:
+    'La respuesta se interrumpió. Intentá de nuevo.',
   RATE_LIMIT_EXCEEDED:
     'Hiciste demasiadas consultas. Esperá un momento.',
 }
@@ -194,12 +196,54 @@ export default function AssistantChat() {
     inFlightRef.current = true
     setIsSending(true)
     setErrorMessage(null)
+    const streamId = `assistant-stream-${Date.now()}`
+    let streamedText = ''
+
+    setMessages((previous) => [
+      ...previous,
+      { role: 'user', content: text, streamId },
+    ])
 
     try {
-      const data = await api.post('/admin/assistant/messages', {
+      const requestBody = {
         conversationId: activeId ?? undefined,
         message: text,
-      })
+      }
+      const data = status?.capabilities?.supportsStreaming
+        ? await api.streamPost(
+            '/admin/assistant/messages/stream',
+            requestBody,
+            {
+              onTextChunk: (chunk) => {
+                streamedText += chunk
+                setMessages((previous) => {
+                  const streamIndex = previous.findIndex(
+                    (message) =>
+                      message.streamId === streamId &&
+                      message.role === 'assistant',
+                  )
+
+                  if (streamIndex === -1) {
+                    return [
+                      ...previous,
+                      {
+                        role: 'assistant',
+                        content: streamedText,
+                        streamId,
+                      },
+                    ]
+                  }
+
+                  return previous.map((message, index) =>
+                    index === streamIndex
+                      ? { ...message, content: streamedText }
+                      : message,
+                  )
+                })
+              },
+            },
+          )
+        : await api.post('/admin/assistant/messages', requestBody)
 
       if (activeId === null) {
         setActiveId(data.conversation.id)
@@ -215,7 +259,7 @@ export default function AssistantChat() {
       }
 
       setMessages((previous) => [
-        ...previous,
+        ...previous.filter((message) => message.streamId !== streamId),
         { role: 'user', content: text },
         data.reply,
       ])
@@ -226,6 +270,9 @@ export default function AssistantChat() {
         setPrunedId(data.prunedConversationId)
       }
     } catch (error) {
+      setMessages((previous) =>
+        previous.filter((message) => message.streamId !== streamId),
+      )
       setErrorMessage(describeError(error))
     } finally {
       inFlightRef.current = false
@@ -321,9 +368,9 @@ export default function AssistantChat() {
         <div>
           <h2>Asistente</h2>
           <p className="assistant-chat__notice">
-            Consulta el horario, cuenta productos y lista avisos activos o
-            videos ocultos. Solo lectura: no modifica datos ni ejecuta
-            acciones.
+            Consulta horarios y catálogos, y puede preparar cambios en
+            productos, avisos, videos y categorías. Los cambios solo se
+            aplican cuando los confirmás.
           </p>
         </div>
         <button
@@ -383,7 +430,7 @@ export default function AssistantChat() {
         )}
         {messages.map((message, index) => (
           <article
-            key={`${message.role}-${index}`}
+            key={`${message.streamId || message.role}-${index}`}
             className={`assistant-chat__message assistant-chat__message--${message.role}`}
           >
             <span className="assistant-chat__role">
