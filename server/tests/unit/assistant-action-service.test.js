@@ -32,6 +32,9 @@ const AppError = require("../../src/errors/app-error");
 const productService = require(
   "../../src/modules/products/product.service"
 );
+const videoService = require(
+  "../../src/modules/videos/video.service"
+);
 const actionRegistry = require(
   "../../src/modules/assistant/assistant.action-registry"
 );
@@ -365,6 +368,136 @@ test("confirm executes a claimed action once and appends a result message", asyn
       assert.deepEqual(result.pendingAction.warnings, [
         "El producto ya está en ese estado.",
       ]);
+    });
+  });
+
+  test("video proposal rejects non-READY publishing but still permits hiding", async (t) => {
+    const assistantActionService = require(
+      "../../src/modules/assistant/assistant.action.service"
+    );
+
+    await t.test("DELETED cannot be proposed for publishing", async () => {
+      mock.method(
+        videoService,
+        "getVideoById",
+        async () => ({
+          id: 73,
+          title: "Video eliminado",
+          isActive: false,
+          uploadStatus: "DELETED",
+          updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+        })
+      );
+      let insertCalls = 0;
+      mock.method(
+        actionRepository,
+        "createPendingAction",
+        async () => {
+          insertCalls += 1;
+          return {
+            status: "CREATED",
+            actionId: 31,
+            expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+          };
+        }
+      );
+
+      const result =
+        await assistantActionService.proposeAction({
+          currentUser,
+          conversationId: 9,
+          toolName: "set_video_active",
+          arguments: { videoId: 73, isActive: true },
+        });
+
+      assert.deepEqual(result, {
+        status: "NOT_APPLICABLE",
+        message:
+          "Este video fue eliminado de YouTube y no se puede publicar. Sí podés ocultarlo.",
+      });
+      assert.equal(insertCalls, 0);
+    });
+
+    await t.test("PROCESSING cannot be proposed for publishing", async () => {
+      mock.method(
+        videoService,
+        "getVideoById",
+        async () => ({
+          id: 73,
+          title: "Video en proceso",
+          isActive: false,
+          uploadStatus: "PROCESSING",
+          updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+        })
+      );
+      let insertCalls = 0;
+      mock.method(
+        actionRepository,
+        "createPendingAction",
+        async () => {
+          insertCalls += 1;
+          return {
+            status: "CREATED",
+            actionId: 31,
+            expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+          };
+        }
+      );
+
+      const result =
+        await assistantActionService.proposeAction({
+          currentUser,
+          conversationId: 9,
+          toolName: "set_video_active",
+          arguments: { videoId: 73, isActive: true },
+        });
+
+      assert.equal(result.status, "NOT_APPLICABLE");
+      assert.match(result.message, /carga está lista/);
+      assert.equal(insertCalls, 0);
+    });
+
+    await t.test("DELETED can be proposed for hiding", async () => {
+      mock.method(
+        videoService,
+        "getVideoById",
+        async () => ({
+          id: 73,
+          title: "Video eliminado",
+          isActive: true,
+          uploadStatus: "DELETED",
+          updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+        })
+      );
+      let inserted;
+      mock.method(
+        actionRepository,
+        "createPendingAction",
+        async (input) => {
+          inserted = input;
+          return {
+            status: "CREATED",
+            actionId: 31,
+            expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+          };
+        }
+      );
+
+      const result =
+        await assistantActionService.proposeAction({
+          currentUser,
+          conversationId: 9,
+          toolName: "set_video_active",
+          arguments: { videoId: 73, isActive: false },
+        });
+
+      assert.equal(result.status, "CREATED");
+      assert.equal(inserted.targetType, "video");
+      assert.deepEqual(inserted.before, {
+        isActive: true,
+        uploadStatus: "DELETED",
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      });
     });
   });
 

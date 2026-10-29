@@ -37,6 +37,7 @@ const assistantToolRegistry = require(
 );
 const {
   MAX_ASSISTANT_VIDEO_RESULTS,
+  MAX_ASSISTANT_VIDEO_SEARCH_RESULTS,
 } = require(
   "../../src/modules/assistant/assistant.constants"
 );
@@ -85,7 +86,9 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
           "count_products",
           "search_products",
           "list_active_announcements",
+          "search_announcements",
           "list_videos",
+          "search_videos",
         ]
       );
     }
@@ -159,6 +162,118 @@ test("list_videos returns an empty result without querying YouTube", async () =>
       truncated: false,
     });
     assert.equal(listVideos.mock.callCount(), 1);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("search_videos returns at most ten minimal real video records", async () => {
+  const returnedVideos = Array.from(
+    {
+      length: MAX_ASSISTANT_VIDEO_SEARCH_RESULTS + 1,
+    },
+    (_, index) => ({
+      id: index + 1,
+      title: `Video ${index + 1}`,
+      isActive: index % 2 === 0,
+      uploadStatus: index === 0 ? "DELETED" : "READY",
+      url: "https://youtube.example/watch?v=secret",
+      externalId: "secret-id",
+      description: "Must not be exposed",
+      thumbnailUrl: "https://cdn.example/thumbnail.jpg",
+      privacyStatus: "PRIVATE",
+    })
+  );
+  const listVideos = mock.method(
+    videoService,
+    "listAdministrativeVideos",
+    async () => ({
+      videos: returnedVideos,
+      pagination: {
+        page: 1,
+        limit: MAX_ASSISTANT_VIDEO_SEARCH_RESULTS + 1,
+        totalItems: MAX_ASSISTANT_VIDEO_SEARCH_RESULTS + 1,
+        totalPages: 2,
+      },
+    })
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some((tool) => tool.name === "search_videos")
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "search_videos",
+        arguments: { query: "  demo  " },
+        role: "EDITOR",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.deepEqual(
+      listVideos.mock.calls[0].arguments[0],
+      {
+        page: 1,
+        limit: MAX_ASSISTANT_VIDEO_SEARCH_RESULTS + 1,
+        title: "demo",
+        sortBy: "title",
+        sortOrder: "asc",
+      }
+    );
+    assert.equal(
+      result.videos.length,
+      MAX_ASSISTANT_VIDEO_SEARCH_RESULTS
+    );
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.videos[0], {
+      id: 1,
+      title: "Video 1",
+      isActive: true,
+      uploadStatus: "DELETED",
+    });
+    assert.doesNotMatch(
+      serialized,
+      /secret|Must not be exposed|thumbnail\.jpg|PRIVATE/
+    );
+    assert.ok(serialized.length <= 6_000);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("search_videos rejects blank and oversized queries", async () => {
+  let listCalls = 0;
+  mock.method(
+    videoService,
+    "listAdministrativeVideos",
+    async () => {
+      listCalls += 1;
+      return {
+        videos: [],
+        pagination: { totalItems: 0 },
+      };
+    }
+  );
+
+  try {
+    for (const query of ["   ", "a".repeat(121)]) {
+      await assert.rejects(
+        assistantToolRegistry.executeToolCall({
+          name: "search_videos",
+          arguments: { query },
+          role: "ADMIN",
+        }),
+        (error) =>
+          error.code === "INVALID_TOOL_ARGUMENTS"
+      );
+    }
+
+    assert.equal(listCalls, 0);
   } finally {
     mock.restoreAll();
   }

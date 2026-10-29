@@ -47,6 +47,9 @@ const assistantProvider = require(
 const productService = require(
   "../../src/modules/products/product.service"
 );
+const videoService = require(
+  "../../src/modules/videos/video.service"
+);
 const actionRepository = require(
   "../../src/modules/assistant/assistant.action.repository"
 );
@@ -558,6 +561,87 @@ test("POST /messages creates a pending action without changing the product", asy
   assert.equal(productWrites, 0);
 });
 
+test("POST /messages explains why a non-ready video cannot be published", async () => {
+  state.currentUser = {
+    id: 2,
+    email: "editor@example.com",
+    role: "EDITOR",
+    isActive: true,
+  };
+  state.providerResponse = {
+    text: "Ignorar el texto del modelo.",
+    model: "gemini-3.6-flash",
+    usage: { inputTokens: 18, outputTokens: 6 },
+    finishReason: "STOP",
+    blocked: false,
+    toolCalls: [
+      {
+        name: "set_video_active",
+        arguments: { videoId: 73, isActive: true },
+      },
+    ],
+  };
+  mock.method(
+    videoService,
+    "getVideoById",
+    async () => ({
+      id: 73,
+      title: "Video en proceso",
+      isActive: false,
+      uploadStatus: "PROCESSING",
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    })
+  );
+  let actionInsertCalls = 0;
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async () => {
+      actionInsertCalls += 1;
+      return {
+        status: "CREATED",
+        actionId: 31,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+  let savedTurn;
+  mock.method(
+    assistantRepository,
+    "createConversationShell",
+    async () => ({
+      conversationId: 9,
+      prunedConversationIds: [],
+    })
+  );
+  mock.method(
+    assistantRepository,
+    "appendActionTurnToConversation",
+    async (input) => {
+      savedTurn = input;
+      return true;
+    }
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("EDITOR"),
+    body: { message: "Publicá el video en proceso." },
+  });
+
+  assert.equal(result.status, 201);
+  assert.match(
+    result.body.data.reply.content,
+    /Solo se pueden publicar videos cuando la carga está lista/
+  );
+  assert.equal(result.body.data.pendingAction, undefined);
+  assert.equal(actionInsertCalls, 0);
+  assert.equal(
+    savedTurn.assistantMessage.content,
+    result.body.data.reply.content
+  );
+});
+
 test("POST /messages executes a role-authorized read tool and returns only the final answer", async () => {
   state.currentUser = {
     id: 2,
@@ -618,8 +702,12 @@ test("POST /messages executes a role-authorized read tool and returns only the f
       "count_products",
       "search_products",
       "list_active_announcements",
+      "search_announcements",
       "list_videos",
+      "search_videos",
       "set_product_availability",
+      "set_announcement_active",
+      "set_video_active",
     ]
   );
   const toolMessage =

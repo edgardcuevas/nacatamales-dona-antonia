@@ -37,6 +37,7 @@ const assistantToolRegistry = require(
 );
 const {
   MAX_ASSISTANT_ANNOUNCEMENT_RESULTS,
+  MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS,
 } = require(
   "../../src/modules/assistant/assistant.constants"
 );
@@ -131,6 +132,115 @@ test("list_active_announcements reports an empty current list without truncation
       announcements: [],
       truncated: false,
     });
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("search_announcements returns at most ten minimal real records", async () => {
+  const returnedAnnouncements = Array.from(
+    {
+      length:
+        MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS + 1,
+    },
+    (_, index) => ({
+      id: index + 1,
+      title: `Aviso ${index + 1}`,
+      isActive: index % 2 === 0,
+      startsAt: null,
+      endsAt: null,
+      content: "Must not be exposed",
+      notifiedAt: "private-field",
+      image: { url: "https://cdn.example/image.jpg" },
+    })
+  );
+  const listAnnouncements = mock.method(
+    announcementService,
+    "listAdministrativeAnnouncements",
+    async () => ({
+      announcements: returnedAnnouncements,
+      pagination: { totalItems: 11 },
+    })
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some((tool) => tool.name === "search_announcements")
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "search_announcements",
+        arguments: { query: "  promo  " },
+        role: "EDITOR",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.deepEqual(
+      listAnnouncements.mock.calls[0].arguments[0],
+      {
+        page: 1,
+        limit:
+          MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS + 1,
+        title: "promo",
+        sortBy: "title",
+        sortOrder: "asc",
+      }
+    );
+    assert.equal(
+      result.announcements.length,
+      MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS
+    );
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.announcements[0], {
+      id: 1,
+      title: "Aviso 1",
+      isActive: true,
+      startsAt: null,
+      endsAt: null,
+    });
+    assert.doesNotMatch(
+      serialized,
+      /Must not be exposed|private-field|cdn\.example/
+    );
+    assert.ok(serialized.length <= 6_000);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("search_announcements rejects blank and oversized queries", async () => {
+  let listCalls = 0;
+  mock.method(
+    announcementService,
+    "listAdministrativeAnnouncements",
+    async () => {
+      listCalls += 1;
+      return {
+        announcements: [],
+        pagination: { totalItems: 0 },
+      };
+    }
+  );
+
+  try {
+    for (const query of ["   ", "a".repeat(121)]) {
+      await assert.rejects(
+        assistantToolRegistry.executeToolCall({
+          name: "search_announcements",
+          arguments: { query },
+          role: "ADMIN",
+        }),
+        (error) =>
+          error.code === "INVALID_TOOL_ARGUMENTS"
+      );
+    }
+
+    assert.equal(listCalls, 0);
   } finally {
     mock.restoreAll();
   }

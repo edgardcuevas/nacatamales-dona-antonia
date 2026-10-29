@@ -188,6 +188,29 @@ async function proposeAction({
     return { status: "TARGET_NOT_FOUND" };
   }
 
+  const proposalRejectionMessage =
+    definition.getProposalRejectionMessage({
+      target,
+      arguments: validatedCall.arguments,
+    });
+
+  if (proposalRejectionMessage !== null) {
+    if (
+      typeof proposalRejectionMessage !== "string" ||
+      proposalRejectionMessage.trim() === "" ||
+      proposalRejectionMessage.length > 500
+    ) {
+      throw new Error(
+        "Assistant action proposal rejection is invalid"
+      );
+    }
+
+    return {
+      status: "NOT_APPLICABLE",
+      message: proposalRejectionMessage,
+    };
+  }
+
   const targetLabel = definition.getTargetLabel(target);
   const before = definition.getSnapshot(target);
   const summary = definition.createSummary({

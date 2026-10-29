@@ -214,6 +214,8 @@ async function saveActionProposalTurn({
   } else if (proposal.status === "PENDING_LIMIT") {
     replyContent =
       "Tenés demasiadas confirmaciones pendientes. Confirmá o cancelá una antes de pedir otra.";
+  } else if (proposal.status === "NOT_APPLICABLE") {
+    replyContent = proposal.message;
   } else {
     replyContent =
       "No encontré el objetivo solicitado. Aclarame cuál querés cambiar.";

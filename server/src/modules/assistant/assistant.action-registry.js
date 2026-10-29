@@ -115,6 +115,16 @@ function normalizeActionDefinition(definition) {
     );
   }
 
+  const getProposalRejectionMessage =
+    definition.getProposalRejectionMessage ?? (() => null);
+  if (
+    typeof getProposalRejectionMessage !== "function"
+  ) {
+    throw new TypeError(
+      `Assistant action ${name} has an invalid proposal rejection handler`
+    );
+  }
+
   return Object.freeze({
     name,
     mode,
@@ -123,6 +133,7 @@ function normalizeActionDefinition(definition) {
     parameters: structuredClone(parameters),
     allowedRoles: Object.freeze([...allowedRoles]),
     ...handlers,
+    getProposalRejectionMessage,
   });
 }
 

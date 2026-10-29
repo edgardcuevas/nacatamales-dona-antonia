@@ -17,7 +17,9 @@ const videoService = require(
 );
 const {
   MAX_ASSISTANT_ANNOUNCEMENT_RESULTS,
+  MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS,
   MAX_ASSISTANT_VIDEO_RESULTS,
+  MAX_ASSISTANT_VIDEO_SEARCH_RESULTS,
   MAX_ASSISTANT_PRODUCT_RESULTS,
 } = require("./assistant.constants");
 
@@ -160,6 +162,62 @@ const assistantToolRegistry =
       },
     },
     {
+      name: "search_announcements",
+      description:
+        "Busca avisos por título para identificar un aviso existente.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async ({ query }) => {
+        const normalizedQuery = query.trim();
+
+        if (
+          normalizedQuery.length === 0 ||
+          normalizedQuery.length > 120
+        ) {
+          throw new AssistantToolError(
+            TOOL_ERROR_CODES.INVALID_TOOL_ARGUMENTS,
+            "The announcement search query is invalid"
+          );
+        }
+
+        const data =
+          await announcementService.listAdministrativeAnnouncements({
+            page: 1,
+            limit:
+              MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS + 1,
+            title: normalizedQuery,
+            sortBy: "title",
+            sortOrder: "asc",
+          });
+
+        return {
+          announcements: data.announcements
+            .slice(
+              0,
+              MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS
+            )
+            .map((announcement) => ({
+              id: announcement.id,
+              title: announcement.title,
+              isActive: announcement.isActive,
+              startsAt: announcement.startsAt,
+              endsAt: announcement.endsAt,
+            })),
+          truncated:
+            data.pagination.totalItems >
+            MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS,
+        };
+      },
+    },
+    {
       name: "list_videos",
       description:
         "Lista videos ocultos del sitio, con su estado de carga y privacidad.",
@@ -193,6 +251,57 @@ const assistantToolRegistry =
           truncated:
             data.pagination.totalItems >
             MAX_ASSISTANT_VIDEO_RESULTS,
+        };
+      },
+    },
+    {
+      name: "search_videos",
+      description:
+        "Busca videos por título para identificar un video existente y su estado.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async ({ query }) => {
+        const normalizedQuery = query.trim();
+
+        if (
+          normalizedQuery.length === 0 ||
+          normalizedQuery.length > 120
+        ) {
+          throw new AssistantToolError(
+            TOOL_ERROR_CODES.INVALID_TOOL_ARGUMENTS,
+            "The video search query is invalid"
+          );
+        }
+
+        const data =
+          await videoService.listAdministrativeVideos({
+            page: 1,
+            limit: MAX_ASSISTANT_VIDEO_SEARCH_RESULTS + 1,
+            title: normalizedQuery,
+            sortBy: "title",
+            sortOrder: "asc",
+          });
+
+        return {
+          videos: data.videos
+            .slice(0, MAX_ASSISTANT_VIDEO_SEARCH_RESULTS)
+            .map((video) => ({
+              id: video.id,
+              title: video.title,
+              isActive: video.isActive,
+              uploadStatus: video.uploadStatus,
+            })),
+          truncated:
+            data.pagination.totalItems >
+            MAX_ASSISTANT_VIDEO_SEARCH_RESULTS,
         };
       },
     },

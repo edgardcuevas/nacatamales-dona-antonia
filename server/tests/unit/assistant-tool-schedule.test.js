@@ -64,7 +64,9 @@ test("get_current_schedule is available to both roles and returns only schedule 
           "count_products",
           "search_products",
           "list_active_announcements",
+          "search_announcements",
           "list_videos",
+          "search_videos",
         ]
       );
     }

@@ -621,6 +621,37 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
     ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
   );
 
+  const validDeclaration = (index) => ({
+    name: `tool_${index}`,
+    description: "Consulta datos.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  });
+  const declarations = Array.from(
+    { length: 10 },
+    (_, index) => validDeclaration(index)
+  );
+
+  await provider.chat({
+    systemInstruction: "Sistema.",
+    messages: [{ role: "user", content: "Hola" }],
+    tools: declarations,
+  });
+  await expectProviderError(
+    provider.chat({
+      systemInstruction: "Sistema.",
+      messages: [{ role: "user", content: "Hola" }],
+      tools: [
+        ...declarations,
+        validDeclaration(10),
+      ],
+    }),
+    ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
+  );
+
   for (const content of [
     "{malformed",
     "[]",

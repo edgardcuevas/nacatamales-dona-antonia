@@ -1,7 +1,7 @@
 # Asistente Inteligente de Administración
 
-Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; diseño de Fase 2B aprobado el 2026-10-27; Tareas 1, 2 y 3 completadas**.
-Última actualización: 2026-10-27.
+Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; diseño de Fase 2B aprobado el 2026-10-27; Tareas 1 a 7 completadas**.
+Última actualización: 2026-10-28.
 
 ## Cómo retomar el trabajo
 
@@ -764,13 +764,21 @@ Una tarea por vez. Cada una se valida y documenta antes de la siguiente. Ninguna
 
 **Done:** tarjeta con resumen, objetivo, cambio, advertencias, vencimiento y botones; doble confirmación bloqueada; confirmar/cancelar reales contra la API; estados de error y vencimiento; sin HTML del modelo.
 
-#### [ ] Tarea 6 — `search_announcements` + `set_announcement_active`
+#### [x] Tarea 6 — `search_announcements` + `set_announcement_active`
 
 **Done:** publicar aviso con advertencia de push; ocultar sin push; ventana de fechas validada por el servicio; una sola notificación ante doble confirmación.
 
-#### [ ] Tarea 7 — `search_videos` + `set_video_active`
+**Implementación:** búsqueda administrativa por título, limitada a 10 avisos y con DTO mínimo; propuesta con objetivo, cambio y advertencia condicional de push; confirmación por `changeAnnouncementStatus`, que conserva la validación de fechas y el reclamo idempotente de notificaciones. El prompt exige buscar primero y no presentar la publicación como ejecutada.
+
+**Validación:** `cd server && npm test` pasó 779/779; las pruebas enfocadas de acciones, anuncios, prompt y orquestación pasaron 33/33. En MySQL de test, se buscó un aviso temporal, se comprobó que la propuesta `PENDING` no lo publicaba, se confirmó y se repitió la confirmación (sin segunda ejecución); los registros temporales se limpiaron. Push estaba deshabilitado en esa base; las pruebas existentes de `notification-send.test.js` verifican el reclamo atómico y que un aviso ya reclamado no se envía dos veces.
+
+#### [x] Tarea 7 — `search_videos` + `set_video_active`
 
 **Done:** publicar solo `READY`; `DELETED` no se publica; ocultar siempre; sin llamadas a YouTube.
+
+**Implementación:** búsqueda administrativa por título limitada a 10 videos, con id, título, visibilidad y `uploadStatus`; acción de publicar u ocultar que delega en `changeVideoStatus`. La propuesta rechaza en el servidor cualquier intento de publicar un video que no esté `READY` y explica el motivo; incluye `uploadStatus` en la instantánea para detectar cambios antes de confirmar. Ocultar sigue permitido para videos `DELETED`. El límite local de herramientas Gemini subió de 8 a 10 para admitir el catálogo completo de esta tarea.
+
+**Validación:** `cd server && npm test` pasó 789/789; las pruebas enfocadas de acciones, búsqueda, prompt, proveedor y ruta pasaron 84/84. En MySQL de test se comprobó búsqueda, propuesta sin mutación, publicación de un video `READY`, repetición idempotente, rechazo de publicar un `DELETED` y ocultación permitida del mismo; no hubo llamadas a YouTube y se limpiaron los registros temporales.
 
 #### [ ] Tarea 8 — `search_categories` + `set_category_active`
 
