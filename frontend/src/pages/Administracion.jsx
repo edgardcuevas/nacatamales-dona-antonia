@@ -10,6 +10,7 @@ import SettingsManager from '../components/Admin/SettingsManager/SettingsManager
 import AccountManager from '../components/Admin/AccountManager/AccountManager'
 import UserManager from '../components/Admin/UserManager/UserManager'
 import AssistantChat from '../components/Admin/Assistant/AssistantChat'
+import AssistantDrawer from '../components/Admin/Assistant/AssistantDrawer'
 import '../styles/Administracion.css'
 import usePageTitle from '../hooks/usePageTitle'
 
@@ -124,6 +125,7 @@ export default function Administracion() {
           ))}
         </div>
       )}
+      <AssistantDrawer activeSection={activeSection} />
     </div>
   )
 }

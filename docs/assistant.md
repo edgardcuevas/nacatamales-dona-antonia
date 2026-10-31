@@ -848,3 +848,29 @@ Para transmitir solo la respuesta final, un turno sin herramientas puede gastar 
 - Un segundo par de turnos en la misma conversación comprobó la rama `conversationId`: mismo id, historial de cuatro mensajes en orden y el contenido de cada respuesta igual al transmitido. También se limpió.
 - Navegador real (Chrome headless contra Vite y la API, rol `EDITOR`): login por el formulario, apertura de Asistente, envío y render incremental. La petición fue a `/api/admin/assistant/messages/stream` con `200`; llegaron 5 eventos SSE (4 `chunk`, 328 caracteres) y se observaron 5 muestras parciales del DOM antes de `complete`. El texto final del DOM coincidió con el persistido, no apareció tarjeta de confirmación y el turno guardó dos mensajes. Los datos temporales se eliminaron.
 - El caso de error posterior a las cabeceras está cubierto por la prueba de ruta con proveedor simulado (`event: error` saneado, sin detalles internos).
+---
+
+## Fase 3 — Interfaz del chat (completada 2026-10-30)
+
+Objetivo: que el asistente deje de verse como un formulario generico y pase a ser un chat con la identidad del sitio, usable desde cualquier seccion.
+
+### Cambios
+
+- `AssistantChat.css` reescrito con los tokens del sistema (`--color-*`, `--r-card`, `--shadow-*`, `--sp-*`, `--font-display`/`--font-body`). Se eliminaron los literales `#1f3b73`, `#ddd`, `#fafafa`. Botones con `.btn`, compositor con `.admin-field`, errores con `.admin-error`.
+- `AssistantChat.jsx`: avatares, hora por mensaje, estado vacio con sugerencias como tarjetas, carga con `.skeleton`, contador `n/2000`, Enter envia / Shift+Enter salta, textarea auto-grow, auto-scroll solo si el usuario esta cerca del fondo con boton "Ir al final", indicador de escritura, boton "Detener" con `AbortController` (usa el `signal` que ya acepta `api.streamPost`), boton "Reintentar" tras un error.
+- `assistantFormat.js` + `AssistantMarkdown.jsx` (nuevos): formato humanizado de los campos de la tarjeta de confirmacion (`isAvailable` a Disponibilidad, `isActive` a Visibilidad con Publicado/Oculto, Visible/Oculta) y renderizador seguro por lineas (parrafos, listas, `**negrita**`, codigo en linea) sin `dangerouslySetInnerHTML`.
+- Tarjeta de confirmacion integrada en `AssistantChat.jsx`: cambios humanizados, cuenta regresiva del vencimiento con limpieza del intervalo, advertencias.
+- `AssistantDrawer.jsx` + `.css`: boton flotante abajo a la derecha, panel lateral (hoja completa en movil), montaje perezoso, oculto con `hidden` para conservar borrador/scroll, FAB solo si `enabled`. Si `activeSection === 'assistant'` devuelve `null`: nunca hay dos chats vivos ni dos `GET /admin/assistant/status`.
+- `pages/Administracion.jsx`: montaje aditivo de `<AssistantDrawer activeSection={activeSection} />`. No se toco el efecto de foco ni `SECTION_COMPONENTS`.
+- Corregido un bug real: los botones Confirmar/Cancelar leian `confirmInFlightRef.current`/`cancelInFlightRef.current` durante el render (8 errores de `react-hooks/refs` y el texto "Confirmando..." nunca se veia). Ahora usan estado `confirming`/`cancelling` y el ref queda solo como candado anti doble clic.
+
+### Archivos
+
+`frontend/src/components/Admin/Assistant/AssistantChat.jsx`, `AssistantChat.css`, `AssistantMarkdown.jsx`, `assistantFormat.js`, `AssistantDrawer.jsx`, `AssistantDrawer.css`, `AssistantDrawer.test.jsx`, `assistantFormat.test.js`, `AssistantMarkdown.test.jsx`, `pages/Administracion.jsx`.
+
+### Validacion
+
+- `cd frontend && npm test`: 194 / 194 en 26 archivos.
+- `cd frontend && npm run build`: verde, 404 ms.
+- `cd frontend && npm run lint` sobre `src`: 0 errores (los 9 restantes son del script suelto `frontend/verify-ui.js`).
+- `docs/frontend-integration.md`: sin cambios, no hay endpoints, DTOs ni codigos nuevos.
