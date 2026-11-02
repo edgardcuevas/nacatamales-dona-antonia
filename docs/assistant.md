@@ -1,7 +1,12 @@
 # Asistente Inteligente de Administración
 
 Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B completada y aceptada; streaming de respuestas completado; Tareas 1 a 9 de Fase 2B completadas**.
-Última actualización: 2026-10-28.
+Última actualización: 2026-11-02.
+
+El estado y la aceptación de las fases posteriores están en
+[`assistant-roadmap.md`](./assistant-roadmap.md). F.1 y F.2 tienen implementación y
+pruebas, pero sus validaciones reales siguen pendientes; G tampoco se cierra sin la
+aceptación conversacional con Gemini y la revisión de `ai_usage_events`.
 
 ## Cómo retomar el trabajo
 
@@ -72,7 +77,8 @@ Cota: 3 usuarios × 20 conversaciones × 100 mensajes = 6 000 mensajes. La poda 
 
 ## Modelo de datos
 
-Migración `20261026120000_create_ai_assistant_tables.js` (pasa de 19 a 20 archivos).
+Migración `20261026120000_create_ai_assistant_tables.js`; el proyecto cuenta con 22
+migraciones versionadas al 2026-11-02.
 
 **`ai_conversations`**
 `id`, `user_id` FK `users.id` `ON DELETE CASCADE`, `title` VARCHAR(120) NULL, `created_at`, `updated_at`, índice `(user_id, updated_at)`.
@@ -138,6 +144,12 @@ AI_DAILY_PROVIDER_CALLS=120
 AI_PRICE_INPUT_PER_M=0
 AI_PRICE_OUTPUT_PER_M=0
 ```
+
+Para pasar a un plan pago, conservar `AI_PROVIDER=gemini`, configurar el modelo y la
+clave del proveedor, establecer `AI_DAILY_PROVIDER_CALLS=0` para retirar el tope diario
+local y cargar los precios vigentes por millón de tokens en `AI_PRICE_INPUT_PER_M` y
+`AI_PRICE_OUTPUT_PER_M`. El cero de precios desactiva únicamente el estimador; no cambia
+la facturación del proveedor.
 
 `gemini-2.5-flash` ya no sirve: la API responde `404 NOT_FOUND` (“no longer available to new users”). `gemini-3.8-flash` y el alias `gemini-flash-latest` respondieron `503 UNAVAILABLE` por demanda en la validación. `gemini-3.5-flash` es el default porque responde con la clave actual y devuelve `modelVersion: gemini-3.6-flash`, que es lo que se guarda en métricas.
 
@@ -668,6 +680,7 @@ Errores nuevos:
 | `ASSISTANT_ACTION_CONFLICT` | 409 | El objetivo cambió desde la propuesta |
 | `ASSISTANT_ACTION_FAILED` | 409 | El servicio de dominio rechazó la escritura; el mensaje es seguro |
 | `ASSISTANT_ACTION_UNKNOWN` | 409 | Ejecución interrumpida; verificar manualmente |
+| `ASSISTANT_ACTION_STATE_ERROR` | 500 | No se pudo guardar una transición de la acción |
 
 ### Permisos
 
@@ -677,10 +690,42 @@ Errores nuevos:
 | `set_announcement_active` | Sí | Sí | Publicar puede enviar push; ocultar no |
 | `set_video_active` | Sí | Sí | Solo videos `READY`; `DELETED` no se publica; sin llamadas a YouTube |
 | `set_category_active` | Sí | Sí | Ocultar la categoría oculta sus productos del menú público |
+| `list_users` | Sí | No | Email, rol y estado; hasta 20 resultados |
+| `set_user_active` | Sí | No | Desactivar revoca sesiones; no se puede desactivar la propia cuenta |
+| `change_user_role` | Sí | No | Cambiar el rol también revoca sesiones |
+| `revoke_user_sessions` | Sí | No | Revoca las sesiones activas del usuario |
 
 - El rol se relee en la propuesta y otra vez en la confirmación, desde `request.currentUser.role`.
 - Si al usuario se le quita el rol o se desactiva la cuenta entre ambos pasos, la confirmación falla aunque el token sea válido.
-- No hay herramientas de escritura para usuarios: ese módulo sigue siendo solo `ADMIN` y queda fuera de 2B.
+- Las herramientas de usuarios solo aparecen para `ADMIN`; el servidor también rechaza su uso por `EDITOR`.
+- No se pueden crear usuarios ni cambiar contraseñas desde el asistente. Nunca se solicitan ni se guardan contraseñas en el chat.
+
+### Inventario final de herramientas
+
+Lecturas: `get_settings`, `get_current_schedule`, `count_products`,
+`search_products`, `get_product_detail`, `count_products_by_category`,
+`list_products_by_category`, `list_active_announcements`,
+`search_announcements`, `get_announcement_detail`, `list_videos`,
+`search_videos`, `get_video_detail`, `search_categories`, `list_categories`,
+`list_users` (solo ADMIN), `list_photos`, `search_media` y `list_media`.
+
+Escrituras con tarjeta de confirmación: productos (`set_product_availability`,
+`set_product_active`, `create_product`, `update_product`, `delete_product`);
+categorías (`set_category_active`, `create_category`, `update_category`,
+`delete_category`); masivas (`move_products_to_category`,
+`set_products_availability`, `set_products_active`); avisos
+(`set_announcement_active`, `create_announcement`, `update_announcement`,
+`notify_announcement`, `delete_announcement`); fotos (`create_photo`,
+`update_photo`, `set_photo_active`, `delete_photo`); videos (`set_video_active`,
+`update_video`, `restore_video_thumbnail`); configuración (`update_business_info`,
+`update_contact_info`, `update_schedule`, `update_location`); galería
+(`delete_media`); usuarios solo ADMIN (`set_user_active`, `change_user_role`,
+`revoke_user_sessions`). En total: 19 lecturas y 32 escrituras. No hay herramientas
+para subir archivos, borrar videos de YouTube, crear usuarios o cambiar contraseñas.
+
+El límite de Gemini es de 56 declaraciones por solicitud. El catálogo completo actual
+envía 51 declaraciones a ADMIN y 47 a EDITOR; una prueba lo compara con el límite para
+que ampliar el catálogo no vuelva a romper las solicitudes.
 
 ### Catálogo y orden de implementación
 

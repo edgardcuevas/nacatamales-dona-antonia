@@ -60,8 +60,9 @@ test("get_current_schedule is available to both roles and returns only schedule 
           .getToolDeclarations(role)
           .map((tool) => tool.name),
         [
-          "get_current_schedule",
-          "count_products",
+            "get_settings",
+            "get_current_schedule",
+            "count_products",
           "search_products",
           "get_product_detail",
           "count_products_by_category",
@@ -71,8 +72,10 @@ test("get_current_schedule is available to both roles and returns only schedule 
           "get_announcement_detail",
           "list_videos",
           "search_videos",
+          "get_video_detail",
           "search_categories",
           "list_categories",
+          ...(role === "ADMIN" ? ["list_users"] : []),
           "list_photos",
           "search_media",
           "list_media",

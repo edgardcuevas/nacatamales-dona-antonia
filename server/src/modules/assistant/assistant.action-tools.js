@@ -1,3 +1,4 @@
+const { isDeepStrictEqual } = require("node:util");
 const AppError = require("../../errors/app-error");
 
 const productService = require(
@@ -24,6 +25,19 @@ const mediaService = require(
 const mediaRepository = require(
   "../media/media.repository"
 );
+const settingsService = require(
+  "../settings/settings.service"
+);
+const userService = require("../users/user.service");
+const {
+  USER_ROLE_VALUES,
+} = require("../users/user.constants");
+const {
+  parseUpdateSettingsBody,
+} = require("../settings/settings.validator");
+const youtubeService = require(
+  "../youtube/youtube.service"
+);
 const {
   MAX_NAME_LENGTH: MAX_CATEGORY_NAME_LENGTH,
   MAX_DESCRIPTION_LENGTH:
@@ -43,6 +57,10 @@ const {
 const {
   ISO_DATE_PATTERN,
 } = require("../announcements/announcement.validator");
+const {
+  MAX_TITLE_LENGTH: MAX_VIDEO_TITLE_LENGTH,
+  MAX_DESCRIPTION_LENGTH: MAX_VIDEO_DESCRIPTION_LENGTH,
+} = require("../videos/video.constants");
 const {
   MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS,
 } = require("./assistant.constants");
@@ -321,6 +339,227 @@ const setVideoActive = {
     `El video «${result.target.label}» ahora está ${
       result.isActive ? "publicado" : "oculto"
     }.`,
+};
+
+function validateUpdateVideoArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    !Number.isSafeInteger(value.videoId) ||
+    value.videoId < 1
+  ) {
+    return null;
+  }
+
+  const result = { videoId: value.videoId };
+  let hasUpdate = false;
+
+  if (Object.hasOwn(value, "title")) {
+    if (
+      typeof value.title !== "string" ||
+      value.title.trim() === "" ||
+      value.title.trim().length > MAX_VIDEO_TITLE_LENGTH
+    ) {
+      return null;
+    }
+
+    result.title = value.title.trim();
+    hasUpdate = true;
+  }
+
+  if (Object.hasOwn(value, "description")) {
+    if (
+      value.description !== null &&
+      (typeof value.description !== "string" ||
+        value.description.length > MAX_VIDEO_DESCRIPTION_LENGTH)
+    ) {
+      return null;
+    }
+
+    result.description = value.description;
+    hasUpdate = true;
+  }
+
+  return hasUpdate ? result : null;
+}
+
+function getVideoUpdateRejectionMessage({ target }) {
+  if (target.uploadStatus === "DELETED") {
+    return "Este video fue removido de YouTube y no se puede editar. Solo se puede ocultar.";
+  }
+
+  return null;
+}
+
+const updateVideo = {
+  name: "update_video",
+  mode: "write",
+  targetType: "video",
+  description:
+    "Prepara la edición del título y la descripción de un video para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      videoId: { type: "integer" },
+      title: { type: "string" },
+      description: { type: "string" },
+    },
+    required: ["videoId"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: validateUpdateVideoArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.videoId,
+  getTargetById: (videoId) =>
+    videoService.getVideoById(videoId),
+  getTargetLabel: (video) => video.title,
+  getSnapshot: (video) => ({
+    title: video.title,
+    description: video.description,
+    updatedAt: toIsoString(video.updatedAt),
+  }),
+  createSummary: ({ target }) =>
+    `Actualizar el video «${target.title}»`,
+  getChanges: ({ target, arguments: argumentsValue }) => {
+    const changes = [];
+
+    if (Object.hasOwn(argumentsValue, "title")) {
+      changes.push({
+        field: "title",
+        from: target.title,
+        to: argumentsValue.title,
+      });
+    }
+
+    if (Object.hasOwn(argumentsValue, "description")) {
+      changes.push({
+        field: "description",
+        from: target.description,
+        to: argumentsValue.description,
+      });
+    }
+
+    return changes;
+  },
+  getWarnings: ({ target, arguments: argumentsValue }) => {
+    if (
+      !Object.hasOwn(argumentsValue, "title") &&
+      !Object.hasOwn(argumentsValue, "description")
+    ) {
+      return ["No hay cambios para guardar en este video."];
+    }
+
+    if (target.uploadStatus === "DELETED") {
+      return ["Este video se eliminó de YouTube y ya no se puede editar."];
+    }
+
+    return [];
+  },
+  getProposalRejectionMessage:
+    getVideoUpdateRejectionMessage,
+  execute: ({ targetId, arguments: argumentsValue }) =>
+    videoService.updateVideo({
+      videoId: targetId,
+      updates: {
+        ...(Object.hasOwn(argumentsValue, "title")
+          ? { title: argumentsValue.title }
+          : {}),
+        ...(Object.hasOwn(argumentsValue, "description")
+          ? { description: argumentsValue.description }
+          : {}),
+      },
+    }),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: domainResult.id,
+      label: domainResult.title,
+    },
+    updated: true,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `El video «${result.target.label}» se actualizó.`,
+};
+
+function validateRestoreVideoThumbnailArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 1 ||
+    !Number.isSafeInteger(value.videoId) ||
+    value.videoId < 1
+  ) {
+    return null;
+  }
+
+  return { videoId: value.videoId };
+}
+
+function getVideoThumbnailRestoreRejectionMessage({
+  target,
+}) {
+  if (target.uploadStatus === "DELETED") {
+    return "Este video fue removido de YouTube y no se puede restaurar su miniatura.";
+  }
+
+  if (target.provider !== "YOUTUBE") {
+    return "Solo se puede restaurar la miniatura de videos de YouTube.";
+  }
+
+  return null;
+}
+
+const restoreVideoThumbnail = {
+  name: "restore_video_thumbnail",
+  mode: "write",
+  targetType: "video",
+  description:
+    "Prepara la restauración de la miniatura original de YouTube para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      videoId: { type: "integer" },
+    },
+    required: ["videoId"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: validateRestoreVideoThumbnailArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.videoId,
+  getTargetById: (videoId) =>
+    videoService.getVideoById(videoId),
+  getTargetLabel: (video) => video.title,
+  getSnapshot: (video) => ({
+    thumbnailSource: video.thumbnailSource,
+    thumbnailUrl: video.thumbnailUrl,
+    updatedAt: toIsoString(video.updatedAt),
+  }),
+  createSummary: ({ target }) =>
+    `Restaurar la miniatura de YouTube del video «${target.title}»`,
+  getChanges: ({ target }) => [
+    {
+      field: "thumbnailSource",
+      from: target.thumbnailSource,
+      to: "YOUTUBE_DEFAULT",
+    },
+  ],
+  getWarnings: ({ target }) =>
+    target.thumbnailSource === "YOUTUBE_DEFAULT"
+      ? ["La miniatura de YouTube ya está activa para este video."]
+      : ["Se volverá a usar la miniatura original de YouTube y dejará de usarse la elegida manualmente."],
+  getProposalRejectionMessage:
+    getVideoThumbnailRestoreRejectionMessage,
+  execute: ({ targetId }) =>
+    youtubeService.revertVideoThumbnail(targetId),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: domainResult.video.id,
+      label: domainResult.video.title,
+    },
+    thumbnailSource: domainResult.video.thumbnailSource,
+    thumbnailUrl: domainResult.thumbnailUrl,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `La miniatura de YouTube del video «${result.target.label}» se restauró.`,
 };
 
 function validateCategoryStatusArguments(value) {
@@ -2849,6 +3088,530 @@ const deleteMedia = {
     `La imagen «${result.target.label}» se borró de la galería.`,
 };
 
+function validateUserStatusArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 2 ||
+    !Number.isSafeInteger(value.userId) ||
+    value.userId < 1 ||
+    typeof value.isActive !== "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    userId: value.userId,
+    isActive: value.isActive,
+  };
+}
+
+function validateUserRoleArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 2 ||
+    !Number.isSafeInteger(value.userId) ||
+    value.userId < 1 ||
+    !USER_ROLE_VALUES.includes(value.role)
+  ) {
+    return null;
+  }
+
+  return {
+    userId: value.userId,
+    role: value.role,
+  };
+}
+
+function validateRevokeUserSessionsArguments(value) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length !== 1 ||
+    !Number.isSafeInteger(value.userId) ||
+    value.userId < 1
+  ) {
+    return null;
+  }
+
+  return { userId: value.userId };
+}
+
+function getUserSnapshot(user) {
+  return {
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    updatedAt: toIsoString(user.updatedAt),
+  };
+}
+
+const setUserActive = {
+  name: "set_user_active",
+  mode: "write",
+  targetType: "user",
+  description:
+    "Prepara la activación o desactivación de un usuario para que un ADMIN la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      userId: { type: "integer" },
+      isActive: { type: "boolean" },
+    },
+    required: ["userId", "isActive"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN"],
+  validateArguments: validateUserStatusArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.userId,
+  getTargetById: (userId) =>
+    userService.getUserById(userId),
+  getTargetLabel: (user) => user.email,
+  getSnapshot: getUserSnapshot,
+  createSummary: ({ target, arguments: argumentsValue }) =>
+    `${argumentsValue.isActive ? "Activar" : "Desactivar"} al usuario «${target.email}»`,
+  getChanges: ({ target, arguments: argumentsValue }) => [
+    {
+      field: "isActive",
+      from: target.isActive,
+      to: argumentsValue.isActive,
+    },
+  ],
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    target.isActive === argumentsValue.isActive
+      ? ["El usuario ya está en ese estado."]
+      : [],
+  getProposalRejectionMessage: ({
+    arguments: argumentsValue,
+    currentUser,
+  }) =>
+    !argumentsValue.isActive &&
+    argumentsValue.userId === currentUser.id
+      ? "No podés desactivar tu propia cuenta."
+      : null,
+  execute: ({
+    targetId,
+    arguments: argumentsValue,
+    actorId,
+  }) =>
+    userService.changeUserStatus({
+      userId: targetId,
+      isActive: argumentsValue.isActive,
+      actorId,
+    }),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: domainResult.id,
+      label: domainResult.email,
+    },
+    isActive: domainResult.isActive,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `El usuario «${result.target.label}» ahora está ${
+      result.isActive ? "activo" : "inactivo"
+    }.`,
+};
+
+const changeUserRole = {
+  name: "change_user_role",
+  mode: "write",
+  targetType: "user",
+  description:
+    "Prepara el cambio de rol de un usuario para que un ADMIN lo confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      userId: { type: "integer" },
+      role: { type: "string", enum: USER_ROLE_VALUES },
+    },
+    required: ["userId", "role"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN"],
+  validateArguments: validateUserRoleArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.userId,
+  getTargetById: (userId) =>
+    userService.getUserById(userId),
+  getTargetLabel: (user) => user.email,
+  getSnapshot: getUserSnapshot,
+  createSummary: ({ target, arguments: argumentsValue }) =>
+    `Cambiar el rol de «${target.email}» a ${argumentsValue.role}`,
+  getChanges: ({ target, arguments: argumentsValue }) => [
+    {
+      field: "role",
+      from: target.role,
+      to: argumentsValue.role,
+    },
+  ],
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    target.role === argumentsValue.role
+      ? ["El usuario ya tiene ese rol."]
+      : [],
+  execute: ({ targetId, arguments: argumentsValue }) =>
+    userService.changeUserRole({
+      userId: targetId,
+      role: argumentsValue.role,
+    }),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: domainResult.id,
+      label: domainResult.email,
+    },
+    role: domainResult.role,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `El rol del usuario «${result.target.label}» ahora es ${result.role}.`,
+};
+
+const revokeUserSessions = {
+  name: "revoke_user_sessions",
+  mode: "write",
+  targetType: "user",
+  description:
+    "Prepara la revocación de todas las sesiones activas de un usuario para que un ADMIN la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      userId: { type: "integer" },
+    },
+    required: ["userId"],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN"],
+  validateArguments: validateRevokeUserSessionsArguments,
+  getTargetId: (argumentsValue) =>
+    argumentsValue.userId,
+  getTargetById: (userId) =>
+    userService.getUserById(userId),
+  getTargetLabel: (user) => user.email,
+  getSnapshot: getUserSnapshot,
+  createSummary: ({ target }) =>
+    `Revocar las sesiones activas de «${target.email}»`,
+  getChanges: () => [],
+  getWarnings: ({ target }) => [
+    `Se cerrarán todas las sesiones activas de «${target.email}» y deberá volver a iniciar sesión.`,
+  ],
+  execute: ({ targetId }) =>
+    userService.revokeUserSessions(targetId),
+  toResult: ({ target, domainResult }) => ({
+    target: {
+      id: target.id,
+      label: target.email,
+    },
+    revokedSessions: domainResult,
+  }),
+  toAssistantMessage: ({ result }) =>
+    `Se revocaron ${result.revokedSessions} sesiones activas de «${result.target.label}».`,
+};
+
+function validateSettingsPatchArguments(
+  value,
+  allowedKeys
+) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).length === 0 ||
+    Object.keys(value).some(
+      (key) => !allowedKeys.includes(key)
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const parsed = parseUpdateSettingsBody(value);
+    return isDeepStrictEqual(parsed, value) ? parsed : null;
+  } catch (error) {
+    if (error instanceof AppError && error.statusCode === 400) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function buildSettingsChanges(target, argumentsValue, keys) {
+  const changes = [];
+
+  for (const key of keys) {
+    if (
+      Object.hasOwn(argumentsValue, key) &&
+      target[key] !== argumentsValue[key]
+    ) {
+      changes.push({
+        field: key,
+        from: target[key],
+        to: argumentsValue[key],
+      });
+    }
+  }
+
+  return changes;
+}
+
+function buildSettingsWarnings(target, argumentsValue, keys) {
+  const changes = buildSettingsChanges(target, argumentsValue, keys);
+
+  if (changes.length === 0) {
+    return ["La configuración ya está en ese valor."];
+  }
+
+  return [];
+}
+
+const updateBusinessInfo = {
+  name: "update_business_info",
+  mode: "write",
+  targetType: "settings",
+  description:
+    "Prepara la actualización del nombre del negocio, el lema y la historia para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      businessName: { type: "string" },
+      tagline: { type: "string" },
+      storyText: { type: "string" },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: (value) =>
+    validateSettingsPatchArguments(value, [
+      "businessName",
+      "tagline",
+      "storyText",
+    ]),
+  getTargetId: () => 1,
+  getTargetById: async () => ({
+    id: 1,
+    ...(await settingsService.getAdminSettings()),
+  }),
+  getTargetLabel: () => "Configuración del sitio",
+  getSnapshot: (settings) => ({
+    businessName: settings.businessName,
+    tagline: settings.tagline,
+    storyText: settings.storyText,
+    updatedAt: settings.updatedAt,
+  }),
+  createSummary: () => "Actualizar la información del negocio",
+  getChanges: ({ target, arguments: argumentsValue }) =>
+    buildSettingsChanges(target, argumentsValue, [
+      "businessName",
+      "tagline",
+      "storyText",
+    ]),
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    buildSettingsWarnings(target, argumentsValue, [
+      "businessName",
+      "tagline",
+      "storyText",
+    ]),
+  execute: ({ arguments: argumentsValue }) =>
+    settingsService.updateSettings(argumentsValue),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: 1,
+      label: "Configuración del sitio",
+    },
+    updated: true,
+    settings: domainResult,
+  }),
+  toAssistantMessage: () =>
+    "La información del negocio se actualizó.",
+};
+
+const updateContactInfo = {
+  name: "update_contact_info",
+  mode: "write",
+  targetType: "settings",
+  description:
+    "Prepara la actualización de WhatsApp, Facebook e Instagram para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      whatsappNumber: { type: "string" },
+      facebookUrl: { type: "string" },
+      instagramUrl: { type: "string" },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: (value) =>
+    validateSettingsPatchArguments(value, [
+      "whatsappNumber",
+      "facebookUrl",
+      "instagramUrl",
+    ]),
+  getTargetId: () => 1,
+  getTargetById: async () => ({
+    id: 1,
+    ...(await settingsService.getAdminSettings()),
+  }),
+  getTargetLabel: () => "Configuración del sitio",
+  getSnapshot: (settings) => ({
+    whatsappNumber: settings.whatsappNumber,
+    facebookUrl: settings.facebookUrl,
+    instagramUrl: settings.instagramUrl,
+    updatedAt: settings.updatedAt,
+  }),
+  createSummary: () => "Actualizar la información de contacto",
+  getChanges: ({ target, arguments: argumentsValue }) =>
+    buildSettingsChanges(target, argumentsValue, [
+      "whatsappNumber",
+      "facebookUrl",
+      "instagramUrl",
+    ]),
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    buildSettingsWarnings(target, argumentsValue, [
+      "whatsappNumber",
+      "facebookUrl",
+      "instagramUrl",
+    ]),
+  execute: ({ arguments: argumentsValue }) =>
+    settingsService.updateSettings(argumentsValue),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: 1,
+      label: "Configuración del sitio",
+    },
+    updated: true,
+    settings: domainResult,
+  }),
+  toAssistantMessage: () =>
+    "La información de contacto se actualizó.",
+};
+
+const updateSchedule = {
+  name: "update_schedule",
+  mode: "write",
+  targetType: "settings",
+  description:
+    "Prepara la actualización del horario general y del horario de fritanga para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      scheduleText: { type: "string" },
+      scheduleColor: { type: "string" },
+      fritangaScheduleText: { type: "string" },
+      fritangaScheduleColor: { type: "string" },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: (value) =>
+    validateSettingsPatchArguments(value, [
+      "scheduleText",
+      "scheduleColor",
+      "fritangaScheduleText",
+      "fritangaScheduleColor",
+    ]),
+  getTargetId: () => 1,
+  getTargetById: async () => ({
+    id: 1,
+    ...(await settingsService.getAdminSettings()),
+  }),
+  getTargetLabel: () => "Configuración del sitio",
+  getSnapshot: (settings) => ({
+    scheduleText: settings.scheduleText,
+    scheduleColor: settings.scheduleColor,
+    fritangaScheduleText: settings.fritangaScheduleText,
+    fritangaScheduleColor: settings.fritangaScheduleColor,
+    updatedAt: settings.updatedAt,
+  }),
+  createSummary: () => "Actualizar los horarios del sitio",
+  getChanges: ({ target, arguments: argumentsValue }) =>
+    buildSettingsChanges(target, argumentsValue, [
+      "scheduleText",
+      "scheduleColor",
+      "fritangaScheduleText",
+      "fritangaScheduleColor",
+    ]),
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    buildSettingsWarnings(target, argumentsValue, [
+      "scheduleText",
+      "scheduleColor",
+      "fritangaScheduleText",
+      "fritangaScheduleColor",
+    ]),
+  execute: ({ arguments: argumentsValue }) =>
+    settingsService.updateSettings(argumentsValue),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: 1,
+      label: "Configuración del sitio",
+    },
+    updated: true,
+    settings: domainResult,
+  }),
+  toAssistantMessage: () =>
+    "Los horarios del sitio se actualizaron.",
+};
+
+const updateLocation = {
+  name: "update_location",
+  mode: "write",
+  targetType: "settings",
+  description:
+    "Prepara la actualización de la dirección y la ubicación del negocio para que el usuario la confirme.",
+  parameters: {
+    type: "object",
+    properties: {
+      address: { type: "string" },
+      latitude: { type: "number" },
+      longitude: { type: "number" },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  allowedRoles: ["ADMIN", "EDITOR"],
+  validateArguments: (value) =>
+    validateSettingsPatchArguments(value, [
+      "address",
+      "latitude",
+      "longitude",
+    ]),
+  getTargetId: () => 1,
+  getTargetById: async () => ({
+    id: 1,
+    ...(await settingsService.getAdminSettings()),
+  }),
+  getTargetLabel: () => "Configuración del sitio",
+  getSnapshot: (settings) => ({
+    address: settings.address,
+    latitude: settings.latitude,
+    longitude: settings.longitude,
+    updatedAt: settings.updatedAt,
+  }),
+  createSummary: () => "Actualizar la ubicación del negocio",
+  getChanges: ({ target, arguments: argumentsValue }) =>
+    buildSettingsChanges(target, argumentsValue, [
+      "address",
+      "latitude",
+      "longitude",
+    ]),
+  getWarnings: ({ target, arguments: argumentsValue }) =>
+    buildSettingsWarnings(target, argumentsValue, [
+      "address",
+      "latitude",
+      "longitude",
+    ]),
+  execute: ({ arguments: argumentsValue }) =>
+    settingsService.updateSettings(argumentsValue),
+  toResult: ({ domainResult }) => ({
+    target: {
+      id: 1,
+      label: "Configuración del sitio",
+    },
+    updated: true,
+    settings: domainResult,
+  }),
+  toAssistantMessage: () =>
+    "La ubicación del negocio se actualizó.",
+};
+
 module.exports = [
   setProductAvailability,
   setAnnouncementActive,
@@ -2873,4 +3636,13 @@ module.exports = [
   setPhotoActive,
   deletePhoto,
   deleteMedia,
+  updateVideo,
+  restoreVideoThumbnail,
+  setUserActive,
+  changeUserRole,
+  revokeUserSessions,
+  updateBusinessInfo,
+  updateContactInfo,
+  updateSchedule,
+  updateLocation,
 ];

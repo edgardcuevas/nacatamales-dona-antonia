@@ -76,6 +76,7 @@ function executeWithTimeout(work, timeoutMs) {
 async function executePendingActionWork({
   action,
   role,
+  actorId,
   registry = actionRegistry,
 }) {
   const definition = registry.getActionDefinition(
@@ -134,6 +135,7 @@ async function executePendingActionWork({
     targetId: action.targetId,
     arguments: normalizedArguments,
     target,
+    actorId,
   });
   const result = serializeResult(
     definition.toResult({

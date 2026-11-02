@@ -24,6 +24,7 @@ const mediaService = require(
 const mediaRepository = require(
   "../media/media.repository"
 );
+const userService = require("../users/user.service");
 const photosService = require(
   "../photos/photos.service"
 );
@@ -38,12 +39,29 @@ const {
   MAX_ASSISTANT_PRODUCT_RESULTS,
   MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS,
   MAX_ASSISTANT_PHOTO_RESULTS,
+  MAX_ASSISTANT_USER_RESULTS,
   MAX_ASSISTANT_MEDIA_SEARCH_RESULTS,
   MAX_ASSISTANT_MEDIA_LIST_RESULTS,
 } = require("./assistant.constants");
 
 const assistantToolRegistry =
   createAssistantToolRegistry([
+    {
+      name: "get_settings",
+      description:
+        "Devuelve la configuración administrativa completa del sitio.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async () => {
+        return settingsService.getAdminSettings();
+      },
+    },
     {
       name: "get_current_schedule",
       description:
@@ -515,6 +533,47 @@ const assistantToolRegistry =
       },
     },
     {
+      name: "get_video_detail",
+      description:
+        "Devuelve el detalle completo de un video por su ID, sin exponer datos sensibles del proveedor.",
+      parameters: {
+        type: "object",
+        properties: {
+          videoId: { type: "integer" },
+        },
+        required: ["videoId"],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN", "EDITOR"],
+      mode: "read",
+      handler: async ({ videoId }) => {
+        if (
+          !Number.isSafeInteger(videoId) ||
+          videoId < 1
+        ) {
+          throw new AssistantToolError(
+            TOOL_ERROR_CODES.INVALID_TOOL_ARGUMENTS,
+            "The video ID is invalid"
+          );
+        }
+
+        const video = await videoService.getVideoById(videoId);
+
+        return {
+          id: video.id,
+          title: video.title,
+          description: video.description,
+          uploadStatus: video.uploadStatus,
+          privacyStatus: video.privacyStatus,
+          isActive: video.isActive,
+          thumbnailUrl: video.thumbnailUrl,
+          thumbnailSource: video.thumbnailSource,
+          sortOrder: video.sortOrder,
+          updatedAt: video.updatedAt,
+        };
+      },
+    },
+    {
       name: "search_categories",
       description:
         "Busca categorías por nombre para identificar una categoría existente.",
@@ -598,6 +657,42 @@ const assistantToolRegistry =
           truncated:
             data.pagination.totalItems >
             MAX_ASSISTANT_CATEGORY_RESULTS,
+        };
+      },
+    },
+    {
+      name: "list_users",
+      description:
+        "Lista los usuarios del panel con su email, rol y estado. Solo ADMIN.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      allowedRoles: ["ADMIN"],
+      mode: "read",
+      handler: async () => {
+        const data =
+          await userService.listAdministrativeUsers({
+            page: 1,
+            limit: MAX_ASSISTANT_USER_RESULTS + 1,
+            sortBy: "createdAt",
+            sortOrder: "desc",
+          });
+
+        return {
+          users: data.users
+            .slice(0, MAX_ASSISTANT_USER_RESULTS)
+            .map((user) => ({
+              id: user.id,
+              email: user.email,
+              role: user.role,
+              isActive: user.isActive,
+            })),
+          truncated:
+            data.pagination.totalItems >
+            MAX_ASSISTANT_USER_RESULTS,
         };
       },
     },

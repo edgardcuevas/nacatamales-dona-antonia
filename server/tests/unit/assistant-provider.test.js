@@ -13,6 +13,11 @@ const {
 } = require(
   "../../src/modules/assistant/assistant.provider"
 );
+const {
+  MAX_TOOL_DECLARATIONS,
+} = require(
+  "../../src/modules/assistant/assistant.constants"
+);
 
 const SERVER_ROOT = path.resolve(__dirname, "../..");
 
@@ -854,7 +859,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
     },
   });
   const declarations = Array.from(
-    { length: 48 },
+    { length: MAX_TOOL_DECLARATIONS },
     (_, index) => validDeclaration(index)
   );
 
@@ -869,7 +874,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
       messages: [{ role: "user", content: "Hola" }],
       tools: [
         ...declarations,
-        validDeclaration(48),
+        validDeclaration(MAX_TOOL_DECLARATIONS),
       ],
     }),
     ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST

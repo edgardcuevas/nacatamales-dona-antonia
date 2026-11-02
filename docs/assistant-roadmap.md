@@ -77,7 +77,7 @@ código. Si el comentario ocupa más, se recorta antes de cerrar la tarea.
 
 | Constante / variable | Antes | Después | Motivo |
 |---|---|---|---|
-| `MAX_TOOL_DECLARATIONS` | 12 | 48 | 10 lecturas + 32 acciones, con margen |
+| `MAX_TOOL_DECLARATIONS` | 12 | 56 | 51 declaraciones reales para ADMIN, con margen |
 | `MAX_TOOL_EXECUTIONS_PER_MESSAGE` | 2 | 2 | Sin cambios: las masivas quitan la necesidad |
 | `MAX_PROVIDER_CALLS_PER_MESSAGE` | 3 | 3 | Sin cambios: cada llamada extra es cupo |
 | Límite diario por usuario | 100 | 50 | Un admin no debe consumir el RPD del proyecto |
@@ -207,7 +207,7 @@ vuelve a pedir con streaming para mostrarla.
 
 **Cambios**
 
-- `MAX_TOOL_DECLARATIONS` 12 → 48.
+- `MAX_TOOL_DECLARATIONS` 12 → 56 (ajustado al catálogo real de ADMIN: 51).
 - Partir `assistant.action-tools.js` en `assistant/data/products.action-tools.js`,
   `categories`, `announcements`, `photos`, `videos`, `settings`, `media`, `users`,
   con un índice que mantiene el export actual.
@@ -418,24 +418,34 @@ fila de `media`), así que el asistente no reimplementa la eliminación.
 
 ## Fase E — Configuración
 
-### [ ] E.1 Las cuatro acciones de configuración
+### [x] E.1 Las cuatro acciones de configuración
 
 **Cambios**: `get_settings`, `update_business_info`, `update_contact_info`,
 `update_schedule`, `update_location`. Cada una con su lista cerrada de campos, espejo de
-`settings.validator.js`. La tarjeta muestra solo los campos que cambian.
+`settings.validator.js`. La tarjeta muestra solo los campos que cambian. Las propuestas
+validan con `parseUpdateSettingsBody`, así que respetan los mismos límites, colores,
+formatos y rangos que el endpoint administrativo.
+
+**Validación ejecutada (2026-11-01)**: con el servidor y MySQL de prueba aislados,
+`get_settings` leyó la configuración real; las cuatro acciones se ejecutaron y sus
+cambios aparecieron en `GET /api/settings`. Se restauraron todos los valores originales.
+Un color inválido se rechazó antes de escribir y la configuración quedó intacta.
+`npm test` del servidor pasó 869/869 y el frontend 203/203. El lint del frontend conserva
+10 errores preexistentes en `verify-ui.js` y `AssistantChat.jsx`; no se modificó frontend.
 
 **Validación real**
 
-1. "Cambiá el horario general a 7am–6pm" → tarjeta → confirmar → verificar en `/`.
-2. Cambiar WhatsApp → verificar en `/contacto` que el enlace se actualiza.
-3. Cambiar latitud/longitud → verificar el mapa público.
-4. Un valor inválido (color fuera de la paleta, URL no https) → el servidor rechaza y
-   el panel muestra el error, sin dejar la configuración a medias.
+1. Se cambió el horario con `update_schedule` y el valor se verificó en el DTO público.
+2. Se cambió WhatsApp con `update_contact_info` y se verificó en el DTO público.
+3. Se cambió latitud con `update_location` y se verificó en el DTO público.
+4. Se cambió el nombre con `update_business_info` y se verificó en el DTO público.
+5. Un color fuera de la paleta se rechazó antes de confirmar; no hubo escritura parcial.
+6. Se restauraron los valores originales en la base aislada.
 
-**Tests**: nuevo `assistant-tools-settings.test.js`, `assistant-action-tools.test.js`,
-`settings` unitarios existentes.
+**Tests**: `assistant-tools-settings.test.js`, `assistant-action-tools.test.js`,
+`assistant-tool-schedule.test.js` y `settings` unitarios existentes.
 
-**Cierre**: [ ] reglas 1–3 · [ ] validación anotada
+**Cierre**: [x] reglas 1–3 · [x] validación anotada
 
 ---
 
@@ -447,6 +457,11 @@ fila de `media`), así que el asistente no reimplementa la eliminación.
 `restore_video_thumbnail` (solo el `DELETE`, restaura la de YouTube).
 
 No se implementan: subir video, poner miniatura propia, borrar de YouTube.
+
+**Estado de implementación (2026-11-01)**: `get_video_detail`, `update_video` y
+`restore_video_thumbnail` están implementados y cubiertos por pruebas. F.1 sigue abierta:
+no se ejecutó la validación real que llama a YouTube porque la integración externa no se
+confirmó como entorno de prueba. No empezar F.2 hasta cerrar esa validación.
 
 **Validación real**
 
@@ -467,8 +482,16 @@ estar fuera de alcance; se valida por ausencia de código y por test negativo.
 
 ### [ ] F.2 Usuarios (sin contraseñas)
 
-**Cambios**: `list_users` (ADMIN), `set_user_active`, `change_user_role`,
-`revoke_user_sessions`. Fuera: crear usuario y resetear contraseña.
+**Cambios**: `list_users` (ADMIN), `set_user_active` (ADMIN),
+`change_user_role` (ADMIN), `revoke_user_sessions` (ADMIN). Fuera: crear usuario y
+resetear contraseña.
+
+**Estado de implementación (2026-11-02)**: las cuatro herramientas están implementadas
+con acceso exclusivo para ADMIN y protegidas por los servicios existentes. Las propuestas
+guardan email, rol, estado y `updatedAt` en el snapshot para rechazar confirmaciones
+obsoletas; la desactivación propia se rechaza y el id del ADMIN que confirma llega al
+servicio. La validación real con cuentas de prueba no se ha ejecutado, así que F.2 sigue
+abierta. F.1 también permanece abierta por su validación de YouTube.
 
 **Validación real**
 
@@ -490,6 +513,13 @@ estar fuera de alcance; se valida por ausencia de código y por test negativo.
 ## Fase G — Cierre y aceptación
 
 ### [ ] G.1 Documentación y aceptación final
+
+**Estado (2026-11-02)**: inventario, códigos, límites y configuración ya están
+documentados. La suite del servidor pasó; el conteo del catálogo final detectó y corrigió
+un tope que rechazaba las 51 declaraciones de ADMIN (el límite ahora es 56). No se pudo
+ejecutar la conversación final con Gemini en el entorno aislado porque `.env.test` no
+tiene `GEMINI_API_KEY`. La aceptación conversacional real y los flujos de F.1/F.2 quedan
+pendientes; no se marcan como validados.
 
 **Cambios**
 
@@ -529,7 +559,7 @@ estar fuera de alcance; se valida por ausencia de código y por test negativo.
 
 | Riesgo | Mitigación |
 |---|---|
-| ~45 declaraciones bajan la precisión del modelo | Descripciones cortas, validación real por acción; si empeora, separar lecturas y escrituras en dos rondas |
+| 51 declaraciones pueden bajar la precisión del modelo | Descripciones cortas, validación real por acción; si empeora, separar lecturas y escrituras en dos rondas |
 | TPM insuficiente con catálogo completo | Medir `input_tokens` por llamada; recortar historial o declaraciones antes de tocar el modelo |
 | Push real durante pruebas | Usar suscripción propia; nunca suscriptores del sitio |
 | Acción masiva sobre muchas filas | Transacción única, resultado con conteo, tarjeta con tope de 20 nombres |
@@ -541,6 +571,7 @@ estar fuera de alcance; se valida por ausencia de código y por test negativo.
 
 | Fecha | Tarea | Qué se ejecutó | Resultado |
 |---|---|---|---|
+| 2026-11-02 | G.1 (parcial) | Catálogo de herramientas para ambos roles contra los registros reales; test de regresión del máximo de Gemini; migraciones de `.env.test`; suite del servidor, frontend y lint. | ADMIN: 19 lecturas + 32 acciones = 51; EDITOR: 18 + 29 = 47. Se aumentó `MAX_TOOL_DECLARATIONS` de 48 a 56. `migrate:status`: 22 aplicadas, ninguna pendiente. Servidor: 879 tests; frontend: 203. Lint mantiene 10 errores preexistentes. Falta aceptación conversacional real: `.env.test` no tiene clave Gemini. |
 | 2026-10-31 | A.1 | `npm start` contra MySQL real + `POST /api/admin/assistant/messages` (token ADMIN firmado con el secreto real). Mensaje "creá un producto llamado Prueba" ×3 y "Usá la herramienta create_product…" ×1. | 4 respuestas en español, ningún 502. `ai_usage_events`: 4 filas `SUCCESS`, `error_code` NULL, sin `INVALID_RESPONSE`. |
 | 2026-10-31 | A.1 | `cd server && npm test` → 809 ok. `cd frontend && npm test` → 198 ok. `cd frontend && npm run lint` → 10 errores. | Verde en ambas suites. Los 10 errores de lint son preexistentes y ajenos a A.1: 1 en `AssistantChat.jsx` (efecto `loadInitial`, parte de los cambios locales sin commitear del usuario) y 9 en `frontend/verify-ui.js`. |
 | 2026-10-31 | A.2 | `cd server && npm test` → 820 ok (11 nuevos). `cd frontend && npm test` → 198 ok. `cd frontend && npm run lint` → 10 errores (sin regresión). | Verde en ambas suites. |

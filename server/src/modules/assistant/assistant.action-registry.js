@@ -8,6 +8,8 @@ const ACTION_TARGET_TYPES = new Set([
   "category",
   "photo",
   "media",
+  "settings",
+  "user",
 ]);
 const ACTION_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const ACTION_DEFINITIONS = require(

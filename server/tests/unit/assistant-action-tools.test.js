@@ -41,6 +41,9 @@ const videoService = require(
 const categoryService = require(
   "../../src/modules/categories/category.service"
 );
+const userService = require(
+  "../../src/modules/users/user.service"
+);
 const notificationService = require(
   "../../src/modules/notification/notification.service"
 );
@@ -134,6 +137,17 @@ function photo(overrides = {}) {
   };
 }
 
+function userRecord(overrides = {}) {
+  return {
+    id: 7,
+    email: "editor@example.test",
+    role: "EDITOR",
+    isActive: true,
+    updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 function media(overrides = {}) {
   return {
     id: 7,
@@ -177,7 +191,40 @@ test("assistant actions are write-only and validate exact arguments", () => {
       "set_photo_active",
       "delete_photo",
       "delete_media",
+      "update_video",
+      "restore_video_thumbnail",
+      "update_business_info",
+      "update_contact_info",
+      "update_schedule",
+      "update_location",
     ]
+  );
+  assert.deepEqual(
+    actionRegistry
+      .getActionDeclarations("ADMIN")
+      .filter((declaration) =>
+        [
+          "set_user_active",
+          "change_user_role",
+          "revoke_user_sessions",
+        ].includes(declaration.name)
+      )
+      .map((declaration) => declaration.name),
+    [
+      "set_user_active",
+      "change_user_role",
+      "revoke_user_sessions",
+    ]
+  );
+  assert.equal(
+    actionRegistry
+      .getActionDeclarations("EDITOR")
+      .some((declaration) =>
+        declaration.name.endsWith("_user_active") ||
+        declaration.name.endsWith("_user_role") ||
+        declaration.name === "revoke_user_sessions"
+      ),
+    false
   );
   assert.deepEqual(
     declarations[0].parameters.required,
@@ -396,6 +443,301 @@ test("assistant actions are write-only and validate exact arguments", () => {
       role: "ADMIN",
     }),
     null
+  );
+  assert.deepEqual(
+    actionRegistry.validateActionCall({
+      name: "set_user_active",
+      arguments: { userId: 7, isActive: false },
+      role: "ADMIN",
+    }),
+    {
+      name: "set_user_active",
+      arguments: { userId: 7, isActive: false },
+    }
+  );
+  assert.equal(
+    actionRegistry.validateActionCall({
+      name: "set_user_active",
+      arguments: { userId: 7, isActive: false },
+      role: "EDITOR",
+    }),
+    null
+  );
+  assert.deepEqual(
+    actionRegistry.validateActionCall({
+      name: "change_user_role",
+      arguments: { userId: 7, role: "ADMIN" },
+      role: "ADMIN",
+    }),
+    {
+      name: "change_user_role",
+      arguments: { userId: 7, role: "ADMIN" },
+    }
+  );
+  assert.equal(
+    actionRegistry.validateActionCall({
+      name: "change_user_role",
+      arguments: { userId: 7, role: "USER" },
+      role: "ADMIN",
+    }),
+    null
+  );
+  assert.deepEqual(
+    actionRegistry.validateActionCall({
+      name: "revoke_user_sessions",
+      arguments: { userId: 7 },
+      role: "ADMIN",
+    }),
+    {
+      name: "revoke_user_sessions",
+      arguments: { userId: 7 },
+    }
+  );
+});
+
+test("user actions preserve email and role in their conflict snapshots", () => {
+  for (const name of [
+    "set_user_active",
+    "change_user_role",
+    "revoke_user_sessions",
+  ]) {
+    const definition =
+      actionRegistry.getActionDefinition(name);
+
+    assert.deepEqual(
+      definition.getSnapshot(userRecord()),
+      {
+        email: "editor@example.test",
+        role: "EDITOR",
+        isActive: true,
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      }
+    );
+  }
+});
+
+test("a role change invalidates a pending user-status action", async () => {
+  let writeCalls = 0;
+  mock.method(
+    userService,
+    "getUserById",
+    async () => userRecord({ role: "ADMIN" })
+  );
+  mock.method(
+    userService,
+    "changeUserStatus",
+    async () => {
+      writeCalls += 1;
+      return userRecord();
+    }
+  );
+
+  await assert.rejects(
+    executePendingAction({
+      action: {
+        toolName: "set_user_active",
+        targetType: "user",
+        targetId: 7,
+        targetLabel: "editor@example.test",
+        arguments: { userId: 7, isActive: false },
+        before: {
+          email: "editor@example.test",
+          role: "EDITOR",
+          isActive: true,
+          updatedAt: "2026-10-27T12:00:00.000Z",
+        },
+      },
+      role: "ADMIN",
+      actorId: 1,
+    }),
+    (error) =>
+      error.code === "ASSISTANT_ACTION_CONFLICT"
+  );
+  assert.equal(writeCalls, 0);
+});
+
+test("an email change invalidates a pending session-revocation action", async () => {
+  let revokeCalls = 0;
+  mock.method(
+    userService,
+    "getUserById",
+    async () =>
+      userRecord({ email: "new-editor@example.test" })
+  );
+  mock.method(
+    userService,
+    "revokeUserSessions",
+    async () => {
+      revokeCalls += 1;
+      return 0;
+    }
+  );
+
+  await assert.rejects(
+    executePendingAction({
+      action: {
+        toolName: "revoke_user_sessions",
+        targetType: "user",
+        targetId: 7,
+        targetLabel: "new-editor@example.test",
+        arguments: { userId: 7 },
+        before: {
+          email: "editor@example.test",
+          role: "EDITOR",
+          isActive: true,
+          updatedAt: "2026-10-27T12:00:00.000Z",
+        },
+      },
+      role: "ADMIN",
+      actorId: 1,
+    }),
+    (error) =>
+      error.code === "ASSISTANT_ACTION_CONFLICT"
+  );
+  assert.equal(revokeCalls, 0);
+});
+
+test("set_user_active forwards the confirming admin and rejects self-deactivation", async () => {
+  const calls = [];
+  mock.method(
+    userService,
+    "getUserById",
+    async (userId) => userRecord({ id: userId })
+  );
+  mock.method(
+    userService,
+    "changeUserStatus",
+    async (input) => {
+      calls.push(input);
+      return userRecord({
+        id: input.userId,
+        isActive: input.isActive,
+        updatedAt: new Date("2026-10-27T12:01:00.000Z"),
+      });
+    }
+  );
+
+  const definition =
+    actionRegistry.getActionDefinition("set_user_active");
+  assert.equal(
+    await definition.getProposalRejectionMessage({
+      target: userRecord(),
+      arguments: { userId: 7, isActive: false },
+      currentUser: { id: 7, role: "ADMIN" },
+    }),
+    "No podés desactivar tu propia cuenta."
+  );
+
+  const execution = await executePendingAction({
+    action: {
+      toolName: "set_user_active",
+      targetType: "user",
+      targetId: 7,
+      targetLabel: "editor@example.test",
+      arguments: { userId: 7, isActive: false },
+      before: {
+        email: "editor@example.test",
+        role: "EDITOR",
+        isActive: true,
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      },
+    },
+    role: "ADMIN",
+    actorId: 1,
+  });
+
+  assert.deepEqual(calls, [
+    { userId: 7, isActive: false, actorId: 1 },
+  ]);
+  assert.equal(
+    execution.message,
+    "El usuario «editor@example.test» ahora está inactivo."
+  );
+});
+
+test("change_user_role reuses the domain service after a full snapshot check", async () => {
+  let updated;
+  mock.method(
+    userService,
+    "getUserById",
+    async (userId) => userRecord({ id: userId })
+  );
+  mock.method(
+    userService,
+    "changeUserRole",
+    async (input) => {
+      updated = input;
+      return userRecord({
+        id: input.userId,
+        role: input.role,
+        updatedAt: new Date("2026-10-27T12:01:00.000Z"),
+      });
+    }
+  );
+
+  const execution = await executePendingAction({
+    action: {
+      toolName: "change_user_role",
+      targetType: "user",
+      targetId: 7,
+      targetLabel: "editor@example.test",
+      arguments: { userId: 7, role: "ADMIN" },
+      before: {
+        email: "editor@example.test",
+        role: "EDITOR",
+        isActive: true,
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      },
+    },
+    role: "ADMIN",
+    actorId: 1,
+  });
+
+  assert.deepEqual(updated, { userId: 7, role: "ADMIN" });
+  assert.equal(
+    execution.message,
+    "El rol del usuario «editor@example.test» ahora es ADMIN."
+  );
+});
+
+test("revoke_user_sessions reports the service's revoked-session count", async () => {
+  let revokedUserId;
+  mock.method(
+    userService,
+    "getUserById",
+    async (userId) => userRecord({ id: userId })
+  );
+  mock.method(
+    userService,
+    "revokeUserSessions",
+    async (userId) => {
+      revokedUserId = userId;
+      return 3;
+    }
+  );
+
+  const execution = await executePendingAction({
+    action: {
+      toolName: "revoke_user_sessions",
+      targetType: "user",
+      targetId: 7,
+      targetLabel: "editor@example.test",
+      arguments: { userId: 7 },
+      before: {
+        email: "editor@example.test",
+        role: "EDITOR",
+        isActive: true,
+        updatedAt: "2026-10-27T12:00:00.000Z",
+      },
+    },
+    role: "ADMIN",
+    actorId: 1,
+  });
+
+  assert.equal(revokedUserId, 7);
+  assert.equal(
+    execution.message,
+    "Se revocaron 3 sesiones activas de «editor@example.test»."
   );
 });
 

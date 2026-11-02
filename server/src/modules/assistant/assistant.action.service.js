@@ -200,6 +200,7 @@ async function proposeAction({
     await definition.getProposalRejectionMessage({
       target,
       arguments: validatedCall.arguments,
+      currentUser,
     });
 
   if (proposalRejectionMessage !== null) {
@@ -435,6 +436,7 @@ async function confirmAction({ currentUser, token }) {
     execution = await executePendingAction({
       action: claim.action,
       role: currentUser.role,
+      actorId: currentUser.id,
     });
   } catch (error) {
     const mappedError = mapExecutionError(error);

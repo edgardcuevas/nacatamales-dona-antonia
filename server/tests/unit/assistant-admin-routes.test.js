@@ -1040,6 +1040,7 @@ test("POST /messages executes a role-authorized read tool and returns only the f
   assert.deepEqual(
     state.providerInputs[0].tools.map((tool) => tool.name),
     [
+      "get_settings",
       "get_current_schedule",
       "count_products",
       "search_products",
@@ -1051,6 +1052,7 @@ test("POST /messages executes a role-authorized read tool and returns only the f
       "get_announcement_detail",
       "list_videos",
       "search_videos",
+      "get_video_detail",
       "search_categories",
       "list_categories",
       "list_photos",
@@ -1079,6 +1081,12 @@ test("POST /messages executes a role-authorized read tool and returns only the f
       "set_photo_active",
       "delete_photo",
       "delete_media",
+      "update_video",
+      "restore_video_thumbnail",
+      "update_business_info",
+      "update_contact_info",
+      "update_schedule",
+      "update_location",
     ]
   );
   const toolMessage =

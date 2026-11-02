@@ -35,6 +35,9 @@ const productService = require(
 const videoService = require(
   "../../src/modules/videos/video.service"
 );
+const userService = require(
+  "../../src/modules/users/user.service"
+);
 const categoryService = require(
   "../../src/modules/categories/category.service"
 );
@@ -126,8 +129,8 @@ function createDefinition(overrides = {}) {
       createSummary: () => "Change product availability",
       getChanges: () => [],
       getWarnings: () => [],
-      execute: async () => {
-        calls.push("execute");
+      execute: async ({ actorId }) => {
+        calls.push(["execute", actorId]);
         return { isAvailable: false };
       },
       toResult: ({ domainResult }) => domainResult,
@@ -193,7 +196,7 @@ test("confirm executes a claimed action once and appends a result message", asyn
   assert.equal(result.action.status, "EXECUTED");
   assert.equal(result.alreadyExecuted, false);
   assert.deepEqual(result.result, { isAvailable: false });
-  assert.deepEqual(calls, ["execute"]);
+  assert.deepEqual(calls, [["execute", 7]]);
   assert.deepEqual(stored, {
     actionId: 17,
     userId: 7,
@@ -288,6 +291,44 @@ test("confirm executes a claimed action once and appends a result message", asyn
       },
       summary: "Marcar «Nacatamal de pollo» como no disponible",
     });
+  });
+
+  test("a user cannot propose deactivating their own account", async () => {
+    mock.method(
+      userService,
+      "getUserById",
+      async () => ({
+        id: 7,
+        email: "admin@example.test",
+        role: "ADMIN",
+        isActive: true,
+        updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+      })
+    );
+    const createPendingAction = mock.method(
+      actionRepository,
+      "createPendingAction",
+      async () => {
+        throw new Error("A rejected proposal must not be stored");
+      }
+    );
+
+    const result = await proposeAction({
+      currentUser: {
+        id: 7,
+        email: "admin@example.test",
+        role: "ADMIN",
+      },
+      conversationId: 9,
+      toolName: "set_user_active",
+      arguments: { userId: 7, isActive: false },
+    });
+
+    assert.deepEqual(result, {
+      status: "NOT_APPLICABLE",
+      message: "No podés desactivar tu propia cuenta.",
+    });
+    assert.equal(createPendingAction.mock.callCount(), 0);
   });
 
   test("proposal reports the pending-action limit and warns about no-op changes", async (t) => {

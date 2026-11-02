@@ -195,6 +195,9 @@ test("the action prompt allows proposals but never claims execution", () => {
   assert.match(prompt, /search_announcements/);
   assert.match(prompt, /search_videos/);
   assert.match(prompt, /search_categories/);
+  assert.match(prompt, /herramientas de usuarios son exclusivas de ADMIN/);
+  assert.match(prompt, /list_users/);
+  assert.match(prompt, /No hay herramientas para crear usuarios ni cambiar contraseñas/);
   assert.match(prompt, /sus productos dejarán de mostrarse/);
   assert.match(prompt, /no se borrarán ni modificarán/);
   assert.match(prompt, /uploadStatus sea READY/);

@@ -82,6 +82,7 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
           .getToolDeclarations(role)
           .map((tool) => tool.name),
         [
+          "get_settings",
           "get_current_schedule",
           "count_products",
           "search_products",
@@ -93,8 +94,10 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
           "get_announcement_detail",
           "list_videos",
           "search_videos",
+          "get_video_detail",
           "search_categories",
           "list_categories",
+          ...(role === "ADMIN" ? ["list_users"] : []),
           "list_photos",
           "search_media",
           "list_media",
@@ -250,6 +253,50 @@ test("search_videos returns at most ten minimal real video records", async () =>
       /secret|Must not be exposed|thumbnail\.jpg|PRIVATE/
     );
     assert.ok(serialized.length <= 6_000);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("get_video_detail returns a safe DTO for a real video id", async () => {
+  const getVideoById = mock.method(
+    videoService,
+    "getVideoById",
+    async () => ({
+      id: 42,
+      title: "Video 42",
+      description: "Descripción 42",
+      thumbnailUrl: "https://cdn.example/thumbnail.jpg",
+      thumbnailSource: "CUSTOM",
+      uploadStatus: "READY",
+      privacyStatus: "UNLISTED",
+      isActive: true,
+      sortOrder: 0,
+      updatedAt: new Date("2026-10-27T00:00:00.000Z"),
+    })
+  );
+
+  try {
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "get_video_detail",
+        arguments: { videoId: 42 },
+        role: "EDITOR",
+      });
+
+    assert.deepEqual(JSON.parse(serialized), {
+      id: 42,
+      title: "Video 42",
+      description: "Descripción 42",
+      uploadStatus: "READY",
+      privacyStatus: "UNLISTED",
+      isActive: true,
+      thumbnailUrl: "https://cdn.example/thumbnail.jpg",
+      thumbnailSource: "CUSTOM",
+      sortOrder: 0,
+      updatedAt: "2026-10-27T00:00:00.000Z",
+    });
+    assert.equal(getVideoById.mock.callCount(), 1);
   } finally {
     mock.restoreAll();
   }
