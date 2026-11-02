@@ -98,6 +98,12 @@ export default function AssistantDrawer({ activeSection }) {
           hidden={!isOpen}
           aria-hidden={!isOpen}
         >
+          {/* Fondo oscurecido: al tocarlo se cierra el panel. */}
+          <div
+            className="assistant-drawer__backdrop"
+            onClick={close}
+            aria-hidden="true"
+          />
           <aside
             className="assistant-drawer__panel"
             role="dialog"
@@ -116,7 +122,9 @@ export default function AssistantDrawer({ activeSection }) {
               </button>
             </header>
             <div className="assistant-drawer__body">
-              <AssistantChat />
+              {/* Se reutiliza el estado ya consultado: evita repetir la
+                  petición y gastar cupo del límite al abrir el panel. */}
+              <AssistantChat variant="drawer" initialStatus={status} />
             </div>
           </aside>
         </div>

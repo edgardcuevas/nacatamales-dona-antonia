@@ -171,6 +171,28 @@ describe('AssistantChat', () => {
     ).toBeTruthy()
   })
 
+  it('muestra un mensaje propio cuando el asistente pide una operación no permitida', async () => {
+    get.mockResolvedValueOnce(STATUS_ENABLED)
+    get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
+    const error = new Error('misuse')
+    error.code = 'ASSISTANT_TOOL_MISUSE'
+    streamPost.mockRejectedValue(error)
+
+    render(<AssistantChat />)
+    await screen.findByText('Asistente')
+
+    fireEvent.change(screen.getByLabelText('Mensaje'), {
+      target: { value: 'Hola' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    expect(
+      await screen.findByText(
+        'El asistente intentó una operación no permitida. Probá pidiéndolo paso por paso.',
+      ),
+    ).toBeTruthy()
+  })
+
   it('muestra la tarjeta de confirmación y confirma la acción', async () => {
     get.mockResolvedValueOnce(STATUS_ENABLED)
     get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)

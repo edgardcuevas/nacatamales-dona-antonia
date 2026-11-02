@@ -184,6 +184,31 @@ function parseAltText(value) {
   return value.trim() || null;
 }
 
+// Busqueda libre de la galeria: se compara contra el texto alternativo y el
+// nombre del archivo, que son los dos datos con los que el usuario reconoce
+// una imagen.
+function parseMediaSearch(value) {
+  if (typeof value !== "string") {
+    throw createValidationError(
+      "INVALID_MEDIA_SEARCH",
+      "A valid media search is required"
+    );
+  }
+
+  const search = value.trim();
+  if (
+    search === "" ||
+    search.length > MAX_ALT_TEXT_LENGTH
+  ) {
+    throw createValidationError(
+      "INVALID_MEDIA_SEARCH",
+      "A valid media search is required"
+    );
+  }
+
+  return search;
+}
+
 function parseBoolean(value) {
   if (value === "true") {
     return true;
@@ -250,6 +275,7 @@ function parseMediaListQuery(query = {}) {
     "isActive",
     "resourceType",
     "publicId",
+    "search",
     "sortBy",
     "sortOrder",
   ]);
@@ -297,6 +323,10 @@ function parseMediaListQuery(query = {}) {
       query.publicId === undefined
         ? undefined
         : parsePublicId(query.publicId),
+    search:
+      query.search === undefined
+        ? undefined
+        : parseMediaSearch(query.search),
     sortBy,
     sortOrder,
   };

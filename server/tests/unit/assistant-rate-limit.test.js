@@ -55,7 +55,7 @@ test("the short and daily limits are explicit and frozen", () => {
     },
     daily: {
       windowMs: 86400000,
-      maxRequests: 100,
+      maxRequests: 50,
     },
   });
   assert.equal(Object.isFrozen(limits), true);

@@ -26,10 +26,21 @@ describe('formatActionField', () => {
   it('mapea los campos conocidos', () => {
     expect(formatActionField('isAvailable')).toBe('Disponibilidad')
     expect(formatActionField('isActive')).toBe('Visibilidad')
+    expect(formatActionField('price')).toBe('Precio')
+    expect(formatActionField('categoryId')).toBe('Categoría')
+    expect(formatActionField('name')).toBe('Nombre')
+    expect(formatActionField('description')).toBe('Descripción')
+    expect(formatActionField('sortOrder')).toBe('Orden')
+    expect(formatActionField('imageMediaId')).toBe('Imagen')
+    expect(formatActionField('title')).toBe('Título')
+    expect(formatActionField('content')).toBe('Mensaje')
+    expect(formatActionField('type')).toBe('Tipo')
+    expect(formatActionField('startsAt')).toBe('Inicia')
+    expect(formatActionField('endsAt')).toBe('Termina')
   })
 
   it('humaniza un campo desconocido', () => {
-    expect(formatActionField('price')).toBe('Price')
+    expect(formatActionField('somethingElse')).toBe('Something else')
   })
 })
 
@@ -53,12 +64,46 @@ describe('formatActionValue', () => {
     expect(formatActionValue('isActive', false)).toBe('Inactivo')
   })
 
+  it('formatea precio en cordobas', () => {
+    expect(formatActionValue('price', 35)).toBe('C$ 35.00')
+    expect(formatActionValue('price', null)).toBe('Sin definir')
+  })
+
   it('cubre valores nulos y vacios', () => {
     expect(formatActionValue('otro', null)).toBe('Sin definir')
     expect(formatActionValue('otro', '')).toBe('Sin definir')
     expect(formatActionValue('otro', true)).toBe('Sí')
     expect(formatActionValue('otro', false)).toBe('No')
     expect(formatActionValue('otro', 42)).toBe('42')
+  })
+
+  it('formatea la imagen de la galeria', () => {
+    expect(formatActionValue('imageMediaId', null)).toBe('Sin imagen')
+    expect(formatActionValue('imageMediaId', 12)).toBe('Imagen #12')
+  })
+
+  it('traduce el tipo de aviso', () => {
+    expect(formatActionValue('type', 'AVAILABLE')).toBe('Disponible')
+    expect(formatActionValue('type', 'SOLD_OUT')).toBe('Agotado')
+    expect(formatActionValue('type', 'PROMOTION')).toBe('Promoción')
+    expect(formatActionValue('type', 'INFO')).toBe('Aviso')
+  })
+
+  it('formatea las fechas del aviso', () => {
+    const startsAt = formatActionValue('startsAt', '2026-11-02T10:00:00.000Z')
+    expect(startsAt).toContain('2026')
+    expect(startsAt).not.toContain('T10:00')
+    expect(formatActionValue('startsAt', null)).toBe('Sin fecha')
+    expect(formatActionValue('endsAt', undefined)).toBe('Sin fecha')
+    expect(formatActionValue('endsAt', 'no es fecha')).toBe('no es fecha')
+  })
+
+  it('recorta el mensaje largo del aviso', () => {
+    expect(formatActionValue('content', 'Texto corto')).toBe('Texto corto')
+    const long = 'x'.repeat(300)
+    const preview = formatActionValue('content', long)
+    expect(preview).toHaveLength(241)
+    expect(preview.endsWith('…')).toBe(true)
   })
 })
 

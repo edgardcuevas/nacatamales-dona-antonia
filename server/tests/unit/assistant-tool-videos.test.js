@@ -85,11 +85,19 @@ test("list_videos requests only hidden videos and exposes a bounded safe DTO", a
           "get_current_schedule",
           "count_products",
           "search_products",
+          "get_product_detail",
+          "count_products_by_category",
+          "list_products_by_category",
           "list_active_announcements",
           "search_announcements",
+          "get_announcement_detail",
           "list_videos",
           "search_videos",
           "search_categories",
+          "list_categories",
+          "list_photos",
+          "search_media",
+          "list_media",
         ]
       );
     }

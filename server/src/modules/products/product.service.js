@@ -476,6 +476,48 @@ async function changeProductAvailability({
   return getProductById(productId);
 }
 
+// The category-level writes keep the same guarantees as the single-product
+// ones: the destination exists and is active, and the count returned is the
+// number of rows that really changed.
+async function moveProductsToCategory({
+  fromCategoryId,
+  toCategoryId,
+}) {
+  await ensureActiveCategory(toCategoryId);
+
+  const appliedCount =
+    await productRepository.moveProductsByCategoryId({
+      fromCategoryId,
+      toCategoryId,
+    });
+
+  return { fromCategoryId, toCategoryId, appliedCount };
+}
+
+async function changeProductsStatusByCategory({
+  categoryId,
+  isActive,
+}) {
+  const appliedCount =
+    await productRepository.updateProductsStatusByCategoryId(
+      { categoryId, isActive }
+    );
+
+  return { categoryId, isActive, appliedCount };
+}
+
+async function changeProductsAvailabilityByCategory({
+  categoryId,
+  isAvailable,
+}) {
+  const appliedCount =
+    await productRepository.updateProductsAvailabilityByCategoryId(
+      { categoryId, isAvailable }
+    );
+
+  return { categoryId, isAvailable, appliedCount };
+}
+
 async function deleteProduct(productId) {
   assertProductId(productId);
   const current =
@@ -508,5 +550,8 @@ module.exports = {
   updateProduct,
   changeProductStatus,
   changeProductAvailability,
+  moveProductsToCategory,
+  changeProductsStatusByCategory,
+  changeProductsAvailabilityByCategory,
   deleteProduct,
 };

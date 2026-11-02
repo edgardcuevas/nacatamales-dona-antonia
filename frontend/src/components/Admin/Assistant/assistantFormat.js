@@ -1,16 +1,40 @@
 // Formateo de los campos y valores que el asistente muestra en su tarjeta
-// de confirmacion. El contrato es chico y cerrado: los cambios solo pueden
-// tocar `isAvailable` (producto) o `isActive` (aviso, video, categoria).
-// Cualquier otra cosa se cae al humanizador generico, para que un campo
-// futuro nunca se imprima crudo como `isAvailable: true`.
+// de confirmacion. Los campos conocidos tienen etiqueta y formato propios;
+// cualquier otro se cae al humanizador generico, para que un campo futuro
+// nunca se imprima crudo como `isAvailable: true`.
 
 const ACTIVE_LABELS = Object.freeze({
   announcement: ['Publicado', 'Oculto'],
   video: ['Publicado', 'Oculto'],
   category: ['Visible', 'Oculta'],
   product: ['Activo', 'Inactivo'],
+  photo: ['Publicada', 'Oculta'],
   default: ['Activo', 'Inactivo'],
 })
+
+// Mismos valores que AnnouncementManager: el panel y la tarjeta del asistente
+// no deben nombrar distinto al mismo tipo de aviso.
+const ANNOUNCEMENT_TYPE_LABELS = Object.freeze({
+  AVAILABLE: 'Disponible',
+  SOLD_OUT: 'Agotado',
+  PROMOTION: 'Promoción',
+  INFO: 'Aviso',
+})
+
+// El mensaje de un aviso tiene hasta 10 000 caracteres; en la tarjeta solo
+// cabe una vista previa.
+const CONTENT_PREVIEW_CHARS = 240
+
+function formatDateTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+  return date.toLocaleString('es-NI', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
 
 function humanizeField(field) {
   if (typeof field !== 'string' || field.trim() === '') {
@@ -31,6 +55,54 @@ function formatActionField(field) {
   if (field === 'isActive') {
     return 'Visibilidad'
   }
+  if (field === 'price') {
+    return 'Precio'
+  }
+  if (field === 'categoryId') {
+    return 'Categoría'
+  }
+  if (field === 'name') {
+    return 'Nombre'
+  }
+  if (field === 'title') {
+    return 'Título'
+  }
+  if (field === 'caption') {
+    return 'Leyenda'
+  }
+  if (field === 'content') {
+    return 'Mensaje'
+  }
+  if (field === 'type') {
+    return 'Tipo'
+  }
+  if (field === 'startsAt') {
+    return 'Inicia'
+  }
+  if (field === 'endsAt') {
+    return 'Termina'
+  }
+  if (field === 'description') {
+    return 'Descripción'
+  }
+  if (field === 'sortOrder') {
+    return 'Orden'
+  }
+  if (field === 'imageMediaId') {
+    return 'Imagen'
+  }
+  if (field === 'productCount') {
+    return 'Productos'
+  }
+  if (field === 'productNames') {
+    return 'Nombres'
+  }
+  if (field === 'productsAvailability') {
+    return 'Disponibilidad de los productos'
+  }
+  if (field === 'productsActive') {
+    return 'Visibilidad de los productos'
+  }
   return humanizeField(field)
 }
 
@@ -47,6 +119,59 @@ function formatActionValue(field, value, targetType) {
       const labels = ACTIVE_LABELS[type] || ACTIVE_LABELS.default
       return value ? labels[0] : labels[1]
     }
+  }
+
+  if (field === 'price') {
+    if (value === null || value === undefined) return 'Sin definir'
+    const number = Number(value)
+    if (Number.isNaN(number)) return String(value)
+    return `C$ ${number.toFixed(2)}`
+  }
+
+  if (field === 'imageMediaId') {
+    if (value === null || value === undefined) return 'Sin imagen'
+    return `Imagen #${value}`
+  }
+
+  if (field === 'productsAvailability') {
+    if (value === true) return 'Disponibles'
+    if (value === false) return 'No disponibles'
+  }
+
+  if (field === 'productsActive') {
+    if (value === true) return 'Visibles'
+    if (value === false) return 'Ocultos'
+  }
+
+  if (field === 'type') {
+    const label = ANNOUNCEMENT_TYPE_LABELS[value]
+    if (label) return label
+  }
+
+  if (field === 'startsAt' || field === 'endsAt') {
+    if (value === null || value === undefined) return 'Sin fecha'
+    const formatted = formatDateTime(value)
+    if (formatted) return formatted
+  }
+
+  if (field === 'content') {
+    if (value === null || value === undefined) return 'Sin definir'
+    const text = String(value)
+    return text.length > CONTENT_PREVIEW_CHARS
+      ? `${text.slice(0, CONTENT_PREVIEW_CHARS)}…`
+      : text
+  }
+
+  if (field === 'caption') {
+    if (value === null || value === undefined || value === '') return 'Sin leyenda'
+    const text = String(value)
+    return text.length > CONTENT_PREVIEW_CHARS
+      ? `${text.slice(0, CONTENT_PREVIEW_CHARS)}…`
+      : text
+  }
+
+  if (Array.isArray(value)) {
+    return value.length === 0 ? 'Sin productos' : value.join(', ')
   }
 
   if (value === null || value === undefined || value === '') {

@@ -407,7 +407,8 @@ async function listRecentMessages({
             0
           ) AS failed_queries,
           COALESCE(SUM(input_tokens), 0) AS input_tokens,
-          COALESCE(SUM(output_tokens), 0) AS output_tokens
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(provider_calls), 0) AS provider_calls
         FROM ai_usage_events
         WHERE created_at >= ?
       `,
@@ -421,7 +422,8 @@ async function listRecentMessages({
           model,
           COUNT(*) AS queries,
           COALESCE(SUM(input_tokens), 0) AS input_tokens,
-          COALESCE(SUM(output_tokens), 0) AS output_tokens
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(provider_calls), 0) AS provider_calls
         FROM ai_usage_events
         WHERE created_at >= ?
         GROUP BY provider, model
@@ -436,7 +438,8 @@ async function listRecentMessages({
           DATE(created_at) AS day,
           COUNT(*) AS queries,
           COALESCE(SUM(input_tokens), 0) AS input_tokens,
-          COALESCE(SUM(output_tokens), 0) AS output_tokens
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(provider_calls), 0) AS provider_calls
         FROM ai_usage_events
         WHERE created_at >= ?
         GROUP BY DATE(created_at)
@@ -459,6 +462,9 @@ async function listRecentMessages({
         outputTokens: Number(
           totalsRows[0]?.output_tokens ?? 0
         ),
+        providerCalls: Number(
+          totalsRows[0]?.provider_calls ?? 0
+        ),
       },
       byModel: byModelRows.map((row) => ({
         provider: row.provider,
@@ -466,6 +472,7 @@ async function listRecentMessages({
         queries: Number(row.queries ?? 0),
         inputTokens: Number(row.input_tokens ?? 0),
         outputTokens: Number(row.output_tokens ?? 0),
+        providerCalls: Number(row.provider_calls ?? 0),
       })),
       byDay: byDayRows.map((row) => ({
         day:
@@ -475,6 +482,7 @@ async function listRecentMessages({
         queries: Number(row.queries ?? 0),
         inputTokens: Number(row.input_tokens ?? 0),
         outputTokens: Number(row.output_tokens ?? 0),
+        providerCalls: Number(row.provider_calls ?? 0),
       })),
     };
   }
@@ -486,6 +494,7 @@ async function listRecentMessages({
     model,
     status,
     errorCode,
+    providerCalls,
     inputTokens,
     outputTokens,
     latencyMs,
@@ -499,11 +508,12 @@ async function listRecentMessages({
           model,
           status,
           error_code,
+          provider_calls,
           input_tokens,
           output_tokens,
           latency_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         userId,
@@ -512,6 +522,7 @@ async function listRecentMessages({
         model ?? null,
         status,
         errorCode ?? null,
+        providerCalls ?? null,
         inputTokens ?? null,
         outputTokens ?? null,
         latencyMs ?? null,

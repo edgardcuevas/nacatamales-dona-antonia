@@ -148,13 +148,16 @@ test("a registered tool call runs once and returns a final answer", async () => 
   ]);
 });
 
-test("streaming sends only the final response after tool selection", async () => {
+test("streaming answers a plain question with a single provider call", async () => {
   const registry = createAssistantToolRegistry([createTool()]);
   const streamedInputs = [];
   const chunks = [];
+  let chatCalls = 0;
   const provider = {
-    chat: async () =>
-      response({ text: "Respuesta de selección no visible." }),
+    chat: async () => {
+      chatCalls += 1;
+      return response({ text: "Respuesta no transmitida." });
+    },
     chatStream: async (input, onTextChunk) => {
       streamedInputs.push(input);
       onTextChunk("Respuesta ");
@@ -179,40 +182,44 @@ test("streaming sends only the final response after tool selection", async () =>
 
   assert.deepEqual(chunks, ["Respuesta ", "final."]);
   assert.equal(result.text, "Respuesta final.");
+  assert.equal(chatCalls, 0);
+  assert.equal(result.providerCalls, 1);
   assert.equal(streamedInputs.length, 1);
-  assert.deepEqual(streamedInputs[0].tools, []);
+  assert.deepEqual(
+    streamedInputs[0].tools.map((tool) => tool.name),
+    ["lookup_schedule"]
+  );
   assert.deepEqual(streamedInputs[0].messages, [
     { role: "user", content: "¿Horario?" },
   ]);
 });
 
-test("streaming keeps read-tool turns hidden and includes their result in the final prompt", async () => {
+test("streaming executes a read tool and answers in the second round", async () => {
   const registry = createAssistantToolRegistry([
     createTool({
       handler: async () => ({ schedule: "8:00-17:00" }),
     }),
   ]);
-  let planningCalls = 0;
-  let streamedInput;
+  const streamedInputs = [];
   const chunks = [];
+  let round = 0;
   const provider = {
-    chat: async () => {
-      planningCalls += 1;
-      return planningCalls === 1
-        ? response({
-            text: "Texto interno no visible.",
-            toolCalls: [functionCall()],
-          })
-        : response({ text: "Respuesta no transmitida." });
-    },
+    chat: async () =>
+      response({ text: "Respuesta no transmitida." }),
     chatStream: async (input, onTextChunk) => {
-      streamedInput = input;
+      streamedInputs.push(input);
+      round += 1;
+
+      if (round === 1) {
+        return response({ toolCalls: [functionCall()] });
+      }
+
       onTextChunk("Horario final.");
       return response({ text: "Horario final." });
     },
   };
 
-  await runAssistantToolTurn({
+  const result = await runAssistantToolTurn({
     provider,
     toolRegistry: registry,
     role: "EDITOR",
@@ -223,10 +230,11 @@ test("streaming keeps read-tool turns hidden and includes their result in the fi
   });
 
   assert.deepEqual(chunks, ["Horario final."]);
-  assert.deepEqual(streamedInput.tools, []);
-  assert.equal(streamedInput.messages.at(-1).role, "tool");
+  assert.equal(result.providerCalls, 2);
+  assert.equal(streamedInputs.length, 2);
+  assert.equal(streamedInputs[1].messages.at(-1).role, "tool");
   assert.deepEqual(
-    JSON.parse(streamedInput.messages.at(-1).content),
+    JSON.parse(streamedInputs[1].messages.at(-1).content),
     { schedule: "8:00-17:00" }
   );
 });
@@ -237,8 +245,10 @@ test("streaming does not transmit a pending write proposal", async () => {
 
   const result = await runAssistantToolTurn({
     provider: {
-      chat: async () =>
-        response({
+      chat: async () => response(),
+      chatStream: async () => {
+        streamCalls += 1;
+        return response({
           toolCalls: [
             {
               name: "set_product_availability",
@@ -248,10 +258,7 @@ test("streaming does not transmit a pending write proposal", async () => {
               },
             },
           ],
-        }),
-      chatStream: async () => {
-        streamCalls += 1;
-        return response();
+        });
       },
     },
     toolRegistry: createAssistantToolRegistry([createTool()]),
@@ -264,7 +271,8 @@ test("streaming does not transmit a pending write proposal", async () => {
   });
 
   assert.ok(result.pendingActionRequest);
-  assert.equal(streamCalls, 0);
+  assert.equal(streamCalls, 1);
+  assert.equal(result.providerCalls, 1);
   assert.deepEqual(streamedChunks, []);
 });
 
@@ -312,7 +320,7 @@ test("streaming does not transmit a pending write proposal", async () => {
     );
   });
 
-  test("a mixed read and write response is rejected before any read executes", async () => {
+  test("a mixed read and write response executes the reads and asks for the action alone", async () => {
     let readCalls = 0;
     const registry = createAssistantToolRegistry([
       createTool({
@@ -322,34 +330,61 @@ test("streaming does not transmit a pending write proposal", async () => {
         },
       }),
     ]);
-
-    await assert.rejects(
-      runAssistantToolTurn({
-        provider: {
-          chat: async () =>
-            response({
-              toolCalls: [
-                functionCall("lookup_schedule"),
-                {
-                  name: "set_product_availability",
-                  arguments: {
-                    productId: 12,
-                    isAvailable: false,
-                  },
-                },
-              ],
-            }),
-        },
-        toolRegistry: registry,
-        actionRegistry: createActionRegistry(),
-        role: "ADMIN",
-        systemInstruction: "Proponer, no ejecutar.",
-        messages: [{ role: "user", content: "Cambiar producto." }],
+    const actionCall = {
+      name: "set_product_availability",
+      arguments: {
+        productId: 12,
+        isAvailable: false,
+      },
+    };
+    const replies = [
+      response({
+        toolCalls: [
+          functionCall("lookup_schedule"),
+          actionCall,
+        ],
       }),
-      AssistantProviderError
-    );
+      response({ toolCalls: [actionCall] }),
+    ];
+    const providerInputs = [];
 
-    assert.equal(readCalls, 0);
+    const result = await runAssistantToolTurn({
+      provider: {
+        chat: async (input) => {
+          providerInputs.push(input);
+          return replies.shift();
+        },
+      },
+      toolRegistry: registry,
+      actionRegistry: createActionRegistry(),
+      role: "ADMIN",
+      systemInstruction: "Proponer, no ejecutar.",
+      messages: [{ role: "user", content: "Cambiar producto." }],
+    });
+
+    assert.equal(readCalls, 1);
+    assert.deepEqual(result.pendingActionRequest, {
+      name: "set_product_availability",
+      arguments: {
+        productId: 12,
+        isAvailable: false,
+      },
+    });
+
+    const correctionRound = providerInputs[1].messages.slice(1);
+
+    assert.deepEqual(
+      correctionRound.map((message) => message.role),
+      ["assistant", "tool", "tool"]
+    );
+    assert.deepEqual(
+      JSON.parse(correctionRound[1].content),
+      { schedule: "8:00-17:00" }
+    );
+    assert.equal(
+      JSON.parse(correctionRound[2].content).error,
+      "ACTION_ALONE"
+    );
   });
 
   test("invalid write arguments are rejected before proposal", async () => {
@@ -641,6 +676,124 @@ test("a tool handler timeout is reported as a provider timeout", async () => {
       error instanceof AssistantProviderError &&
       error.code === "TIMEOUT"
   );
+});
+
+test("an unknown tool is explained to the model and the turn still answers", async () => {
+  let providerCalls = 0;
+  const providerInputs = [];
+  const provider = {
+    chat: async (input) => {
+      providerCalls += 1;
+      providerInputs.push(input);
+
+      return providerCalls === 1
+        ? response({
+            toolCalls: [functionCall("not_registered")],
+          })
+        : response({ text: "Todavía no puedo crear productos." });
+    },
+  };
+
+  const result = await runAssistantToolTurn({
+    provider,
+    toolRegistry: createAssistantToolRegistry([createTool()]),
+    role: "ADMIN",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "Creá un producto" }],
+  });
+
+  assert.equal(
+    result.text,
+    "Todavía no puedo crear productos."
+  );
+  assert.equal(providerCalls, 2);
+
+  const feedback = JSON.parse(
+    providerInputs[1].messages.at(-1).content
+  );
+
+  assert.equal(feedback.error, "UNKNOWN_TOOL");
+});
+
+test("a forbidden tool is explained to the model without running the handler", async () => {
+  let handlerCalls = 0;
+  let providerCalls = 0;
+  const registry = createAssistantToolRegistry([
+    createTool({
+      allowedRoles: ["ADMIN"],
+      handler: async () => {
+        handlerCalls += 1;
+        return { value: "private" };
+      },
+    }),
+  ]);
+  const provider = {
+    chat: async () => {
+      providerCalls += 1;
+
+      return providerCalls === 1
+        ? response({ toolCalls: [functionCall()] })
+        : response({ text: "No tengo permiso para eso." });
+    },
+  };
+
+  const result = await runAssistantToolTurn({
+    provider,
+    toolRegistry: registry,
+    role: "EDITOR",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "Consulta" }],
+  });
+
+  assert.equal(result.text, "No tengo permiso para eso.");
+  assert.equal(handlerCalls, 0);
+});
+
+test("a repeated invalid request after the correction is reported as tool misuse", async () => {
+  await assert.rejects(
+    runAssistantToolTurn({
+      provider: {
+        chat: async () =>
+          response({
+            toolCalls: [functionCall("not_registered")],
+          }),
+      },
+      toolRegistry: createAssistantToolRegistry([createTool()]),
+      role: "ADMIN",
+      systemInstruction: "Solo lectura.",
+      messages: [{ role: "user", content: "Consulta" }],
+    }),
+    (error) =>
+      error instanceof AssistantProviderError &&
+      error.code === "TOOL_MISUSE"
+  );
+});
+
+test("streaming stops a runaway tool loop as tool misuse", async () => {
+  let streamCalls = 0;
+
+  await assert.rejects(
+    runAssistantToolTurn({
+      provider: {
+        chat: async () => response(),
+        chatStream: async () => {
+          streamCalls += 1;
+          return response({ toolCalls: [functionCall()] });
+        },
+      },
+      toolRegistry: createAssistantToolRegistry([createTool()]),
+      role: "ADMIN",
+      systemInstruction: "Solo lectura.",
+      messages: [{ role: "user", content: "Consulta" }],
+      streamFinal: true,
+      onTextChunk: () => {},
+    }),
+    (error) =>
+      error instanceof AssistantProviderError &&
+      error.code === "TOOL_MISUSE"
+  );
+
+  assert.equal(streamCalls, 3);
 });
 
 test("provider tool-call errors are normalized without swallowing handler failures", async () => {

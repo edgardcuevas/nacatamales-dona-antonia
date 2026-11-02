@@ -158,38 +158,46 @@ async function proposeAction({
 
   const definition =
     actionRegistry.getActionDefinition(toolName);
-  const targetId = definition.getTargetId(
-    validatedCall.arguments
-  );
+  const isCreate = definition.createsTarget === true;
+  const targetId = isCreate
+    ? 0
+    : definition.getTargetId(validatedCall.arguments);
 
   if (
-    !Number.isSafeInteger(targetId) ||
-    targetId < 1
+    !isCreate &&
+    (!Number.isSafeInteger(targetId) || targetId < 1)
   ) {
     throw createProviderRequestError();
   }
 
-  let target;
+  let target = null;
 
-  try {
-    target = await definition.getTargetById(targetId);
-  } catch (error) {
-    if (
-      error instanceof AppError &&
-      error.statusCode === 404
-    ) {
-      return { status: "TARGET_NOT_FOUND" };
+  if (!isCreate) {
+    try {
+      target = await definition.getTargetById(
+        targetId,
+        validatedCall.arguments
+      );
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        error.statusCode === 404
+      ) {
+        return { status: "TARGET_NOT_FOUND" };
+      }
+
+      throw error;
     }
 
-    throw error;
+    if (!target) {
+      return { status: "TARGET_NOT_FOUND" };
+    }
   }
 
-  if (!target) {
-    return { status: "TARGET_NOT_FOUND" };
-  }
-
+  // También se evalúa al crear: `create_photo` comprueba que la imagen de la
+  // galería exista antes de ofrecer una tarjeta que fallaría al confirmar.
   const proposalRejectionMessage =
-    definition.getProposalRejectionMessage({
+    await definition.getProposalRejectionMessage({
       target,
       arguments: validatedCall.arguments,
     });
@@ -211,8 +219,12 @@ async function proposeAction({
     };
   }
 
-  const targetLabel = definition.getTargetLabel(target);
-  const before = definition.getSnapshot(target);
+  const targetLabel = isCreate
+    ? definition.getTargetLabel(null, validatedCall.arguments)
+    : definition.getTargetLabel(target, validatedCall.arguments);
+  const before = isCreate
+    ? null
+    : definition.getSnapshot(target);
   const summary = definition.createSummary({
     target,
     arguments: validatedCall.arguments,
@@ -232,7 +244,7 @@ async function proposeAction({
     typeof summary !== "string" ||
     summary.trim() === "" ||
     summary.length > 255 ||
-    !isPlainObject(before) ||
+    (before !== null && !isPlainObject(before)) ||
     !Array.isArray(changes) ||
     !Array.isArray(warnings) ||
     warnings.some(

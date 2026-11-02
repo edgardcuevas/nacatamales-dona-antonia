@@ -70,6 +70,9 @@ const notificationService = require(
 const pushProvider = require(
   "../../src/modules/notification/push.provider"
 );
+const { executePendingAction } = require(
+  "../../src/modules/assistant/assistant.action-executor"
+);
 const {
   runNotificationSchedulerTick,
 } = require(
@@ -403,6 +406,60 @@ test("resending marks the row and delivers again", async () => {
   assert.equal(result.sent, 1);
   assert.equal(calls.sent.length, 1);
   assert.ok(result.notifiedAt);
+});
+
+test("the assistant notification action reuses the push pipeline once", async () => {
+  const current = createRawAnnouncement();
+  let marked = 0;
+
+  mock.method(
+    announcementRepository,
+    "findAnnouncementById",
+    async () => current
+  );
+  mock.method(
+    announcementRepository,
+    "markAnnouncementNotified",
+    async () => {
+      marked += 1;
+      return true;
+    }
+  );
+  const calls = mockDeliveryEnvironment({
+    subscriptions: [createSubscriptionRow(1)],
+  });
+
+  const result = await executePendingAction({
+    action: {
+      toolName: "notify_announcement",
+      targetType: "announcement",
+      targetId: 7,
+      targetLabel: "Aviso de prueba",
+      arguments: { announcementId: 7 },
+      before: {
+        title: "Aviso de prueba",
+        isActive: true,
+        startsAt: null,
+        endsAt: null,
+        notifiedAt: null,
+        updatedAt: current.updated_at.toISOString(),
+      },
+    },
+    role: "EDITOR",
+  });
+
+  assert.equal(marked, 1);
+  assert.equal(calls.sent.length, 1);
+  assert.equal(
+    JSON.parse(calls.sent[0].payload).announcementId,
+    7
+  );
+  assert.deepEqual(result.result, {
+    target: { id: 7, label: "Aviso de prueba" },
+    sent: 1,
+    failed: 0,
+    removed: 0,
+  });
 });
 
 test("publishing an announcement triggers the background dispatch once", async () => {

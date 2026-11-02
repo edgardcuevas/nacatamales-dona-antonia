@@ -8,6 +8,10 @@ const {
   DEFAULT_ASSISTANT_TIMEOUT_MS,
   MIN_ASSISTANT_TIMEOUT_MS,
   MAX_ASSISTANT_TIMEOUT_MS,
+  DEFAULT_AI_DAILY_PROVIDER_CALLS,
+  MAX_AI_DAILY_PROVIDER_CALLS,
+  DEFAULT_AI_PRICE_PER_M,
+  MAX_AI_PRICE_PER_M,
 } = require(
   "../modules/assistant/assistant.constants"
 );
@@ -366,6 +370,38 @@ function parseBoundedInteger(
   return parsed;
 }
 
+function parseBoundedNumber(
+  value,
+  variableName,
+  { defaultValue, minimum, maximum }
+) {
+  const trimmed = value?.trim();
+
+  if (trimmed === undefined || trimmed === "") {
+    return defaultValue;
+  }
+
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    throw new Error(
+      `Environment variable ${variableName} must be a number between ${minimum} and ${maximum}.`
+    );
+  }
+
+  const parsed = Number(trimmed);
+
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    throw new Error(
+      `Environment variable ${variableName} must be a number between ${minimum} and ${maximum}.`
+    );
+  }
+
+  return parsed;
+}
+
 // Optional, like Web Push: without an API key the API still boots and
 // the assistant reports itself as disabled. The key never reaches the
 // frontend.
@@ -417,6 +453,36 @@ function parseAssistantEnvironment() {
       ? process.env.GEMINI_API_KEY?.trim() ?? ""
       : "";
 
+  const dailyProviderCalls = parseBoundedInteger(
+    process.env.AI_DAILY_PROVIDER_CALLS,
+    "AI_DAILY_PROVIDER_CALLS",
+    {
+      defaultValue: DEFAULT_AI_DAILY_PROVIDER_CALLS,
+      minimum: 0,
+      maximum: MAX_AI_DAILY_PROVIDER_CALLS,
+    }
+  );
+
+  const priceInputPerM = parseBoundedNumber(
+    process.env.AI_PRICE_INPUT_PER_M,
+    "AI_PRICE_INPUT_PER_M",
+    {
+      defaultValue: DEFAULT_AI_PRICE_PER_M,
+      minimum: 0,
+      maximum: MAX_AI_PRICE_PER_M,
+    }
+  );
+
+  const priceOutputPerM = parseBoundedNumber(
+    process.env.AI_PRICE_OUTPUT_PER_M,
+    "AI_PRICE_OUTPUT_PER_M",
+    {
+      defaultValue: DEFAULT_AI_PRICE_PER_M,
+      minimum: 0,
+      maximum: MAX_AI_PRICE_PER_M,
+    }
+  );
+
   return Object.freeze({
     enabled: apiKey.length > 0,
     provider,
@@ -424,6 +490,9 @@ function parseAssistantEnvironment() {
     apiKey: apiKey.length > 0 ? apiKey : null,
     maxOutputTokens,
     timeoutMs,
+    dailyProviderCalls,
+    priceInputPerM,
+    priceOutputPerM,
   });
 }
 

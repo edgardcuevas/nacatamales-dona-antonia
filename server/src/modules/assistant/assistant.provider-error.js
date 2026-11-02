@@ -5,6 +5,7 @@ const ASSISTANT_PROVIDER_ERROR_CODES = Object.freeze({
   TIMEOUT: "TIMEOUT",
   UNAVAILABLE: "UNAVAILABLE",
   INVALID_RESPONSE: "INVALID_RESPONSE",
+  TOOL_MISUSE: "TOOL_MISUSE",
 });
 
 class AssistantProviderError extends Error {

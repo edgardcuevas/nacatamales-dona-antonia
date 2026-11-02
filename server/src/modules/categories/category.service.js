@@ -287,6 +287,16 @@ async function getCategoryById(categoryId) {
   return toAdminCategory(category);
 }
 
+// Used before bulk moves and deletions: MySQL only reports the RESTRICT
+// violation after the fact, and the assistant needs the count up front.
+async function countProductsByCategory(categoryId) {
+  await getCategoryById(categoryId);
+
+  return categoryRepository.countProductsByCategoryId(
+    categoryId
+  );
+}
+
 async function createCategory(input) {
   await validateImageReference(input.imageMediaId);
 
@@ -417,6 +427,7 @@ module.exports = {
   getPublicCategoryBySlug,
   listAdministrativeCategories,
   getCategoryById,
+  countProductsByCategory,
   createCategory,
   updateCategory,
   changeCategoryStatus,

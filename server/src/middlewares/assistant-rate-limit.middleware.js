@@ -6,7 +6,7 @@ const ASSISTANT_SHORT_WINDOW_MS = 60 * 1000;
 const ASSISTANT_SHORT_MAX_REQUESTS = 10;
 const ASSISTANT_DAILY_WINDOW_MS =
   24 * 60 * 60 * 1000;
-const ASSISTANT_DAILY_MAX_REQUESTS = 100;
+const ASSISTANT_DAILY_MAX_REQUESTS = 50;
 
 function getAssistantKey(request) {
   const userId = request.currentUser?.id;

@@ -70,6 +70,11 @@ const {
   "../../src/middlewares/assistant-rate-limit.middleware"
 );
 const {
+  assistantQuota,
+} = require(
+  "../../src/modules/assistant/assistant.quota"
+);
+const {
   generateAccessToken,
 } = require("../../src/modules/auth/token.service");
 
@@ -108,12 +113,14 @@ const state = {
   streamingInputs: [],
   streamingChunks: ["Respuesta ", "del asistente"],
   streamingResponse: null,
+  streamingResponses: null,
   usageAggregates: {
     totals: {
       totalQueries: 3,
       failedQueries: 1,
       inputTokens: 100,
       outputTokens: 40,
+      providerCalls: 4,
     },
     byModel: [
       {
@@ -122,6 +129,7 @@ const state = {
         queries: 3,
         inputTokens: 100,
         outputTokens: 40,
+        providerCalls: 4,
       },
     ],
     byDay: [
@@ -130,6 +138,7 @@ const state = {
         queries: 3,
         inputTokens: 100,
         outputTokens: 40,
+        providerCalls: 4,
       },
     ],
   },
@@ -163,10 +172,14 @@ const fakeProvider = {
     }
 
     const result =
-      state.streamingResponse ?? state.providerResponse;
+      state.streamingResponses?.length > 0
+        ? state.streamingResponses.shift()
+        : state.streamingResponse ?? state.providerResponse;
 
-    for (const chunk of state.streamingChunks) {
-      onTextChunk(chunk);
+    if ((result.toolCalls ?? []).length === 0) {
+      for (const chunk of state.streamingChunks) {
+        onTextChunk(chunk);
+      }
     }
 
     return result;
@@ -242,6 +255,7 @@ after(async () => {
 
 afterEach(() => {
   resetAssistantRateLimiters();
+  assistantQuota.reset();
   state.currentUser = {
     id: 1,
     email: "admin@example.com",
@@ -264,6 +278,7 @@ afterEach(() => {
       failedQueries: 1,
       inputTokens: 100,
       outputTokens: 40,
+      providerCalls: 4,
     },
     byModel: [
       {
@@ -272,6 +287,7 @@ afterEach(() => {
         queries: 3,
         inputTokens: 100,
         outputTokens: 40,
+        providerCalls: 4,
       },
     ],
     byDay: [
@@ -280,6 +296,7 @@ afterEach(() => {
         queries: 3,
         inputTokens: 100,
         outputTokens: 40,
+        providerCalls: 4,
       },
     ],
   };
@@ -296,6 +313,7 @@ afterEach(() => {
   state.streamingInputs = [];
   state.streamingChunks = ["Respuesta ", "del asistente"];
   state.streamingResponse = null;
+  state.streamingResponses = null;
   state.providerError = null;
   mock.restoreAll();
   mock.method(
@@ -451,6 +469,9 @@ test("GET /status reports the provider and capabilities", async () => {
     supportsTools: true,
     supportsStreaming: true,
   });
+  assert.equal(result.body.data.quota.limit, 120);
+  assert.equal(result.body.data.quota.used, 0);
+  assert.equal(result.body.data.quota.exhausted, false);
 });
 
 test("GET /conversations lists the user's conversations", async () => {
@@ -796,7 +817,7 @@ test("POST /messages warns that hiding a category only hides its products", asyn
   assert.equal(statusChanges, 0);
 });
 
-test("POST /messages/stream emits only final answer chunks and the completed response", async () => {
+test("POST /messages/stream answers a plain question in a single provider call", async () => {
   state.currentUser = {
     id: 2,
     email: "editor@example.com",
@@ -850,8 +871,8 @@ test("POST /messages/stream emits only final answer chunks and the completed res
               content: "Respuesta final.",
               provider: "gemini",
               model: "gemini-3.6-flash",
-              inputTokens: 30,
-              outputTokens: 10,
+              inputTokens: 20,
+              outputTokens: 8,
             },
             prunedConversationId: null,
           },
@@ -859,7 +880,14 @@ test("POST /messages/stream emits only final answer chunks and the completed res
       ],
     ]
   );
-  assert.deepEqual(state.streamingInputs[0].tools, []);
+  assert.equal(state.providerInputs.length, 0);
+  assert.equal(state.streamingInputs.length, 1);
+  assert.equal(
+    state.streamingInputs[0].tools.some(
+      (tool) => tool.name === "get_current_schedule"
+    ),
+    true
+  );
   assert.equal(
     result.body.includes("Este texto de planificación"),
     false
@@ -867,7 +895,7 @@ test("POST /messages/stream emits only final answer chunks and the completed res
 });
 
 test("POST /messages/stream hides read-tool turns until the final answer", async () => {
-  state.providerResponses = [
+  state.streamingResponses = [
     {
       text: "No transmitir texto interno.",
       model: "gemini-3.6-flash",
@@ -881,15 +909,15 @@ test("POST /messages/stream hides read-tool turns until the final answer", async
         },
       ],
     },
+    {
+      text: "El horario es de 8 a 17.",
+      model: "gemini-3.6-flash",
+      usage: { inputTokens: 20, outputTokens: 8 },
+      finishReason: "STOP",
+      blocked: false,
+      toolCalls: [],
+    },
   ];
-  state.streamingResponse = {
-    text: "El horario es de 8 a 17.",
-    model: "gemini-3.6-flash",
-    usage: { inputTokens: 20, outputTokens: 8 },
-    finishReason: "STOP",
-    blocked: false,
-    toolCalls: [],
-  };
   state.streamingChunks = ["El horario ", "es de 8 a 17."];
   mock.method(
     settingsService,
@@ -919,8 +947,10 @@ test("POST /messages/stream hides read-tool turns until the final answer", async
     result.body.includes("No transmitir texto interno"),
     false
   );
+  assert.equal(state.providerInputs.length, 0);
+  assert.equal(state.streamingInputs.length, 2);
   assert.equal(
-    state.streamingInputs[0].messages.at(-1).role,
+    state.streamingInputs[1].messages.at(-1).role,
     "tool"
   );
 });
@@ -1013,15 +1043,42 @@ test("POST /messages executes a role-authorized read tool and returns only the f
       "get_current_schedule",
       "count_products",
       "search_products",
+      "get_product_detail",
+      "count_products_by_category",
+      "list_products_by_category",
       "list_active_announcements",
       "search_announcements",
+      "get_announcement_detail",
       "list_videos",
       "search_videos",
       "search_categories",
+      "list_categories",
+      "list_photos",
+      "search_media",
+      "list_media",
       "set_product_availability",
       "set_announcement_active",
       "set_video_active",
       "set_category_active",
+      "create_category",
+      "update_category",
+      "delete_category",
+      "create_product",
+      "update_product",
+      "set_product_active",
+      "delete_product",
+      "move_products_to_category",
+      "set_products_availability",
+      "set_products_active",
+      "create_announcement",
+      "update_announcement",
+      "delete_announcement",
+      "notify_announcement",
+      "create_photo",
+      "update_photo",
+      "set_photo_active",
+      "delete_photo",
+      "delete_media",
     ]
   );
   const toolMessage =
@@ -1162,7 +1219,7 @@ test("POST /messages maps a provider timeout to 504", async () => {
 
 test("POST /messages maps other provider errors to 502", async () => {
   state.providerError = new AssistantProviderError(
-    "RATE_LIMITED",
+    "UNAVAILABLE",
     { retryable: true }
   );
 
@@ -1177,6 +1234,73 @@ test("POST /messages maps other provider errors to 502", async () => {
     result.body.error.code,
     "ASSISTANT_PROVIDER_ERROR"
   );
+});
+
+test("POST /messages maps a provider rate limit to 429", async () => {
+  state.providerError = new AssistantProviderError(
+    "RATE_LIMITED",
+    { retryable: true }
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 429);
+  assert.equal(
+    result.body.error.code,
+    "ASSISTANT_RATE_LIMITED"
+  );
+});
+
+test("POST /messages maps tool misuse to its own 502 code", async () => {
+  state.providerError = new AssistantProviderError(
+    "TOOL_MISUSE"
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 502);
+  assert.equal(
+    result.body.error.code,
+    "ASSISTANT_TOOL_MISUSE"
+  );
+});
+
+test("POST /messages rejects the turn once the daily quota is spent", async () => {
+  assistantQuota.record(assistantQuota.current().limit);
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 429);
+  assert.equal(
+    result.body.error.code,
+    "ASSISTANT_QUOTA_EXCEEDED"
+  );
+  assert.equal(state.providerInputs.length, 0);
+});
+
+test("a successful message spends the provider calls it made", async () => {
+  assert.equal(assistantQuota.current().used, 0);
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(assistantQuota.current().used, 1);
 });
 
 test("DELETE /conversations/:id deletes an owned conversation", async () => {
@@ -1222,7 +1346,11 @@ test("GET /usage returns aggregates for ADMIN", async () => {
   assert.equal(result.body.data.totals.failed, 1);
   assert.equal(result.body.data.totals.inputTokens, 100);
   assert.equal(result.body.data.totals.outputTokens, 40);
+  assert.equal(result.body.data.totals.providerCalls, 4);
+  assert.equal(result.body.data.totals.estimatedCostUsd, null);
+  assert.equal(result.body.data.quota.limit, 120);
   assert.equal(result.body.data.byModel.length, 1);
+  assert.equal(result.body.data.byModel[0].providerCalls, 4);
   assert.equal(result.body.data.byDay.length, 1);
 });
 

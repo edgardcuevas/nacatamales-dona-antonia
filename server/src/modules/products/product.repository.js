@@ -397,6 +397,66 @@ async function updateProductAvailabilityById({
   return result.affectedRows === 1;
 }
 
+// The bulk writes below touch every product of one category in a single
+// UPDATE, which InnoDB already runs atomically: either all rows change or
+// none does. The `<> ?` filter keeps `affectedRows` meaning "rows that
+// actually changed" instead of "rows matched".
+async function moveProductsByCategoryId({
+  fromCategoryId,
+  toCategoryId,
+}) {
+  const [result] = await pool.execute(
+    `
+      UPDATE products
+      SET
+        category_id = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE category_id = ?
+    `,
+    [toCategoryId, fromCategoryId]
+  );
+
+  return result.affectedRows;
+}
+
+async function updateProductsStatusByCategoryId({
+  categoryId,
+  isActive,
+}) {
+  const [result] = await pool.execute(
+    `
+      UPDATE products
+      SET
+        is_active = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE category_id = ?
+        AND is_active <> ?
+    `,
+    [isActive ? 1 : 0, categoryId, isActive ? 1 : 0]
+  );
+
+  return result.affectedRows;
+}
+
+async function updateProductsAvailabilityByCategoryId({
+  categoryId,
+  isAvailable,
+}) {
+  const [result] = await pool.execute(
+    `
+      UPDATE products
+      SET
+        is_available = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE category_id = ?
+        AND is_available <> ?
+    `,
+    [isAvailable ? 1 : 0, categoryId, isAvailable ? 1 : 0]
+  );
+
+  return result.affectedRows;
+}
+
 // Plain DELETE on purpose: the image row in media must stay untouched so
 // it becomes unreferenced and the admin can delete it from the gallery.
 async function deleteProductById(productId) {
@@ -420,5 +480,8 @@ module.exports = {
   updateProductById,
   updateProductStatusById,
   updateProductAvailabilityById,
+  moveProductsByCategoryId,
+  updateProductsStatusByCategoryId,
+  updateProductsAvailabilityByCategoryId,
   deleteProductById,
 };

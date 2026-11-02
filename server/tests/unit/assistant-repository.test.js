@@ -688,3 +688,108 @@ test("appending an action turn checks ownership before inserting both messages",
     true
   );
 });
+
+test("a usage event stores the provider call count", async () => {
+  const captured = [];
+
+  mock.method(
+    pool,
+    "execute",
+    async (sql, parameters) => {
+      captured.push({
+        sql: normalizeSql(sql),
+        parameters,
+      });
+
+      return [{ insertId: 42 }];
+    }
+  );
+
+  const id = await repository.insertUsageEvent({
+    userId: 3,
+    conversationId: 9,
+    provider: "gemini",
+    model: "gemini-test",
+    status: "SUCCESS",
+    errorCode: null,
+    providerCalls: 2,
+    inputTokens: 100,
+    outputTokens: 20,
+    latencyMs: 1_500,
+  });
+
+  assert.equal(id, 42);
+  assert.match(captured[0].sql, /provider_calls/);
+  assert.deepEqual(captured[0].parameters, [
+    3,
+    9,
+    "gemini",
+    "gemini-test",
+    "SUCCESS",
+    null,
+    2,
+    100,
+    20,
+    1_500,
+  ]);
+});
+
+test("usage aggregates sum provider calls by model and by day", async () => {
+  mock.method(
+    pool,
+    "execute",
+    async (sql) => {
+      const query = normalizeSql(sql);
+
+      if (query.includes("GROUP BY DATE")) {
+        return [
+          [
+            {
+              day: "2026-10-31",
+              queries: 2,
+              input_tokens: 10,
+              output_tokens: 4,
+              provider_calls: 3,
+            },
+          ],
+        ];
+      }
+
+      if (query.includes("GROUP BY provider")) {
+        return [
+          [
+            {
+              provider: "gemini",
+              model: "gemini-test",
+              queries: 2,
+              input_tokens: 10,
+              output_tokens: 4,
+              provider_calls: 3,
+            },
+          ],
+        ];
+      }
+
+      return [
+        [
+          {
+            total_queries: 2,
+            failed_queries: 0,
+            input_tokens: 10,
+            output_tokens: 4,
+            provider_calls: 3,
+          },
+        ],
+      ];
+    }
+  );
+
+  const aggregates =
+    await repository.getUsageAggregates({
+      since: new Date("2026-10-31T00:00:00Z"),
+    });
+
+  assert.equal(aggregates.totals.providerCalls, 3);
+  assert.equal(aggregates.byModel[0].providerCalls, 3);
+  assert.equal(aggregates.byDay[0].providerCalls, 3);
+});

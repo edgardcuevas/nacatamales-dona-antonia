@@ -1,6 +1,7 @@
 const {
   MAX_PROVIDER_CALLS_PER_MESSAGE,
   MAX_TOOL_EXECUTIONS_PER_MESSAGE,
+  MAX_TOOL_MISUSE_CORRECTIONS,
 } = require("./assistant.constants");
 const {
   AssistantToolError,
@@ -11,10 +12,44 @@ const {
   AssistantProviderError,
 } = require("./assistant.provider-error");
 
+const FEEDBACK_CODES = Object.freeze({
+  UNKNOWN_TOOL: "UNKNOWN_TOOL",
+  FORBIDDEN_TOOL: "FORBIDDEN_TOOL",
+  INVALID_TOOL_ARGUMENTS: "INVALID_TOOL_ARGUMENTS",
+  TOOL_LIMIT: "TOOL_LIMIT",
+  ACTION_ALONE: "ACTION_ALONE",
+});
+
+const FEEDBACK_MESSAGES = Object.freeze({
+  UNKNOWN_TOOL:
+    "Esa herramienta no existe. Usá solo las que están declaradas.",
+  FORBIDDEN_TOOL:
+    "Tu rol no puede usar esa herramienta.",
+  INVALID_TOOL_ARGUMENTS:
+    "Los argumentos no cumplen el esquema de la herramienta.",
+  TOOL_LIMIT:
+    "Hacé una sola operación por turno.",
+  ACTION_ALONE:
+    "La acción quedó descartada porque no se propone junto con lecturas. Proponela sola en el siguiente turno, usando los datos ya obtenidos.",
+});
+
 function createInvalidToolRequestError() {
   return new AssistantProviderError(
     ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
   );
+}
+
+function createToolMisuseError() {
+  return new AssistantProviderError(
+    ASSISTANT_PROVIDER_ERROR_CODES.TOOL_MISUSE
+  );
+}
+
+function toolFeedback(code) {
+  return JSON.stringify({
+    error: code,
+    message: FEEDBACK_MESSAGES[code],
+  });
 }
 
 function aggregateUsage(results) {
@@ -98,39 +133,83 @@ async function runAssistantToolTurn({
   const providerMessages = [...messages];
   const providerResults = [];
   let toolExecutions = 0;
+  let misuseCorrections = 0;
 
-  async function getStreamingFinalResult() {
-    const result = await provider.chatStream(
-      {
-        systemInstruction,
-        messages: providerMessages,
-        tools: [],
-        maxOutputTokens,
-        timeoutMs,
-      },
-      onTextChunk
-    );
+  function pushAssistantRound(result, toolCalls) {
+    providerMessages.push({
+      role: "assistant",
+      content: result.text ?? "",
+      toolCalls,
+    });
+  }
 
-    providerResults.push(result);
+  function pushToolMessage(toolCall, content) {
+    providerMessages.push({
+      role: "tool",
+      name: toolCall.name,
+      content,
+      ...(toolCall.id === undefined
+        ? {}
+        : { id: toolCall.id }),
+    });
+  }
 
-    if (
-      result.blocked ||
-      !Array.isArray(result.toolCalls) ||
-      result.toolCalls.length > 0
-    ) {
-      if (!result.blocked) {
-        throw createInvalidToolRequestError();
+  function validateReadCall(toolCall) {
+    try {
+      toolRegistry.validateToolCall({
+        ...toolCall,
+        role,
+      });
+      return null;
+    } catch (error) {
+      if (error instanceof AssistantToolError) {
+        return error.code;
       }
 
-      return {
-        ...result,
-        usage: aggregateUsage(providerResults),
-      };
+      throw error;
     }
+  }
 
+  async function executeReadCall(toolCall) {
+    try {
+      return await toolRegistry.executeToolCall({
+        ...toolCall,
+        role,
+      });
+    } catch (error) {
+      if (
+        error instanceof AssistantToolError &&
+        error.code === TOOL_ERROR_CODES.TIMEOUT
+      ) {
+        throw new AssistantProviderError(
+          ASSISTANT_PROVIDER_ERROR_CODES.TIMEOUT,
+          { retryable: true }
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async function requestRound() {
+    const input = {
+      systemInstruction,
+      messages: providerMessages,
+      tools: toolDeclarations,
+      maxOutputTokens,
+      timeoutMs,
+    };
+
+    return streamFinal
+      ? provider.chatStream(input, onTextChunk)
+      : provider.chat(input);
+  }
+
+  function finalize(result) {
     return {
       ...result,
       usage: aggregateUsage(providerResults),
+      providerCalls: providerResults.length,
     };
   }
 
@@ -139,28 +218,12 @@ async function runAssistantToolTurn({
     providerCalls <= MAX_PROVIDER_CALLS_PER_MESSAGE;
     providerCalls += 1
   ) {
-    if (
-      streamFinal &&
-      providerCalls === MAX_PROVIDER_CALLS_PER_MESSAGE
-    ) {
-      return getStreamingFinalResult();
-    }
-
-    const result = await provider.chat({
-      systemInstruction,
-      messages: providerMessages,
-      tools: toolDeclarations,
-      maxOutputTokens,
-      timeoutMs,
-    });
+    const result = await requestRound();
 
     providerResults.push(result);
 
     if (result.blocked) {
-      return {
-        ...result,
-        usage: aggregateUsage(providerResults),
-      };
+      return finalize(result);
     }
 
     const toolCalls = result.toolCalls ?? [];
@@ -170,14 +233,7 @@ async function runAssistantToolTurn({
     }
 
     if (toolCalls.length === 0) {
-      if (streamFinal) {
-        return getStreamingFinalResult();
-      }
-
-      return {
-        ...result,
-        usage: aggregateUsage(providerResults),
-      };
+      return finalize(result);
     }
 
     const actionCalls = actionRegistry
@@ -187,27 +243,126 @@ async function runAssistantToolTurn({
           )
         )
       : [];
+    const readCalls = toolCalls.filter(
+      (toolCall) => !actionCalls.includes(toolCall)
+    );
+    const canCorrect =
+      misuseCorrections < MAX_TOOL_MISUSE_CORRECTIONS &&
+      providerCalls < MAX_PROVIDER_CALLS_PER_MESSAGE;
+
+    const feedBack = ({ notices }) => {
+      if (!canCorrect) {
+        throw createToolMisuseError();
+      }
+
+      misuseCorrections += 1;
+      pushAssistantRound(result, toolCalls);
+
+      for (const [toolCall, code] of notices) {
+        pushToolMessage(toolCall, toolFeedback(code));
+      }
+    };
+
+    if (readCalls.length === 0) {
+      const notices = [];
+      let validatedAction = null;
+
+      if (toolCalls.length !== 1) {
+        for (const toolCall of toolCalls) {
+          notices.push([
+            toolCall,
+            FEEDBACK_CODES.TOOL_LIMIT,
+          ]);
+        }
+      } else {
+        const definition =
+          actionRegistry.getActionDefinition(
+            actionCalls[0].name
+          );
+        const allowed =
+          definition.allowedRoles.includes(role);
+
+        validatedAction = allowed
+          ? actionRegistry.validateActionCall({
+              ...actionCalls[0],
+              role,
+            })
+          : null;
+
+        if (!validatedAction) {
+          notices.push([
+            actionCalls[0],
+            allowed
+              ? FEEDBACK_CODES.INVALID_TOOL_ARGUMENTS
+              : FEEDBACK_CODES.FORBIDDEN_TOOL,
+          ]);
+        }
+      }
+
+      if (notices.length === 0) {
+        return {
+          ...finalize(result),
+          pendingActionRequest: validatedAction,
+        };
+      }
+
+      feedBack({ notices });
+      continue;
+    }
 
     if (actionCalls.length > 0) {
-      if (toolCalls.length !== 1) {
-        throw createInvalidToolRequestError();
+      const invalidReads = [];
+
+      for (const readCall of readCalls) {
+        const code = validateReadCall(readCall);
+
+        if (code !== null) {
+          invalidReads.push([readCall, code]);
+        }
       }
 
-      const actionCall =
-        actionRegistry.validateActionCall({
-          ...actionCalls[0],
-          role,
-        });
-
-      if (!actionCall) {
-        throw createInvalidToolRequestError();
+      if (invalidReads.length > 0) {
+        feedBack({ notices: invalidReads });
+        continue;
       }
 
-      return {
-        ...result,
-        usage: aggregateUsage(providerResults),
-        pendingActionRequest: actionCall,
-      };
+      if (!canCorrect) {
+        throw createToolMisuseError();
+      }
+
+      misuseCorrections += 1;
+      pushAssistantRound(result, toolCalls);
+
+      for (const toolCall of toolCalls) {
+        if (actionCalls.includes(toolCall)) {
+          pushToolMessage(
+            toolCall,
+            toolFeedback(FEEDBACK_CODES.ACTION_ALONE)
+          );
+          continue;
+        }
+
+        const content = await executeReadCall(toolCall);
+        toolExecutions += 1;
+        pushToolMessage(toolCall, content);
+      }
+
+      continue;
+    }
+
+    const invalidReads = [];
+
+    for (const readCall of readCalls) {
+      const code = validateReadCall(readCall);
+
+      if (code !== null) {
+        invalidReads.push([readCall, code]);
+      }
+    }
+
+    if (invalidReads.length > 0) {
+      feedBack({ notices: invalidReads });
+      continue;
     }
 
     if (
@@ -215,64 +370,25 @@ async function runAssistantToolTurn({
       toolExecutions + toolCalls.length >
         MAX_TOOL_EXECUTIONS_PER_MESSAGE
     ) {
-      throw createInvalidToolRequestError();
+      feedBack({
+        notices: toolCalls.map((toolCall) => [
+          toolCall,
+          FEEDBACK_CODES.TOOL_LIMIT,
+        ]),
+      });
+      continue;
     }
 
-    try {
-      for (const toolCall of toolCalls) {
-        toolRegistry.validateToolCall({
-          ...toolCall,
-          role,
-        });
-      }
-    } catch (error) {
-      if (error instanceof AssistantToolError) {
-        throw createInvalidToolRequestError();
-      }
-      throw error;
-    }
-
-    providerMessages.push({
-      role: "assistant",
-      content: result.text ?? "",
-      toolCalls,
-    });
+    pushAssistantRound(result, toolCalls);
 
     for (const toolCall of toolCalls) {
-      let content;
-
-      try {
-        content = await toolRegistry.executeToolCall({
-          ...toolCall,
-          role,
-        });
-      } catch (error) {
-        if (error instanceof AssistantToolError) {
-          if (error.code === TOOL_ERROR_CODES.TIMEOUT) {
-            throw new AssistantProviderError(
-              ASSISTANT_PROVIDER_ERROR_CODES.TIMEOUT,
-              { retryable: true }
-            );
-          }
-
-          throw createInvalidToolRequestError();
-        }
-        throw error;
-      }
-
+      const content = await executeReadCall(toolCall);
       toolExecutions += 1;
-      providerMessages.push({
-        role: "tool",
-        name: toolCall.name,
-        content,
-        ...(toolCall.id === undefined
-          ? {}
-          : { id: toolCall.id }),
-      });
+      pushToolMessage(toolCall, content);
     }
   }
 
-  throw createInvalidToolRequestError();
+  throw createToolMisuseError();
 }
 
 module.exports = {

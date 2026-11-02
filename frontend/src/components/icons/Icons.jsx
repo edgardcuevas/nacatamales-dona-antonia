@@ -14,7 +14,7 @@ export function IconDefs() {
           fill="#C4841C"
         />
         <path d="M24 12.2c2.9 0 4.8 2 6 4.4l6 13.2c1.7 3.7-.7 7.6-4.8 7.6H24z" fill="#9C6111" />
-        <g stroke="#FFF4DC" fill="none" stroke-linecap="round">
+        <g stroke="#FFF4DC" fill="none" strokeLinecap="round">
           <path d="M24 13v23.4" strokeWidth="1.6" opacity=".55" />
           <path d="M14.2 28.2l8 5.2" strokeWidth="1.1" opacity=".42" />
           <path d="M33.8 28.2l-8 5.2" strokeWidth="1.1" opacity=".42" />
@@ -31,7 +31,7 @@ export function IconDefs() {
           fill="#C4841C"
         />
         <path d="M24 12.2c2.9 0 4.8 2 6 4.4l6 13.2c1.7 3.7-.7 7.6-4.8 7.6H24z" fill="#9C6111" />
-        <g stroke="#FFF4DC" fill="none" stroke-linecap="round">
+        <g stroke="#FFF4DC" fill="none" strokeLinecap="round">
           <path d="M24 13v23.4" strokeWidth="1.6" opacity=".55" />
           <path d="M14.2 28.2l8 5.2" strokeWidth="1.1" opacity=".42" />
           <path d="M33.8 28.2l-8 5.2" strokeWidth="1.1" opacity=".42" />

@@ -106,22 +106,29 @@ async function executePendingActionWork({
     throw createNotConfirmableError();
   }
 
-  const target = await definition.getTargetById(
-    action.targetId
-  );
+  const target = definition.createsTarget
+    ? null
+    : await (async () => {
+        const t = await definition.getTargetById(
+          action.targetId,
+          action.arguments
+        );
 
-  if (
-    target === null ||
-    target === undefined ||
-    definition.getTargetLabel(target) !==
-      action.targetLabel ||
-    !isDeepStrictEqual(
-      definition.getSnapshot(target),
-      action.before
-    )
-  ) {
-    throw createConflictError();
-  }
+        if (
+          t === null ||
+          t === undefined ||
+          definition.getTargetLabel(t) !==
+            action.targetLabel ||
+          !isDeepStrictEqual(
+            definition.getSnapshot(t),
+            action.before
+          )
+        ) {
+          throw createConflictError();
+        }
+
+        return t;
+      })();
 
   const domainResult = await definition.execute({
     targetId: action.targetId,

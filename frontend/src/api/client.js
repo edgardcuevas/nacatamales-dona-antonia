@@ -122,6 +122,7 @@ async function rawRequest(path, options = {}) {
     const error = new Error(body?.error?.message || 'Error de red')
     error.code = body?.error?.code || 'UNKNOWN_ERROR'
     error.status = response.status
+    attachRetryAfter(error, response)
     throw error
   }
 
@@ -189,6 +190,18 @@ async function performRequest(path, options) {
   }
 }
 
+// Segundos de espera que indica el servidor en un 429 (Retry-After o
+// RateLimit-Reset). Permite mostrar "probá en N s" en vez de un mensaje fijo.
+function attachRetryAfter(error, response) {
+  const raw =
+    response.headers?.get?.('retry-after') ??
+    response.headers?.get?.('ratelimit-reset')
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds > 0) {
+    error.retryAfter = seconds
+  }
+}
+
 function createRequestError(body, status) {
   const error = new Error(
     body?.error?.message || 'Error de red'
@@ -218,7 +231,9 @@ async function rawStreamRequest(path, body, signal) {
 
   if (!response.ok) {
     const bodyData = await response.json().catch(() => null)
-    throw createRequestError(bodyData, response.status)
+    const requestError = createRequestError(bodyData, response.status)
+    attachRetryAfter(requestError, response)
+    throw requestError
   }
 
   if (

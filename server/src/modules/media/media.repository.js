@@ -29,6 +29,7 @@ function buildMediaListWhere({
   isActive,
   resourceType,
   publicId,
+  search,
 } = {}) {
   const conditions = [];
   const parameters = [];
@@ -46,6 +47,11 @@ function buildMediaListWhere({
   if (publicId !== undefined) {
     conditions.push("public_id LIKE ?");
     parameters.push(`%${publicId}%`);
+  }
+
+  if (search !== undefined) {
+    conditions.push("(alt_text LIKE ? OR public_id LIKE ?)");
+    parameters.push(`%${search}%`, `%${search}%`);
   }
 
   return {

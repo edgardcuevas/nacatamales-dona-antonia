@@ -72,6 +72,9 @@ function runAssistantConfig(
         "model: assistant.model,",
         "maxOutputTokens: assistant.maxOutputTokens,",
         "timeoutMs: assistant.timeoutMs,",
+        "dailyProviderCalls: assistant.dailyProviderCalls,",
+        "priceInputPerM: assistant.priceInputPerM,",
+        "priceOutputPerM: assistant.priceOutputPerM,",
         "hasApiKey: Boolean(assistant.apiKey),",
         "}));",
       ].join("\n"),
@@ -174,6 +177,9 @@ test("assistant configuration is optional, frozen and disabled without an API ke
     "AI_MODEL",
     "AI_MAX_OUTPUT_TOKENS",
     "AI_TIMEOUT_MS",
+    "AI_DAILY_PROVIDER_CALLS",
+    "AI_PRICE_INPUT_PER_M",
+    "AI_PRICE_OUTPUT_PER_M",
   ]);
 
   assert.equal(result.status, 0, result.stderr);
@@ -182,9 +188,12 @@ test("assistant configuration is optional, frozen and disabled without an API ke
 
   assert.deepEqual(output.keys, [
     "apiKey",
+    "dailyProviderCalls",
     "enabled",
     "maxOutputTokens",
     "model",
+    "priceInputPerM",
+    "priceOutputPerM",
     "provider",
     "timeoutMs",
   ]);
@@ -194,6 +203,9 @@ test("assistant configuration is optional, frozen and disabled without an API ke
   assert.equal(output.model, "gemini-3.5-flash");
   assert.equal(output.maxOutputTokens, 1024);
   assert.equal(output.timeoutMs, 30_000);
+  assert.equal(output.dailyProviderCalls, 120);
+  assert.equal(output.priceInputPerM, 0);
+  assert.equal(output.priceOutputPerM, 0);
   assert.equal(output.hasApiKey, false);
 });
 
@@ -255,6 +267,26 @@ test("assistant configuration rejects unsupported providers and invalid limits",
     {
       overrides: { AI_TIMEOUT_MS: "60001" },
       variable: "AI_TIMEOUT_MS",
+    },
+    {
+      overrides: { AI_DAILY_PROVIDER_CALLS: "-1" },
+      variable: "AI_DAILY_PROVIDER_CALLS",
+    },
+    {
+      overrides: { AI_DAILY_PROVIDER_CALLS: "1.5" },
+      variable: "AI_DAILY_PROVIDER_CALLS",
+    },
+    {
+      overrides: { AI_PRICE_INPUT_PER_M: "abc" },
+      variable: "AI_PRICE_INPUT_PER_M",
+    },
+    {
+      overrides: { AI_PRICE_INPUT_PER_M: "-1" },
+      variable: "AI_PRICE_INPUT_PER_M",
+    },
+    {
+      overrides: { AI_PRICE_OUTPUT_PER_M: "10001" },
+      variable: "AI_PRICE_OUTPUT_PER_M",
     },
   ];
 
@@ -438,6 +470,76 @@ test("Gemini provider joins text parts, ignores thoughts and tolerates missing u
       toolCalls: [],
     });
     assert.equal(provider.capabilities.supportsStreaming, true);
+  });
+
+  test("Gemini provider streams a function call when tools are declared", async () => {
+    let captured;
+    const provider = createProvider(async (url, options) => {
+      captured = { url, options };
+
+      return sseResponse([
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: "search_products",
+                      args: { query: "pollo" },
+                    },
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 30,
+            candidatesTokenCount: 5,
+          },
+        },
+      ]);
+    });
+    const chunks = [];
+
+    const result = await provider.chatStream(
+      {
+        systemInstruction: "Sos el asistente.",
+        messages: [{ role: "user", content: "¿Pollo?" }],
+        tools: [
+          {
+            name: "search_products",
+            description: "Busca productos",
+            parameters: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+              },
+              required: ["query"],
+              additionalProperties: false,
+            },
+          },
+        ],
+      },
+      (chunk) => chunks.push(chunk)
+    );
+
+    const body = JSON.parse(captured.options.body);
+
+    assert.deepEqual(
+      body.tools[0].functionDeclarations.map(
+        (tool) => tool.name
+      ),
+      ["search_products"]
+    );
+    assert.deepEqual(chunks, []);
+    assert.deepEqual(result.toolCalls, [
+      {
+        name: "search_products",
+        arguments: { query: "pollo" },
+      },
+    ]);
   });
 
   test("Gemini provider rejects malformed streamed events", async () => {
@@ -752,7 +854,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
     },
   });
   const declarations = Array.from(
-    { length: 12 },
+    { length: 48 },
     (_, index) => validDeclaration(index)
   );
 
@@ -767,7 +869,7 @@ test("Gemini provider rejects invalid tool declarations and tool messages", asyn
       messages: [{ role: "user", content: "Hola" }],
       tools: [
         ...declarations,
-        validDeclaration(12),
+        validDeclaration(48),
       ],
     }),
     ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST

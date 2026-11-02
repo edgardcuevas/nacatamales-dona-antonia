@@ -37,6 +37,7 @@ const assistantToolRegistry = require(
 );
 const {
   MAX_ASSISTANT_CATEGORY_SEARCH_RESULTS,
+  MAX_ASSISTANT_CATEGORY_RESULTS,
 } = require(
   "../../src/modules/assistant/assistant.constants"
 );
@@ -141,6 +142,78 @@ test("search_categories rejects blank and oversized queries", async () => {
     }
 
     assert.equal(listCalls, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("list_categories returns the bounded admin catalog ordered by sortOrder", async () => {
+  const returnedCategories = Array.from(
+    {
+      length: MAX_ASSISTANT_CATEGORY_RESULTS + 1,
+    },
+    (_, index) => ({
+      id: index + 1,
+      name: `Categoría ${index + 1}`,
+      description: `Descripción ${index + 1}`,
+      sortOrder: index,
+      isActive: index % 2 === 0,
+      slug: `categoria-${index + 1}`,
+      image: { url: "https://cdn.example/image.jpg" },
+    })
+  );
+  const listCategories = mock.method(
+    categoryService,
+    "listAdministrativeCategories",
+    async () => ({
+      categories: returnedCategories,
+      pagination: {
+        totalItems: MAX_ASSISTANT_CATEGORY_RESULTS + 1,
+      },
+    })
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some((tool) => tool.name === "list_categories")
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "list_categories",
+        arguments: {},
+        role: "EDITOR",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.deepEqual(
+      listCategories.mock.calls[0].arguments[0],
+      {
+        page: 1,
+        limit: MAX_ASSISTANT_CATEGORY_RESULTS + 1,
+        sortBy: "sortOrder",
+        sortOrder: "asc",
+      }
+    );
+    assert.equal(
+      result.categories.length,
+      MAX_ASSISTANT_CATEGORY_RESULTS
+    );
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.categories[0], {
+      id: 1,
+      name: "Categoría 1",
+      sortOrder: 0,
+      isActive: true,
+    });
+    assert.doesNotMatch(
+      serialized,
+      /Descripción 1|categoria-1|cdn\.example/
+    );
   } finally {
     mock.restoreAll();
   }

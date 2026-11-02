@@ -38,6 +38,7 @@ const assistantToolRegistry = require(
 const {
   MAX_ASSISTANT_ANNOUNCEMENT_RESULTS,
   MAX_ASSISTANT_ANNOUNCEMENT_SEARCH_RESULTS,
+  MAX_ASSISTANT_ANNOUNCEMENT_CONTENT_CHARS,
 } = require(
   "../../src/modules/assistant/assistant.constants"
 );
@@ -241,6 +242,113 @@ test("search_announcements rejects blank and oversized queries", async () => {
     }
 
     assert.equal(listCalls, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("get_announcement_detail returns the editorial fields and caps the message", async () => {
+  const getAnnouncementById = mock.method(
+    announcementService,
+    "getAnnouncementById",
+    async () => ({
+      id: 7,
+      title: "Aviso largo",
+      content: "x".repeat(
+        MAX_ASSISTANT_ANNOUNCEMENT_CONTENT_CHARS + 500
+      ),
+      type: "PROMOTION",
+      isActive: true,
+      startsAt: "2026-11-02T10:00:00.000Z",
+      endsAt: null,
+      sortOrder: 2,
+      imageMediaId: 9,
+      image: { url: "https://cdn.example/image.jpg" },
+      notifiedAt: "private-field",
+      updatedAt: "2026-11-01T10:00:00.000Z",
+    })
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some(
+            (tool) =>
+              tool.name === "get_announcement_detail"
+          )
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "get_announcement_detail",
+        arguments: { announcementId: 7 },
+        role: "EDITOR",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.equal(getAnnouncementById.mock.calls.length, 1);
+    assert.equal(
+      getAnnouncementById.mock.calls[0].arguments[0],
+      7
+    );
+    assert.deepEqual(
+      Object.keys(result).sort(),
+      [
+        "content",
+        "contentTruncated",
+        "endsAt",
+        "id",
+        "imageMediaId",
+        "isActive",
+        "sortOrder",
+        "startsAt",
+        "title",
+        "type",
+      ]
+    );
+    assert.equal(
+      result.content.length,
+      MAX_ASSISTANT_ANNOUNCEMENT_CONTENT_CHARS
+    );
+    assert.equal(result.contentTruncated, true);
+    assert.equal(result.type, "PROMOTION");
+    assert.doesNotMatch(
+      serialized,
+      /cdn\.example|private-field/
+    );
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("get_announcement_detail rejects an invalid id before reading", async () => {
+  let getCalls = 0;
+  mock.method(
+    announcementService,
+    "getAnnouncementById",
+    async () => {
+      getCalls += 1;
+      return null;
+    }
+  );
+
+  try {
+    for (const announcementId of [0, -1, 1.5, "7"]) {
+      await assert.rejects(
+        assistantToolRegistry.executeToolCall({
+          name: "get_announcement_detail",
+          arguments: { announcementId },
+          role: "ADMIN",
+        }),
+        (error) =>
+          error.code === "INVALID_TOOL_ARGUMENTS"
+      );
+    }
+
+    assert.equal(getCalls, 0);
   } finally {
     mock.restoreAll();
   }

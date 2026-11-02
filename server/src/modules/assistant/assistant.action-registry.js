@@ -6,6 +6,8 @@ const ACTION_TARGET_TYPES = new Set([
   "announcement",
   "video",
   "category",
+  "photo",
+  "media",
 ]);
 const ACTION_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const ACTION_DEFINITIONS = require(
@@ -129,6 +131,7 @@ function normalizeActionDefinition(definition) {
     name,
     mode,
     targetType,
+    createsTarget: definition.createsTarget === true,
     description: description.trim(),
     parameters: structuredClone(parameters),
     allowedRoles: Object.freeze([...allowedRoles]),

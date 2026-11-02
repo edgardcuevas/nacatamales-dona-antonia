@@ -47,7 +47,11 @@ const actionRepository = require(
 const assistantRepository = require(
   "../../src/modules/assistant/assistant.repository"
 );
-const { confirmAction, cancelAction } = require(
+const {
+  proposeAction,
+  confirmAction,
+  cancelAction,
+} = require(
   "../../src/modules/assistant/assistant.action.service"
 );
 
@@ -841,4 +845,280 @@ test("only ADMIN and EDITOR can confirm or cancel", async () => {
       error.statusCode === 403 &&
       error.code === "FORBIDDEN"
   );
+});
+
+test("delete_category is rejected while the category still has products", async () => {
+  mock.method(categoryService, "getCategoryById", async () => ({
+    id: 4,
+    name: "Nacatamales",
+    slug: "nacatamales",
+    description: null,
+    sortOrder: 0,
+    imageMediaId: null,
+    isActive: true,
+    updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+  }));
+  const counts = [3, 1, 0];
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: [],
+      pagination: { totalItems: counts.shift() },
+    })
+  );
+  let insertCalls = 0;
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async () => {
+      insertCalls += 1;
+      return {
+        status: "CREATED",
+        actionId: 32,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+
+  const proposeAction = require(
+    "../../src/modules/assistant/assistant.action.service"
+  ).proposeAction;
+
+  const blocked = await proposeAction({
+    currentUser,
+    conversationId: 9,
+    toolName: "delete_category",
+    arguments: { categoryId: 4 },
+  });
+  assert.deepEqual(blocked, {
+    status: "NOT_APPLICABLE",
+    message:
+      "«Nacatamales» tiene 3 productos. Movelos a otra categoría o desactivala.",
+  });
+
+  const singular = await proposeAction({
+    currentUser,
+    conversationId: 9,
+    toolName: "delete_category",
+    arguments: { categoryId: 4 },
+  });
+  assert.equal(
+    singular.message,
+    "«Nacatamales» tiene 1 producto. Movelos a otra categoría o desactivala."
+  );
+  assert.equal(insertCalls, 0);
+
+  const allowed = await proposeAction({
+    currentUser,
+    conversationId: 9,
+    toolName: "delete_category",
+    arguments: { categoryId: 4 },
+  });
+  assert.equal(allowed.status, "CREATED");
+  assert.deepEqual(allowed.pendingAction.target, {
+    type: "category",
+    id: 4,
+    label: "Nacatamales",
+  });
+  assert.equal(insertCalls, 1);
+});
+test("move_products_to_category proposes the source category with its product count", async () => {
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async (categoryId) => ({
+      id: categoryId,
+      name: categoryId === 22 ? "Postres" : "Nacatamales",
+      slug: categoryId === 22 ? "postres" : "nacatamales",
+      description: null,
+      sortOrder: 0,
+      imageMediaId: null,
+      isActive: true,
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    })
+  );
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: [
+        { id: 31, name: "Café" },
+        { id: 32, name: "Flan" },
+      ],
+      pagination: { totalItems: 2 },
+    })
+  );
+  const inserts = [];
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async (input) => {
+      inserts.push(input);
+      return {
+        status: "CREATED",
+        actionId: 33,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+
+  const proposed = await proposeAction({
+    currentUser,
+    conversationId: 9,
+    toolName: "move_products_to_category",
+    arguments: { fromCategoryId: 21, toCategoryId: 22 },
+  });
+
+  assert.equal(proposed.status, "CREATED");
+  assert.deepEqual(proposed.pendingAction.target, {
+    type: "category",
+    id: 21,
+    label: "Nacatamales",
+  });
+  assert.equal(
+    proposed.pendingAction.summary,
+    "Mover 2 productos de «Nacatamales» a «Postres»"
+  );
+  assert.deepEqual(proposed.pendingAction.changes, [
+    { field: "categoryId", from: "Nacatamales", to: "Postres" },
+    { field: "productCount", from: 0, to: 2 },
+    {
+      field: "productNames",
+      from: [],
+      to: ["Café", "Flan"],
+    },
+  ]);
+  assert.deepEqual(inserts[0].before, {
+    categoryId: 21,
+    productCount: 2,
+    destinationId: 22,
+    destinationName: "Postres",
+  });
+  assert.deepEqual(inserts[0].arguments, {
+    fromCategoryId: 21,
+    toCategoryId: 22,
+  });
+});
+
+test("move_products_to_category never stores a same-category or hidden move", async () => {
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async (categoryId) => ({
+      id: categoryId,
+      name: categoryId === 22 ? "Postres" : "Nacatamales",
+      slug: categoryId === 22 ? "postres" : "nacatamales",
+      description: null,
+      sortOrder: 0,
+      imageMediaId: null,
+      isActive: categoryId !== 22,
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    })
+  );
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: [{ id: 31, name: "Café" }],
+      pagination: { totalItems: 1 },
+    })
+  );
+  let insertCalls = 0;
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async () => {
+      insertCalls += 1;
+      return {
+        status: "CREATED",
+        actionId: 34,
+        expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+      };
+    }
+  );
+
+  assert.deepEqual(
+    await proposeAction({
+      currentUser,
+      conversationId: 9,
+      toolName: "move_products_to_category",
+      arguments: { fromCategoryId: 21, toCategoryId: 21 },
+    }),
+    {
+      status: "NOT_APPLICABLE",
+      message:
+        "La categoría de origen y la de destino son la misma.",
+    }
+  );
+
+  assert.deepEqual(
+    await proposeAction({
+      currentUser,
+      conversationId: 9,
+      toolName: "move_products_to_category",
+      arguments: { fromCategoryId: 21, toCategoryId: 22 },
+    }),
+    {
+      status: "NOT_APPLICABLE",
+      message:
+        "La categoría «Postres» está oculta. Mostrala primero para poder mover productos ahí.",
+    }
+  );
+  assert.equal(insertCalls, 0);
+});
+
+test("set_products_active proposes the category and reports its warnings", async () => {
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () => ({
+      id: 21,
+      name: "Bebidas",
+      slug: "bebidas",
+      description: null,
+      sortOrder: 0,
+      imageMediaId: null,
+      isActive: true,
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    })
+  );
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: [{ id: 31, name: "Café" }],
+      pagination: { totalItems: 1 },
+    })
+  );
+  mock.method(
+    actionRepository,
+    "createPendingAction",
+    async () => ({
+      status: "CREATED",
+      actionId: 35,
+      expiresAt: new Date("2026-10-27T12:10:00.000Z"),
+    })
+  );
+
+  const proposed = await proposeAction({
+    currentUser,
+    conversationId: 9,
+    toolName: "set_products_active",
+    arguments: { categoryId: 21, isActive: false },
+  });
+
+  assert.equal(proposed.status, "CREATED");
+  assert.equal(
+    proposed.pendingAction.summary,
+    "Ocultar 1 producto de «Bebidas»"
+  );
+  assert.deepEqual(proposed.pendingAction.warnings, [
+    "Los productos dejan de verse en el menú, pero no se borran ni se modifican.",
+  ]);
+  assert.deepEqual(proposed.pendingAction.changes, [
+    { field: "productsActive", from: null, to: false },
+    { field: "productCount", from: 0, to: 1 },
+    { field: "productNames", from: [], to: ["Café"] },
+  ]);
 });

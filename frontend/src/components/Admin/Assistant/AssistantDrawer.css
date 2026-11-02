@@ -32,7 +32,14 @@
 .assistant-drawer__overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* Por encima del header sticky (z 50) y del FAB (z 40). */
+  z-index: 60;
+}
+
+.assistant-drawer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
 }
 
 .assistant-drawer__overlay[hidden] {
@@ -43,13 +50,14 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: min(420px, 92vw);
+  width: min(440px, 92vw);
   height: 100dvh;
   background: var(--color-crema);
   box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   padding: var(--sp-4);
+  padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
   gap: var(--sp-3);
   overflow: hidden;
 }
@@ -76,12 +84,17 @@
 
 .assistant-drawer__body {
   flex: 1 1 auto;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .assistant-drawer__body .assistant-chat {
   max-width: none;
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 @media (max-width: 640px) {

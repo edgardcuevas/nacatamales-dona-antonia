@@ -128,6 +128,7 @@ test("media list query supports pagination, filters, and safe ordering", () => {
     isActive: true,
     resourceType: "IMAGE",
     publicId: "qa/",
+    search: undefined,
     sortBy: "publicId",
     sortOrder: "asc",
   });

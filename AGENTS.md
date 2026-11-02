@@ -16,7 +16,7 @@ Dead ends: root `README.md` is empty, `frontend/README.md` is the untouched Vite
 # server (always cd server first)
 npm run dev      # nodemon --env-file=.env src/server.js, port 3000
 npm start        # node --env-file-if-exists=.env src/server.js
-npm test         # node --test "tests/**/*.test.js" -> 546 tests, no MySQL needed
+npm test         # node --test "tests/**/*.test.js" -> 820 tests, no MySQL needed
 node --test tests/unit/auth.me.test.js          # single file
 node --test --test-name-pattern="stale" tests/unit/auth.me.test.js
 node --env-file=.env node_modules/knex/bin/cli.js migrate:latest   # knex CLI (see env note)
@@ -32,7 +32,7 @@ npm test         # vitest run -> 34 tests in 3 files, no browser needed
 
 - `start` uses `--env-file-if-exists` (Node ≥24) so it boots **both** with a `.env` file and with variables injected by systemd/Docker/PM2. `dev` and `test` are unchanged and still hard-require `.env`.
 - There is **no** lint/format/typecheck script for the server. The frontend has **vitest** (`@testing-library/react` + `jsdom`, declared per file with `// @vitest-environment jsdom`); `npm test` is the runner. jsdom does not load images, so a broken thumbnail is simulated with `fireEvent.error(img)`.
-- `frontend/npm run lint` **currently passes on `src/`** (0 errors) after the assistant rework; the only remaining failures are 9 errors in the stray `frontend/verify-ui.js` script (outside `src/`, `no-undef`/`no-unused-vars`). The previous baseline note (8 errors in 5 Admin managers, `pages/Menu.jsx`, `AuthContext.jsx`, `SettingsContext.jsx`) is stale — those files are clean now. Don't treat the `verify-ui.js` errors as a regression of app code.
+- `frontend/npm run lint` **currently reports 10 errors, all pre-existing and outside app code**: 9 in the stray `frontend/verify-ui.js` script (`no-undef`/`no-unused-vars`) and 1 in `frontend/src/components/Admin/Assistant/AssistantChat.jsx` (`react-hooks/set-state-in-effect` inside a `loadInitial` effect, part of uncommitted user WIP). No errors in `src/` otherwise. Don't treat any of these as a regression of app code.
 - **CSS comments must use `/* */`.** A `//` comment in a `.css` file compiles under Vite's dev transform but kills `npm run build` with `lightningcss minify: Invalid empty selector`, because lightningcss does not accept the non-standard syntax. This is the one failure mode where dev passes and prod does not, so always run `npm run build` after touching a stylesheet.
 - No npm script exists for migrations or `database/scripts/*`; use the `node --env-file=.env` forms above.
 
@@ -98,7 +98,7 @@ x.routes.js (public)  +  x.admin.routes.js  ->  x.controller.js  ->  x.service.j
 
 `docs/frontend-integration.md` (~59 KB, Spanish) is the authoritative API contract — full endpoint map, error catalog, auth/refresh flows, upload flows, React integration guide. There is no OpenAPI/Swagger file. **Its audit numbers go stale** — verify the test and migration counts against `npm test` and the migrations directory rather than trusting the prose. Keep the doc updated when endpoints or error codes change.
 
-`docs/assistant.md` is the living plan for the admin AI assistant (Phase 1). Read it before continuing that work and follow its three completion rules: do not break existing behavior, validate the real flow (not only tests), and keep documentation proportional to code.
+`docs/assistant.md` is the living plan for the admin AI assistant (Phase 1). Read it before continuing that work and follow its three completion rules: do not break existing behavior, validate the real flow (not only tests), and keep documentation proportional to code. `docs/assistant-roadmap.md` is the execution order: phases A–G, per-task real-validation steps, and the completion checklist.
 
 ## Operational gotchas
 

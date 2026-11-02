@@ -28,7 +28,10 @@ export default function UserManager() {
         setUsers(data.users || [])
         setIsLoading(false)
       })
-      .catch(() => setErrorMessage('No se pudieron cargar los usuarios.'))
+      .catch(() => {
+        setErrorMessage('No se pudieron cargar los usuarios.')
+        setIsLoading(false)
+      })
   }
 
   function loadUsers() {

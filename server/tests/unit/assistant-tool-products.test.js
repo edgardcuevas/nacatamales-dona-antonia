@@ -32,8 +32,16 @@ Object.assign(process.env, {
 const productService = require(
   "../../src/modules/products/product.service"
 );
+const categoryService = require(
+  "../../src/modules/categories/category.service"
+);
 const assistantToolRegistry = require(
   "../../src/modules/assistant/assistant.tools"
+);
+const {
+  MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS,
+} = require(
+  "../../src/modules/assistant/assistant.constants"
 );
 
 test("count_products uses a fixed minimal page and returns only the total", async () => {
@@ -162,10 +170,12 @@ test("search_products returns at most ten minimal, real product records", async 
     assert.deepEqual(result.products[0], {
       id: 1,
       name: "Producto 1",
+      price: 999,
+      category: null,
       isActive: true,
       isAvailable: true,
     });
-    assert.doesNotMatch(serialized, /Must not be exposed|999/);
+    assert.doesNotMatch(serialized, /Must not be exposed/);
     assert.deepEqual(listProducts.mock.calls[0].arguments[0], {
       page: 1,
       limit: 10,
@@ -211,6 +221,174 @@ test("search_products rejects blank and oversized queries", async () => {
     }
 
     assert.equal(listCalls, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("count_products_by_category reports the real count for an existing category", async () => {
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () => ({ id: 4, name: "Nacatamales" })
+  );
+  const countProducts = mock.method(
+    categoryService,
+    "countProductsByCategory",
+    async () => 3
+  );
+
+  try {
+    for (const role of ["ADMIN", "EDITOR"]) {
+      assert.ok(
+        assistantToolRegistry
+          .getToolDeclarations(role)
+          .some(
+            (tool) =>
+              tool.name === "count_products_by_category"
+          )
+      );
+    }
+
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "count_products_by_category",
+        arguments: { categoryId: 4 },
+        role: "EDITOR",
+      });
+
+    assert.deepEqual(JSON.parse(serialized), {
+      categoryId: 4,
+      categoryName: "Nacatamales",
+      totalProducts: 3,
+    });
+    assert.deepEqual(
+      countProducts.mock.calls[0].arguments,
+      [4]
+    );
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("list_products_by_category returns at most twenty minimal records", async () => {
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () => ({ id: 4, name: "Nacatamales" })
+  );
+  const listProducts = mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => ({
+      products: Array.from(
+        {
+          length: MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS + 1,
+        },
+        (_, index) => ({
+          id: index + 1,
+          name: `Producto ${index + 1}`,
+          isActive: true,
+          isAvailable: index % 2 === 0,
+          description: "Must not be exposed",
+          category: { name: "Nacatamales" },
+        })
+      ),
+      pagination: {
+        totalItems: MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS + 1,
+      },
+    })
+  );
+
+  try {
+    const serialized =
+      await assistantToolRegistry.executeToolCall({
+        name: "list_products_by_category",
+        arguments: { categoryId: 4 },
+        role: "ADMIN",
+      });
+    const result = JSON.parse(serialized);
+
+    assert.deepEqual(
+      listProducts.mock.calls[0].arguments[0],
+      {
+        page: 1,
+        limit: MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS + 1,
+        categoryId: 4,
+        sortBy: "name",
+        sortOrder: "asc",
+      }
+    );
+    assert.equal(
+      result.products.length,
+      MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS
+    );
+    assert.equal(
+      result.totalProducts,
+      MAX_ASSISTANT_CATEGORY_PRODUCT_RESULTS + 1
+    );
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.products[0], {
+      id: 1,
+      name: "Producto 1",
+      isActive: true,
+      isAvailable: true,
+    });
+    assert.doesNotMatch(
+      serialized,
+      /Must not be exposed/
+    );
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("the category product tools reject invalid category ids without querying", async () => {
+  let serviceCalls = 0;
+  mock.method(
+    categoryService,
+    "getCategoryById",
+    async () => {
+      serviceCalls += 1;
+      return { id: 4, name: "Nacatamales" };
+    }
+  );
+  mock.method(
+    categoryService,
+    "countProductsByCategory",
+    async () => {
+      serviceCalls += 1;
+      return 0;
+    }
+  );
+  mock.method(
+    productService,
+    "listAdministrativeProducts",
+    async () => {
+      serviceCalls += 1;
+      return { products: [], pagination: { totalItems: 0 } };
+    }
+  );
+
+  try {
+    for (const name of [
+      "count_products_by_category",
+      "list_products_by_category",
+    ]) {
+      for (const categoryId of [0, -1, 1.5, "4", null]) {
+        await assert.rejects(
+          assistantToolRegistry.executeToolCall({
+            name,
+            arguments: { categoryId },
+            role: "EDITOR",
+          }),
+          (error) =>
+            error.code === "INVALID_TOOL_ARGUMENTS"
+        );
+      }
+    }
+
+    assert.equal(serviceCalls, 0);
   } finally {
     mock.restoreAll();
   }

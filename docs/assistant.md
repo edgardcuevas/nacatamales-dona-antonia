@@ -7,7 +7,7 @@ Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y acept
 
 1. Leer `AGENTS.md` y este archivo.
 2. Confirmar la base verde: `cd server && npm test` y `cd frontend && npm test`.
-3. Tomar la primera tarea sin marcar del roadmap.
+3. Tomar la primera tarea sin marcar de `docs/assistant-roadmap.md` (orden de trabajo y validación real por tarea).
 4. Implementar **una sola tarea**, validarla y marcarla `[x]` con su evidencia.
 5. Commit pequeño (`feat:` / `chore:` / `docs:`). No mezclar tareas.
 
@@ -99,7 +99,7 @@ Todos bajo `/api/admin/assistant`, con la cadena de autenticación del panel.
 
 | Método | Ruta | Rol | Uso |
 |---|---|---|---|
-| GET | `/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities }`; apagado = `200 { enabled:false }` |
+| GET | `/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, quota }`; apagado = `200 { enabled:false }` |
 | GET | `/conversations?limit=20` | ADMIN, EDITOR | Conversaciones propias |
 | GET | `/conversations/:id/messages?limit=50` | ADMIN, EDITOR | Historial propio; ajeno = 404 |
 | POST | `/messages` | ADMIN, EDITOR | `{ conversationId?, message }`; crea conversación si falta |
@@ -132,6 +132,11 @@ AI_MODEL=gemini-3.5-flash
 GEMINI_API_KEY=
 AI_MAX_OUTPUT_TOKENS=1024
 AI_TIMEOUT_MS=30000
+# Presupuesto gratis: 0 = sin tope (plan pago)
+AI_DAILY_PROVIDER_CALLS=120
+# Solo para estimar costo en /usage; 0 = no estimar
+AI_PRICE_INPUT_PER_M=0
+AI_PRICE_OUTPUT_PER_M=0
 ```
 
 `gemini-2.5-flash` ya no sirve: la API responde `404 NOT_FOUND` (“no longer available to new users”). `gemini-3.8-flash` y el alias `gemini-flash-latest` respondieron `503 UNAVAILABLE` por demanda en la validación. `gemini-3.5-flash` es el default porque responde con la clave actual y devuelve `modelVersion: gemini-3.6-flash`, que es lo que se guarda en métricas.
@@ -145,16 +150,23 @@ Errores públicos estables:
 | Conversación ajena | 404 | `ASSISTANT_CONVERSATION_NOT_FOUND` |
 | Límite de mensajes | 409 | `ASSISTANT_CONVERSATION_FULL` |
 | Límite por usuario | 429 | `RATE_LIMIT_EXCEEDED` |
+| Tope diario de llamadas al proveedor | 429 | `ASSISTANT_QUOTA_EXCEEDED` |
+| El proveedor está limitando | 429 | `ASSISTANT_RATE_LIMITED` |
 | Timeout | 504 | `ASSISTANT_TIMEOUT` |
-| Error/cuota del proveedor | 502 | `ASSISTANT_PROVIDER_ERROR` |
+| Error del proveedor (resto) | 502 | `ASSISTANT_PROVIDER_ERROR` |
+| Operación no permitida pedida por el modelo | 502 | `ASSISTANT_TOOL_MISUSE` |
+
+`ASSISTANT_QUOTA_EXCEEDED` se evalúa antes de llamar al proveedor, con un contador en memoria del día UTC y del proyecto entero (el cupo gratis se mide por proyecto, no por usuario). Se reinicia al cambiar el día o al reiniciar el proceso, y `AI_DAILY_PROVIDER_CALLS=0` lo desactiva. `ASSISTANT_RATE_LIMITED` es el `429` del proveedor: se propaga como está en vez de caer en el `502` genérico.
+
+`ASSISTANT_TOOL_MISUSE` solo aparece si el modelo insiste con una herramienta inexistente, sin permiso, con argumentos inválidos o mezclando lectura y escritura **después** de que se le explicó el error una vez. Un primer intento inválido ya no rompe el turno: se le devuelve el motivo como resultado de herramienta y responde en español.
 
 Añadir OpenAI, Claude o Azure OpenAI = nueva factory en `providers/`, registrarla en el mapa y configurar `AI_PROVIDER`. No se toca servicio, frontend ni base de datos.
 
 ## Métricas
 
-Un evento en `ai_usage_events` por cada intento que llega al proveedor, incluidos fallos, timeouts y bloqueos. Los tokens salen de `usageMetadata`; si el proveedor no los devuelve, quedan `NULL`. Un fallo al insertar el evento no rompe la respuesta al usuario.
+Un evento en `ai_usage_events` por cada intento que llega al proveedor, incluidos fallos, timeouts y bloqueos. Los tokens salen de `usageMetadata`; si el proveedor no los devuelve, quedan `NULL`. Un fallo al insertar el evento no rompe la respuesta al usuario. `provider_calls` guarda cuántas llamadas costó ese turno (1 en una pregunta simple, 2 si consultó una herramienta), porque el texto que se muestra ya no se descarta ni se vuelve a pedir.
 
-`GET /usage?days=30` (ADMIN) devuelve `totals` (consultas, fallidas, tokens de entrada/salida), `byModel` y `byDay`. La UI muestra una línea para ADMIN; EDITOR no ve métricas.
+`GET /usage?days=30` (ADMIN) devuelve `totals` (consultas, fallidas, `providerCalls`, tokens de entrada/salida y `estimatedCostUsd`), `byModel`, `byDay` y el estado actual de `quota`. `estimatedCostUsd` sale de `AI_PRICE_INPUT_PER_M` / `AI_PRICE_OUTPUT_PER_M` y es `null` mientras valgan `0`. No hay UI de métricas: el panel no muestra esta información todavía, así que el costo solo se ve llamando a la ruta.
 
 ## Conocimiento y prompt
 
@@ -706,7 +718,7 @@ El texto de la propuesta y el resumen de la tarjeta los genera el servidor, no e
 
 ### Límites y coste
 
-- **Una propuesta de escritura por turno.** Las lecturas y la escritura no se mezclan en una misma respuesta del proveedor: si llegan juntas, la respuesta se rechaza como `ASSISTANT_PROVIDER_ERROR`. El modelo debe buscar primero, recibir el resultado y proponer la escritura en la llamada siguiente.
+- **Una propuesta de escritura por turno.** Las lecturas y la escritura no se mezclan en una misma respuesta del proveedor. Si llegan juntas, las lecturas se ejecutan, la acción se descarta y se le pide al modelo que la proponga sola en la llamada siguiente (una sola ronda de corrección; si insiste, `ASSISTANT_TOOL_MISUSE`).
 - **5 acciones `PENDING` por usuario.** Al crear la sexta se vencen las caducadas y, si sigue el cupo lleno, el asistente responde que hay demasiadas confirmaciones pendientes sin crear otra.
 - **10 minutos de vigencia.**
 - **Un token de 32 bytes**, hash SHA-256, comparación por índice único.

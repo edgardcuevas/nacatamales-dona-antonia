@@ -19,6 +19,9 @@ const {
 const {
   isConversationFull,
 } = require("./assistant.retention");
+const {
+  assistantQuota,
+} = require("./assistant.quota");
 
 const {
   HISTORY_MESSAGE_LIMIT,
@@ -64,6 +67,30 @@ function createProviderError() {
     502,
     "ASSISTANT_PROVIDER_ERROR",
     "The assistant could not answer that message"
+  );
+}
+
+function createToolMisuseError() {
+  return new AppError(
+    502,
+    "ASSISTANT_TOOL_MISUSE",
+    "The assistant requested an operation it cannot perform"
+  );
+}
+
+function createQuotaExceededError() {
+  return new AppError(
+    429,
+    "ASSISTANT_QUOTA_EXCEEDED",
+    "The assistant reached its daily provider call quota"
+  );
+}
+
+function createRateLimitedError() {
+  return new AppError(
+    429,
+    "ASSISTANT_RATE_LIMITED",
+    "The assistant provider is rate limiting requests"
   );
 }
 
@@ -199,6 +226,7 @@ async function saveActionProposalTurn({
       model: result.model ?? provider.model,
       status: "SUCCESS",
       errorCode: null,
+      providerCalls: result.providerCalls ?? null,
       inputTokens: result.usage?.inputTokens ?? null,
       outputTokens: result.usage?.outputTokens ?? null,
       latencyMs,
@@ -268,6 +296,7 @@ async function saveActionProposalTurn({
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
+      providerCalls: result.providerCalls ?? null,
       inputTokens: assistantMessage.inputTokens,
       outputTokens: assistantMessage.outputTokens,
       latencyMs,
@@ -282,6 +311,7 @@ async function saveActionProposalTurn({
     model: assistantMessage.model,
     status: "SUCCESS",
     errorCode: null,
+    providerCalls: result.providerCalls ?? null,
     inputTokens: assistantMessage.inputTokens,
     outputTokens: assistantMessage.outputTokens,
     latencyMs,
@@ -315,6 +345,14 @@ function mapProviderError(error) {
         "ASSISTANT_TIMEOUT",
         "The assistant took too long to answer"
       );
+    }
+
+    if (error.code === "TOOL_MISUSE") {
+      return createToolMisuseError();
+    }
+
+    if (error.code === "RATE_LIMITED") {
+      return createRateLimitedError();
     }
 
     return createProviderError();
@@ -412,6 +450,7 @@ function getStatus() {
     provider: provider.id,
     model: provider.model,
     capabilities: provider.capabilities,
+    quota: assistantQuota.current(),
   };
 }
 
@@ -484,6 +523,10 @@ async function sendMessage({
 }) {
   const provider = getProvider();
   const userId = currentUser.id;
+
+  if (assistantQuota.current().exhausted) {
+    throw createQuotaExceededError();
+  }
 
   let conversation = null;
   let history = [];
@@ -564,6 +607,7 @@ async function sendMessage({
       model: provider.model,
       status: mapProviderStatus(providerFailure),
       errorCode: mapProviderErrorCode(providerFailure),
+      providerCalls: null,
       inputTokens: null,
       outputTokens: null,
       latencyMs,
@@ -571,6 +615,8 @@ async function sendMessage({
 
     throw mapProviderError(providerFailure);
   }
+
+  assistantQuota.record(result.providerCalls);
 
   if (result.blocked) {
     await recordUsageEvent({
@@ -580,6 +626,7 @@ async function sendMessage({
       model: result.model ?? provider.model,
       status: "BLOCKED",
       errorCode: null,
+      providerCalls: result.providerCalls ?? null,
       inputTokens: result.usage?.inputTokens ?? null,
       outputTokens: result.usage?.outputTokens ?? null,
       latencyMs,
@@ -634,6 +681,7 @@ async function sendMessage({
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
+      providerCalls: result.providerCalls ?? null,
       inputTokens: assistantMessage.inputTokens,
       outputTokens: assistantMessage.outputTokens,
       latencyMs,
@@ -674,6 +722,7 @@ async function sendMessage({
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
+      providerCalls: result.providerCalls ?? null,
       inputTokens: assistantMessage.inputTokens,
       outputTokens: assistantMessage.outputTokens,
       latencyMs,
@@ -689,6 +738,7 @@ async function sendMessage({
     model: assistantMessage.model,
     status: "SUCCESS",
     errorCode: null,
+    providerCalls: result.providerCalls ?? null,
     inputTokens: assistantMessage.inputTokens,
     outputTokens: assistantMessage.outputTokens,
     latencyMs,
@@ -707,6 +757,24 @@ async function sendMessage({
     prunedConversationId:
       created.prunedConversationIds[0] ?? null,
   };
+}
+
+function estimateCostUsd({
+  inputTokens,
+  outputTokens,
+}) {
+  const { priceInputPerM, priceOutputPerM } =
+    env.assistant;
+
+  if (priceInputPerM <= 0 && priceOutputPerM <= 0) {
+    return null;
+  }
+
+  const cost =
+    (inputTokens / 1_000_000) * priceInputPerM +
+    (outputTokens / 1_000_000) * priceOutputPerM;
+
+  return Number(cost.toFixed(6));
 }
 
 async function getUsage({ currentUser, query }) {
@@ -732,11 +800,16 @@ async function getUsage({ currentUser, query }) {
     totals: {
       queries: aggregates.totals.totalQueries,
       failed: aggregates.totals.failedQueries,
+      providerCalls: aggregates.totals.providerCalls,
       inputTokens: aggregates.totals.inputTokens,
       outputTokens: aggregates.totals.outputTokens,
+      estimatedCostUsd: estimateCostUsd(
+        aggregates.totals
+      ),
     },
     byModel: aggregates.byModel,
     byDay: aggregates.byDay,
+    quota: assistantQuota.current(),
   };
 }
 
