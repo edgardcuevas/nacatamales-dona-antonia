@@ -117,6 +117,28 @@ function mapProviderErrorCode(error) {
   return "INTERNAL_ERROR";
 }
 
+function getResultProvider(result, fallbackProvider) {
+  if (
+    Array.isArray(result.providers) &&
+    result.providers.length > 0
+  ) {
+    return [...new Set(result.providers)].join("+");
+  }
+
+  return result.provider ?? fallbackProvider.id;
+}
+
+function getFailureProvider(error, fallbackProvider) {
+  if (
+    Array.isArray(error.providers) &&
+    error.providers.length > 0
+  ) {
+    return [...new Set(error.providers)].join("+");
+  }
+
+  return error.provider ?? fallbackProvider.id;
+}
+
 async function recordUsageEvent(payload) {
   try {
     await assistantRepository.insertUsageEvent(
@@ -181,6 +203,10 @@ async function saveActionProposalTurn({
   latencyMs,
 }) {
   const userId = currentUser.id;
+  const resultProvider = getResultProvider(
+    result,
+    provider
+  );
   const title = existingConversation
     ? existingConversation.title ?? null
     : buildConversationTitle(input.message);
@@ -222,7 +248,7 @@ async function saveActionProposalTurn({
       userId,
       conversationId:
         existingConversation?.id ?? null,
-      provider: provider.id,
+      provider: resultProvider,
       model: result.model ?? provider.model,
       status: "SUCCESS",
       errorCode: null,
@@ -252,7 +278,7 @@ async function saveActionProposalTurn({
   const assistantMessage = {
     role: "assistant",
     content: replyContent,
-    provider: provider.id,
+    provider: resultProvider,
     model: result.model ?? provider.model,
     inputTokens: result.usage?.inputTokens ?? null,
     outputTokens: result.usage?.outputTokens ?? null,
@@ -292,7 +318,7 @@ async function saveActionProposalTurn({
       userId,
       conversationId:
         existingConversation?.id ?? null,
-      provider: provider.id,
+      provider: resultProvider,
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
@@ -307,7 +333,7 @@ async function saveActionProposalTurn({
   await recordUsageEvent({
     userId,
     conversationId,
-    provider: provider.id,
+    provider: resultProvider,
     model: assistantMessage.model,
     status: "SUCCESS",
     errorCode: null,
@@ -600,14 +626,21 @@ async function sendMessage({
   const latencyMs = Date.now() - startedAt;
 
   if (providerFailure !== null) {
+    assistantQuota.record(
+      providerFailure.providerCalls
+    );
     await recordUsageEvent({
       userId,
       conversationId: conversation?.id ?? null,
-      provider: provider.id,
-      model: provider.model,
+      provider: getFailureProvider(
+        providerFailure,
+        provider
+      ),
+      model: providerFailure.model ?? provider.model,
       status: mapProviderStatus(providerFailure),
       errorCode: mapProviderErrorCode(providerFailure),
-      providerCalls: null,
+      providerCalls:
+        providerFailure.providerCalls ?? null,
       inputTokens: null,
       outputTokens: null,
       latencyMs,
@@ -617,12 +650,16 @@ async function sendMessage({
   }
 
   assistantQuota.record(result.providerCalls);
+  const resultProvider = getResultProvider(
+    result,
+    provider
+  );
 
   if (result.blocked) {
     await recordUsageEvent({
       userId,
       conversationId: conversation?.id ?? null,
-      provider: provider.id,
+      provider: resultProvider,
       model: result.model ?? provider.model,
       status: "BLOCKED",
       errorCode: null,
@@ -653,7 +690,7 @@ async function sendMessage({
   const assistantMessage = {
     role: "assistant",
     content: result.text,
-    provider: provider.id,
+    provider: resultProvider,
     model: result.model ?? provider.model,
     inputTokens: result.usage?.inputTokens ?? null,
     outputTokens: result.usage?.outputTokens ?? null,
@@ -677,7 +714,7 @@ async function sendMessage({
     await recordUsageEvent({
       userId,
       conversationId: conversation.id,
-      provider: provider.id,
+      provider: resultProvider,
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
@@ -718,7 +755,7 @@ async function sendMessage({
     await recordUsageEvent({
       userId,
       conversationId: null,
-      provider: provider.id,
+      provider: resultProvider,
       model: assistantMessage.model,
       status: "SUCCESS",
       errorCode: null,
@@ -734,7 +771,7 @@ async function sendMessage({
   await recordUsageEvent({
     userId,
     conversationId: created.conversationId,
-    provider: provider.id,
+    provider: resultProvider,
     model: assistantMessage.model,
     status: "SUCCESS",
     errorCode: null,
@@ -794,6 +831,10 @@ async function getUsage({ currentUser, query }) {
     await assistantRepository.getUsageAggregates({
       since,
     });
+  const includesNonGeminiUsage = aggregates.byModel.some(
+    ({ provider: providerName }) =>
+      providerName !== "gemini"
+  );
 
   return {
     days: query.days,
@@ -803,9 +844,9 @@ async function getUsage({ currentUser, query }) {
       providerCalls: aggregates.totals.providerCalls,
       inputTokens: aggregates.totals.inputTokens,
       outputTokens: aggregates.totals.outputTokens,
-      estimatedCostUsd: estimateCostUsd(
-        aggregates.totals
-      ),
+      estimatedCostUsd: includesNonGeminiUsage
+        ? null
+        : estimateCostUsd(aggregates.totals),
     },
     byModel: aggregates.byModel,
     byDay: aggregates.byDay,

@@ -126,16 +126,20 @@ chat({ systemInstruction, messages, maxOutputTokens, timeoutMs })
 // messages: [{ role: "user" | "assistant", content: string }]
 ```
 
-`providers/gemini.provider.js` usa `fetch`, `x-goog-api-key` y `AbortSignal.timeout`. Sin SDK nuevo, sin reintentos automáticos, `temperature: 0.2`. El cuerpo crudo del proveedor no llega a logs ni a respuestas.
+`providers/gemini.provider.js` usa `fetch`, `x-goog-api-key` y `AbortSignal.timeout`. `providers/nvidia.provider.js` usa la API compatible con chat completions de NVIDIA. Si Gemini responde con rate limit/cuota (`429`), timeout o indisponibilidad (`5xx/red`), el adaptador intenta NVIDIA con el mismo prompt, historial, declaraciones y resultados de herramientas. No reintenta errores de autenticación ni solicitudes inválidas. El proveedor limitado entra en cooldown respetando `Retry-After` cuando existe; si no, usa 60 segundos. No se registra el cuerpo crudo ni las claves.
+
+El stream se retiene hasta completar el turno: el cliente recibe la respuesta final de una vez. Así un fallo después de producir texto parcial no muestra fragmentos duplicados al cambiar de proveedor. El cambio puede agregar latencia, aunque no se expone el proveedor al usuario. Si se usa NVIDIA, el prompt y el contexto necesario de esa conversación se envían a NVIDIA.
 
 `thinkingConfig.thinkingBudget = 0` es deliberado: los Gemini 3 razonan antes de responder y esos tokens salen del presupuesto de salida, así que con `maxOutputTokens: 1024` una respuesta corta se cortaba con `MAX_TOKENS`. Medido contra la API real, desactivarlo bajó la latencia de ~3,1 s a ~1,4 s sin perder calidad en preguntas de catálogo.
 
-Variables opcionales (sin `GEMINI_API_KEY` el asistente queda apagado y la API arranca normal):
+Variables opcionales (sin `GEMINI_API_KEY` el asistente queda apagado; NVIDIA es respaldo opcional):
 
 ```bash
 AI_PROVIDER=gemini
 AI_MODEL=gemini-3.5-flash
 GEMINI_API_KEY=
+NVIDIA_API_KEY=
+NVIDIA_MODEL=
 AI_MAX_OUTPUT_TOKENS=1024
 AI_TIMEOUT_MS=30000
 # Presupuesto gratis: 0 = sin tope (plan pago)
@@ -168,17 +172,17 @@ Errores públicos estables:
 | Error del proveedor (resto) | 502 | `ASSISTANT_PROVIDER_ERROR` |
 | Operación no permitida pedida por el modelo | 502 | `ASSISTANT_TOOL_MISUSE` |
 
-`ASSISTANT_QUOTA_EXCEEDED` se evalúa antes de llamar al proveedor, con un contador en memoria del día UTC y del proyecto entero (el cupo gratis se mide por proyecto, no por usuario). Se reinicia al cambiar el día o al reiniciar el proceso, y `AI_DAILY_PROVIDER_CALLS=0` lo desactiva. `ASSISTANT_RATE_LIMITED` es el `429` del proveedor: se propaga como está en vez de caer en el `502` genérico.
+`ASSISTANT_QUOTA_EXCEEDED` es el presupuesto diario global de la aplicación: se evalúa antes de llamar a cualquier proveedor, cuenta los intentos reales de ambos y no se omite con failover. Se reinicia al cambiar el día UTC o al reiniciar el proceso; `AI_DAILY_PROVIDER_CALLS=0` lo desactiva. La cuota del proveedor (por ejemplo un `429` de Gemini) intenta NVIDIA antes de devolver `ASSISTANT_RATE_LIMITED`; si todos los proveedores configurados siguen limitando, se responde con ese `429`.
 
 `ASSISTANT_TOOL_MISUSE` solo aparece si el modelo insiste con una herramienta inexistente, sin permiso, con argumentos inválidos o mezclando lectura y escritura **después** de que se le explicó el error una vez. Un primer intento inválido ya no rompe el turno: se le devuelve el motivo como resultado de herramienta y responde en español.
 
-Añadir OpenAI, Claude o Azure OpenAI = nueva factory en `providers/`, registrarla en el mapa y configurar `AI_PROVIDER`. No se toca servicio, frontend ni base de datos.
+NVIDIA es un respaldo opcional de Gemini; se configura con `NVIDIA_API_KEY` y un `NVIDIA_MODEL` que admita function calling. `AI_PROVIDER` permanece en `gemini`. Agregar otro proveedor requiere un adaptador en `providers/` y registrarlo en la cadena de failover.
 
 ## Métricas
 
-Un evento en `ai_usage_events` por cada intento que llega al proveedor, incluidos fallos, timeouts y bloqueos. Los tokens salen de `usageMetadata`; si el proveedor no los devuelve, quedan `NULL`. Un fallo al insertar el evento no rompe la respuesta al usuario. `provider_calls` guarda cuántas llamadas costó ese turno (1 en una pregunta simple, 2 si consultó una herramienta), porque el texto que se muestra ya no se descarta ni se vuelve a pedir.
+Un evento en `ai_usage_events` por turno, incluidos fallos, timeouts y bloqueos. `provider` registra los proveedores intentados (por ejemplo `gemini+nvidia`), `provider_calls` cuenta cada intento real y los tokens reportan las respuestas exitosas del turno. Los tokens que un proveedor no devuelve quedan `NULL`. Un fallo al insertar el evento no rompe la respuesta al usuario.
 
-`GET /usage?days=30` (ADMIN) devuelve `totals` (consultas, fallidas, `providerCalls`, tokens de entrada/salida y `estimatedCostUsd`), `byModel`, `byDay` y el estado actual de `quota`. `estimatedCostUsd` sale de `AI_PRICE_INPUT_PER_M` / `AI_PRICE_OUTPUT_PER_M` y es `null` mientras valgan `0`. No hay UI de métricas: el panel no muestra esta información todavía, así que el costo solo se ve llamando a la ruta.
+`GET /usage?days=30` (ADMIN) devuelve `totals` (consultas, fallidas, `providerCalls`, tokens de entrada/salida y `estimatedCostUsd`), `byModel`, `byDay` y el estado actual de `quota`. `estimatedCostUsd` sale de `AI_PRICE_INPUT_PER_M` / `AI_PRICE_OUTPUT_PER_M`, es `null` mientras valgan `0` y también cuando hay uso de NVIDIA, porque las tarifas configuradas no distinguen proveedores. No hay UI de métricas: el panel no muestra esta información todavía, así que el costo solo se ve llamando a la ruta.
 
 ## Conocimiento y prompt
 
@@ -881,18 +885,18 @@ Estado: **completado y validado el 2026-10-28**. El alcance inicial de Fase 1 lo
 ### Decisiones
 
 - **Ruta nueva y aditiva.** `POST /admin/assistant/messages/stream` comparte autenticación, rol, rate limit, validación, persistencia y errores con `POST /messages`. El endpoint JSON sigue disponible.
-- **Solo la respuesta final se transmite.** El orquestador usa llamadas normales para decidir y ejecutar herramientas; recién cuando ya no hay más herramientas por ejecutar hace una llamada final en modo streaming. Los turnos intermedios y los nombres/argumentos de herramientas nunca llegan al navegador como `chunk`.
+- **Solo la respuesta final se transmite, completa.** El orquestador usa llamadas normales para decidir y ejecutar herramientas; al terminar, entrega el texto final en un solo `chunk`. No publica fragmentos progresivos: si un proveedor falla a mitad de respuesta, así puede cambiar al respaldo sin que aparezca texto duplicado o cortado.
 - **Las propuestas de escritura no se transmiten.** `set_*` se resuelve antes del streaming y solo aparece en `complete.data.pendingAction`, igual que en la respuesta JSON. Nunca se muestra una tarjeta mientras el texto todavía se está generando.
-- **El texto persistido es el transmitido.** El proveedor acumula las partes de la respuesta en streaming, y el servicio guarda exactamente esa concatenación. No se persiste nada si el flujo falla antes de `complete`.
+- **El texto persistido es el transmitido.** El servicio guarda exactamente el texto final enviado en el `chunk`. No se persiste nada si todos los proveedores fallan antes de `complete`.
 - **Degradación explícita.** `GET /status` publica `capabilities.supportsStreaming`; el cliente elige `api.streamPost` o cae en `api.post` si el proveedor no lo soporta.
 
 ### Implementación
 
 - `gemini.provider.js` añade `chatStream` contra `streamGenerateContent?alt=sse`, con parser SSE incremental que tolera frames partidos, ignora `thought` y rechaza eventos malformados o vacíos.
-- `assistant.tool-orchestrator.js` incorpora `streamFinal`/`onTextChunk`; mantiene el techo de 3 llamadas al proveedor y 2 ejecuciones de herramientas por mensaje.
+- `assistant.provider.js` conserva en memoria los fragmentos de cada intento y solo los publica cuando ese proveedor termina correctamente; `assistant.tool-orchestrator.js` entrega la respuesta final una vez. Mantiene el techo de 3 llamadas reales entre proveedores y 2 ejecuciones de herramientas por mensaje.
 - `assistant.controller.js` responde `text/event-stream` con `chunk` y `complete`. `error.middleware.js` convierte un fallo posterior a las cabeceras en un `event: error` saneado en vez de intentar una respuesta JSON.
 - `frontend/src/api/client.js` añade `api.streamPost`, que reutiliza el refresco de token de una sola vez y rechaza flujos incompletos con `ASSISTANT_STREAM_INTERRUPTED`.
-- `AssistantChat.jsx` muestra el texto parcial y lo reemplaza por el mensaje persistido al recibir `complete`; ante un error descarta el parcial y muestra el mensaje de error.
+- `AssistantChat.jsx` muestra el texto final al recibir el `chunk` y lo reemplaza por el mensaje persistido al recibir `complete`; ante un error no queda texto parcial.
 
 ### Coste
 
@@ -901,10 +905,11 @@ Para transmitir solo la respuesta final, un turno sin herramientas puede gastar 
 ### Validación
 
 - `cd server && npm test`: 804/804. `cd frontend && npm test`: 169/169. `cd frontend && npm run build`: verde.
-- HTTP real contra el servidor y MySQL de desarrollo, con Gemini en vivo: un turno de texto puro transmitió 1 `chunk` y un turno con herramienta de lectura transmitió 3 `chunk`; en ambos la concatenación coincidió con `complete.data.reply.content`, se persistieron exactamente dos mensajes por conversación, hubo dos eventos `SUCCESS` de uso, ningún `pendingAction` y ningún nombre de herramienta en los fragmentos. Los usuarios, conversaciones y eventos temporales se eliminaron.
+- HTTP real contra el servidor y MySQL de desarrollo, con Gemini en vivo (validación histórica, anterior al buffering para failover): un turno de texto puro transmitió 1 `chunk` y un turno con herramienta de lectura transmitió 3 `chunk`; en ambos la concatenación coincidió con `complete.data.reply.content`, se persistieron exactamente dos mensajes por conversación, hubo dos eventos `SUCCESS` de uso, ningún `pendingAction` y ningún nombre de herramienta en los fragmentos. Los usuarios, conversaciones y eventos temporales se eliminaron.
 - Un segundo par de turnos en la misma conversación comprobó la rama `conversationId`: mismo id, historial de cuatro mensajes en orden y el contenido de cada respuesta igual al transmitido. También se limpió.
-- Navegador real (Chrome headless contra Vite y la API, rol `EDITOR`): login por el formulario, apertura de Asistente, envío y render incremental. La petición fue a `/api/admin/assistant/messages/stream` con `200`; llegaron 5 eventos SSE (4 `chunk`, 328 caracteres) y se observaron 5 muestras parciales del DOM antes de `complete`. El texto final del DOM coincidió con el persistido, no apareció tarjeta de confirmación y el turno guardó dos mensajes. Los datos temporales se eliminaron.
+- Navegador real (Chrome headless contra Vite y la API, rol `EDITOR`; validación histórica previa al buffering): login por el formulario, apertura de Asistente, envío y render incremental. La petición fue a `/api/admin/assistant/messages/stream` con `200`; llegaron 5 eventos SSE (4 `chunk`, 328 caracteres) y se observaron 5 muestras parciales del DOM antes de `complete`. El texto final del DOM coincidió con el persistido, no apareció tarjeta de confirmación y el turno guardó dos mensajes. Los datos temporales se eliminaron. El buffering actual aún requiere aceptación visual real.
 - El caso de error posterior a las cabeceras está cubierto por la prueba de ruta con proveedor simulado (`event: error` saneado, sin detalles internos).
+- El failover Gemini→NVIDIA y la entrega de texto sin fragmentos parciales se verifican con proveedores simulados; falta aceptación real con una clave NVIDIA configurada.
 ---
 
 ## Fase 3 — Interfaz del chat (completada 2026-10-30)

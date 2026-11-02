@@ -81,6 +81,8 @@ function runAssistantConfig(
         "priceInputPerM: assistant.priceInputPerM,",
         "priceOutputPerM: assistant.priceOutputPerM,",
         "hasApiKey: Boolean(assistant.apiKey),",
+        "nvidiaEnabled: assistant.nvidia.enabled,",
+        "nvidiaModel: assistant.nvidia.model,",
         "}));",
       ].join("\n"),
     ],
@@ -146,6 +148,22 @@ function createProvider(
   });
 }
 
+function createProviderWithNvidia(fetchImpl, overrides = {}) {
+  return createAssistantProvider({
+    provider: "gemini",
+    apiKey: "test-gemini-key",
+    model: "gemini-test",
+    maxOutputTokens: 1024,
+    timeoutMs: 30_000,
+    nvidia: {
+      apiKey: "test-nvidia-key",
+      model: "meta/test-model",
+    },
+    fetchImpl,
+    ...overrides,
+  });
+}
+
 async function expectProviderError(
   promise,
   code,
@@ -171,6 +189,14 @@ async function expectProviderError(
       );
     }
 
+    if ("providerCalls" in expected) {
+      assert.equal(error.providerCalls, expected.providerCalls);
+    }
+
+    if ("providers" in expected) {
+      assert.deepEqual(error.providers, expected.providers);
+    }
+
     return true;
   });
 }
@@ -178,6 +204,8 @@ async function expectProviderError(
 test("assistant configuration is optional, frozen and disabled without an API key", () => {
   const result = runAssistantConfig({}, [
     "GEMINI_API_KEY",
+    "NVIDIA_API_KEY",
+    "NVIDIA_MODEL",
     "AI_PROVIDER",
     "AI_MODEL",
     "AI_MAX_OUTPUT_TOKENS",
@@ -197,6 +225,7 @@ test("assistant configuration is optional, frozen and disabled without an API ke
     "enabled",
     "maxOutputTokens",
     "model",
+    "nvidia",
     "priceInputPerM",
     "priceOutputPerM",
     "provider",
@@ -212,6 +241,8 @@ test("assistant configuration is optional, frozen and disabled without an API ke
   assert.equal(output.priceInputPerM, 0);
   assert.equal(output.priceOutputPerM, 0);
   assert.equal(output.hasApiKey, false);
+  assert.equal(output.nvidiaEnabled, false);
+  assert.equal(output.nvidiaModel, null);
 });
 
 test("assistant configuration enables Gemini and keeps the key out of the output", () => {
@@ -233,8 +264,28 @@ test("assistant configuration enables Gemini and keeps the key out of the output
   assert.equal(output.maxOutputTokens, 512);
   assert.equal(output.timeoutMs, 15_000);
   assert.equal(output.hasApiKey, true);
+  assert.equal(output.nvidiaEnabled, false);
+  assert.equal(output.nvidiaModel, null);
   assert.equal(
     result.stdout.includes("test-gemini-key"),
+    false
+  );
+});
+
+test("assistant configuration enables NVIDIA fallback without exposing its key", () => {
+  const result = runAssistantConfig({
+    GEMINI_API_KEY: "test-gemini-key",
+    NVIDIA_API_KEY: "test-nvidia-key",
+    NVIDIA_MODEL: "meta/test-model",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = parseConfigOutput(result);
+  assert.equal(output.enabled, true);
+  assert.equal(output.nvidiaEnabled, true);
+  assert.equal(output.nvidiaModel, "meta/test-model");
+  assert.equal(
+    result.stdout.includes("test-nvidia-key"),
     false
   );
 });
@@ -252,6 +303,17 @@ test("assistant configuration rejects unsupported providers and invalid limits",
     {
       overrides: { AI_MODEL: "a/b" },
       variable: "AI_MODEL",
+    },
+    {
+      overrides: { NVIDIA_API_KEY: "test-nvidia-key" },
+      variable: "NVIDIA_MODEL",
+    },
+    {
+      overrides: {
+        NVIDIA_API_KEY: "test-nvidia-key",
+        NVIDIA_MODEL: "bad model",
+      },
+      variable: "NVIDIA_MODEL",
     },
     {
       overrides: { AI_MAX_OUTPUT_TOKENS: "0" },
@@ -373,6 +435,9 @@ test("Gemini provider maps messages, system instruction and generation config", 
   assert.deepEqual(result, {
     text: "Para agregar un producto...",
     model: "gemini-test-001",
+    provider: "gemini",
+    providers: ["gemini"],
+    providerCalls: 1,
     usage: {
       inputTokens: 120,
       outputTokens: 30,
@@ -469,6 +534,9 @@ test("Gemini provider joins text parts, ignores thoughts and tolerates missing u
     assert.deepEqual(result, {
       text: "Hola mundo",
       model: "gemini-stream-test",
+      provider: "gemini",
+      providers: ["gemini"],
+      providerCalls: 1,
       usage: { inputTokens: 12, outputTokens: 2 },
       finishReason: "STOP",
       blocked: false,
@@ -1047,6 +1115,246 @@ test("Gemini provider rejects invalid local input", async () => {
       ASSISTANT_PROVIDER_ERROR_CODES.INVALID_REQUEST
     );
   }
+});
+
+test("Gemini quota errors continue on NVIDIA and cool down the limited provider", async () => {
+  let now = 1_000;
+  let geminiCalls = 0;
+  let nvidiaCalls = 0;
+  let nvidiaRequest;
+  const provider = createProviderWithNvidia(
+    async (url, options) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        return {
+          ok: false,
+          status: 429,
+          headers: { get: () => "60" },
+        };
+      }
+
+      nvidiaCalls += 1;
+      nvidiaRequest = { url, options };
+      return jsonResponse({
+        model: "meta/test-model",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "Continué con el contexto.",
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: 20,
+          completion_tokens: 7,
+        },
+      });
+    },
+    { now: () => now }
+  );
+  const input = {
+    systemInstruction: "Sos el asistente.",
+    messages: [{ role: "user", content: "Continuá" }],
+  };
+
+  const first = await provider.chat(input);
+  const second = await provider.chat(input);
+
+  assert.equal(first.text, "Continué con el contexto.");
+  assert.equal(first.provider, "nvidia");
+  assert.deepEqual(first.providers, ["gemini", "nvidia"]);
+  assert.equal(first.providerCalls, 2);
+  assert.deepEqual(first.usage, {
+    inputTokens: 20,
+    outputTokens: 7,
+  });
+  assert.equal(second.provider, "nvidia");
+  assert.deepEqual(second.providers, ["nvidia"]);
+  assert.equal(geminiCalls, 1);
+  assert.equal(nvidiaCalls, 2);
+  assert.equal(
+    nvidiaRequest.url,
+    "https://integrate.api.nvidia.com/v1/chat/completions"
+  );
+  assert.equal(
+    nvidiaRequest.options.headers.authorization,
+    "Bearer test-nvidia-key"
+  );
+  assert.deepEqual(
+    JSON.parse(nvidiaRequest.options.body).messages,
+    [
+      { role: "system", content: "Sos el asistente." },
+      { role: "user", content: "Continuá" },
+    ]
+  );
+
+  now += 60_001;
+  const recovered = await provider.chat(input);
+  assert.equal(recovered.provider, "nvidia");
+  assert.equal(geminiCalls, 2);
+});
+
+test("the failover does not hide authentication or request errors", async () => {
+  let calls = 0;
+  const provider = createProviderWithNvidia(async () => {
+    calls += 1;
+    return { ok: false, status: 401 };
+  });
+
+  await expectProviderError(
+    provider.chat({
+      systemInstruction: "Sistema",
+      messages: [{ role: "user", content: "Hola" }],
+    }),
+    ASSISTANT_PROVIDER_ERROR_CODES.AUTH_FAILED,
+    { upstreamStatus: 401 }
+  );
+  assert.equal(calls, 1);
+});
+
+test("the failover respects the remaining provider-call budget", async () => {
+  let geminiCalls = 0;
+  let nvidiaCalls = 0;
+  const provider = createProviderWithNvidia(
+    async (url) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        return { ok: false, status: 429 };
+      }
+
+      nvidiaCalls += 1;
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "No debe usarse con el presupuesto agotado.",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      });
+    }
+  );
+
+  await expectProviderError(
+    provider.chat({
+      systemInstruction: "Sistema.",
+      messages: [{ role: "user", content: "Hola" }],
+      providerCallLimit: 1,
+    }),
+    ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED,
+    {
+      providerCalls: 1,
+      providers: ["gemini"],
+    }
+  );
+  assert.equal(geminiCalls, 1);
+  assert.equal(nvidiaCalls, 0);
+});
+
+test("NVIDIA converts tool history and normalizes function-call responses", async () => {
+  let capturedBody;
+  const provider = createProviderWithNvidia(
+    async (url, options) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return { ok: false, status: 429 };
+      }
+
+      capturedBody = JSON.parse(options.body);
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "nvidia-call-1",
+                  type: "function",
+                  function: {
+                    name: "count_products",
+                    arguments: "{}",
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      });
+    }
+  );
+  const result = await provider.chat({
+    systemInstruction: "Sistema.",
+    messages: [
+      { role: "user", content: "Contá productos." },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            name: "count_products",
+            arguments: {},
+            id: "gemini-call-1",
+          },
+        ],
+      },
+      {
+        role: "tool",
+        name: "count_products",
+        content: '{"totalProducts":5}',
+      },
+    ],
+    tools: [
+      {
+        name: "count_products",
+        description: "Cuenta productos.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    capturedBody.messages.map((message) => message.role),
+    ["system", "user", "assistant", "tool"]
+  );
+  assert.equal(
+    capturedBody.messages[2].tool_calls[0].id,
+    "gemini-call-1"
+  );
+  assert.equal(
+    capturedBody.messages[3].tool_call_id,
+    "gemini-call-1"
+  );
+  assert.deepEqual(capturedBody.tools[0], {
+    type: "function",
+    function: {
+      name: "count_products",
+      description: "Cuenta productos.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  });
+  assert.deepEqual(result.toolCalls, [
+    {
+      name: "count_products",
+      arguments: {},
+      id: "nvidia-call-1",
+    },
+  ]);
+  assert.deepEqual(result.providers, ["gemini", "nvidia"]);
 });
 
 test("assistant provider factory exposes capabilities and rejects unknown providers", () => {

@@ -16,6 +16,11 @@ const {
 } = require(
   "../../src/modules/assistant/assistant.tool-orchestrator"
 );
+const {
+  createAssistantProvider,
+} = require(
+  "../../src/modules/assistant/assistant.provider"
+);
 
 const EMPTY_PARAMETERS = {
   type: "object",
@@ -180,7 +185,7 @@ test("streaming answers a plain question with a single provider call", async () 
     onTextChunk: (chunk) => chunks.push(chunk),
   });
 
-  assert.deepEqual(chunks, ["Respuesta ", "final."]);
+  assert.deepEqual(chunks, ["Respuesta final."]);
   assert.equal(result.text, "Respuesta final.");
   assert.equal(chatCalls, 0);
   assert.equal(result.providerCalls, 1);
@@ -192,6 +197,130 @@ test("streaming answers a plain question with a single provider call", async () 
   assert.deepEqual(streamedInputs[0].messages, [
     { role: "user", content: "¿Horario?" },
   ]);
+});
+
+test("a rate-limited tool turn resumes on NVIDIA with accumulated context", async () => {
+  const registry = createAssistantToolRegistry([
+    createTool({
+      handler: async () => ({ schedule: "8:00-17:00" }),
+    }),
+  ]);
+  let geminiCalls = 0;
+  let nvidiaBody;
+  const provider = createAssistantProvider({
+    provider: "gemini",
+    apiKey: "test-gemini-key",
+    model: "gemini-test",
+    maxOutputTokens: 1024,
+    timeoutMs: 30_000,
+    nvidia: {
+      apiKey: "test-nvidia-key",
+      model: "meta/test-model",
+    },
+    fetchImpl: async (url, options) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        if (geminiCalls === 1) {
+          const payload = {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      functionCall: {
+                        name: "lookup_schedule",
+                        args: {},
+                      },
+                    },
+                  ],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 5,
+              candidatesTokenCount: 2,
+            },
+          };
+          const encoded = new TextEncoder().encode(
+            `data: ${JSON.stringify(payload)}\r\n\r\n`
+          );
+          return {
+            ok: true,
+            status: 200,
+            body: new ReadableStream({
+              start(controller) {
+                controller.enqueue(encoded);
+                controller.close();
+              },
+            }),
+          };
+        }
+
+        return { ok: false, status: 429 };
+      }
+
+      nvidiaBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "meta/test-model",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: "El horario es de 8:00 a 17:00.",
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 4,
+          },
+        }),
+      };
+    },
+  });
+  const chunks = [];
+
+  const result = await runAssistantToolTurn({
+    provider,
+    toolRegistry: registry,
+    role: "EDITOR",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "¿Horario?" }],
+    streamFinal: true,
+    onTextChunk: (chunk) => chunks.push(chunk),
+  });
+
+  assert.equal(result.text, "El horario es de 8:00 a 17:00.");
+  assert.deepEqual(result.providers, ["gemini", "nvidia"]);
+  assert.equal(result.providerCalls, 3);
+  assert.deepEqual(result.usage, {
+    inputTokens: 15,
+    outputTokens: 6,
+  });
+  assert.deepEqual(chunks, [
+    "El horario es de 8:00 a 17:00.",
+  ]);
+  assert.deepEqual(
+    nvidiaBody.messages.map((message) => message.role),
+    ["system", "user", "assistant", "tool"]
+  );
+  assert.equal(
+    nvidiaBody.messages[2].tool_calls[0].function.name,
+    "lookup_schedule"
+  );
+  assert.equal(
+    nvidiaBody.messages[3].tool_call_id,
+    nvidiaBody.messages[2].tool_calls[0].id
+  );
+  assert.deepEqual(
+    JSON.parse(nvidiaBody.messages[3].content),
+    { schedule: "8:00-17:00" }
+  );
 });
 
 test("streaming executes a read tool and answers in the second round", async () => {

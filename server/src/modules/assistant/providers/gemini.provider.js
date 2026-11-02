@@ -85,7 +85,23 @@ function isTimeoutError(error) {
   );
 }
 
-function mapHttpStatus(status) {
+function parseRetryAfterMs(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, 86_400_000);
+  }
+
+  const date = Date.parse(value);
+  return Number.isNaN(date)
+    ? null
+    : Math.min(Math.max(date - Date.now(), 0), 86_400_000);
+}
+
+function mapHttpStatus(status, retryAfterHeader) {
   if (!Number.isSafeInteger(status)) {
     return invalidResponse();
   }
@@ -107,7 +123,11 @@ function mapHttpStatus(status) {
   if (status === 429) {
     return new AssistantProviderError(
       ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED,
-      { retryable: true, upstreamStatus: status }
+      {
+        retryable: true,
+        upstreamStatus: status,
+        retryAfterMs: parseRetryAfterMs(retryAfterHeader),
+      }
     );
   }
 
@@ -679,7 +699,10 @@ function createGeminiProvider({
     }
 
     if (!response.ok) {
-      throw mapHttpStatus(response.status);
+      throw mapHttpStatus(
+        response.status,
+        response.headers?.get?.("retry-after")
+      );
     }
 
     return response;

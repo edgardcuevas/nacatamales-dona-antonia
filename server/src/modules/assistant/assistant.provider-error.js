@@ -11,7 +11,15 @@ const ASSISTANT_PROVIDER_ERROR_CODES = Object.freeze({
 class AssistantProviderError extends Error {
   constructor(
     code,
-    { retryable = false, upstreamStatus = null } = {}
+    {
+      retryable = false,
+      upstreamStatus = null,
+      retryAfterMs = null,
+      provider = null,
+      model = null,
+      providerCalls = null,
+      providers = null,
+    } = {}
   ) {
     super(`Assistant provider request failed: ${code}`);
 
@@ -19,6 +27,11 @@ class AssistantProviderError extends Error {
     this.code = code;
     this.retryable = retryable;
     this.upstreamStatus = upstreamStatus;
+    this.retryAfterMs = retryAfterMs;
+    this.provider = provider;
+    this.model = model;
+    this.providerCalls = providerCalls;
+    this.providers = providers;
 
     Error.captureStackTrace(
       this,

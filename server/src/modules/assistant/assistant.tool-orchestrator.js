@@ -132,6 +132,7 @@ async function runAssistantToolTurn({
   const toolDeclarations = [...tools, ...actionTools];
   const providerMessages = [...messages];
   const providerResults = [];
+  let providerCalls = 0;
   let toolExecutions = 0;
   let misuseCorrections = 0;
 
@@ -198,29 +199,92 @@ async function runAssistantToolTurn({
       tools: toolDeclarations,
       maxOutputTokens,
       timeoutMs,
+      providerCallLimit:
+        MAX_PROVIDER_CALLS_PER_MESSAGE - providerCalls,
     };
 
-    return streamFinal
-      ? provider.chatStream(input, onTextChunk)
-      : provider.chat(input);
+    if (!streamFinal) {
+      return provider.chat(input);
+    }
+
+    return provider.chatStream(input, () => {});
   }
 
   function finalize(result) {
+    const providers = [
+      ...new Set(
+        providerResults.flatMap((providerResult) =>
+          Array.isArray(providerResult.providers)
+            ? providerResult.providers
+            : typeof providerResult.provider === "string"
+              ? [providerResult.provider]
+              : []
+        )
+      ),
+    ];
+
+    if (
+      streamFinal &&
+      (result.toolCalls ?? []).length === 0 &&
+      typeof result.text === "string" &&
+      result.text !== ""
+    ) {
+      onTextChunk(result.text);
+    }
+
     return {
       ...result,
       usage: aggregateUsage(providerResults),
-      providerCalls: providerResults.length,
+      providers,
+      providerCalls: providerResults.reduce(
+        (total, providerResult) =>
+          total + (providerResult.providerCalls ?? 1),
+        0
+      ),
     };
   }
 
-  for (
-    let providerCalls = 1;
-    providerCalls <= MAX_PROVIDER_CALLS_PER_MESSAGE;
-    providerCalls += 1
-  ) {
-    const result = await requestRound();
+  while (providerCalls < MAX_PROVIDER_CALLS_PER_MESSAGE) {
+    let result;
+    try {
+      result = await requestRound();
+    } catch (error) {
+      if (error instanceof AssistantProviderError) {
+        const previousCalls = providerResults.reduce(
+          (total, providerResult) =>
+            total + (providerResult.providerCalls ?? 1),
+          0
+        );
+        const previousProviders =
+          providerResults.flatMap((providerResult) =>
+            Array.isArray(providerResult.providers)
+              ? providerResult.providers
+              : typeof providerResult.provider === "string"
+                ? [providerResult.provider]
+                : []
+          );
+        throw new AssistantProviderError(error.code, {
+          retryable: error.retryable,
+          upstreamStatus: error.upstreamStatus,
+          retryAfterMs: error.retryAfterMs,
+          provider: error.provider,
+          model: error.model,
+          providerCalls:
+            previousCalls + (error.providerCalls ?? 1),
+          providers: [
+            ...new Set([
+              ...previousProviders,
+              ...(error.providers ?? []),
+            ]),
+          ],
+        });
+      }
+
+      throw error;
+    }
 
     providerResults.push(result);
+    providerCalls += result.providerCalls ?? 1;
 
     if (result.blocked) {
       return finalize(result);
@@ -366,7 +430,7 @@ async function runAssistantToolTurn({
     }
 
     if (
-      providerCalls === MAX_PROVIDER_CALLS_PER_MESSAGE ||
+      providerCalls >= MAX_PROVIDER_CALLS_PER_MESSAGE ||
       toolExecutions + toolCalls.length >
         MAX_TOOL_EXECUTIONS_PER_MESSAGE
     ) {

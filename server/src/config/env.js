@@ -2,6 +2,7 @@ const {
   ASSISTANT_PROVIDERS,
   ASSISTANT_PROVIDER_VALUES,
   DEFAULT_ASSISTANT_MODEL,
+  NVIDIA_MODEL_PATTERN,
   DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS,
   MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
   MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
@@ -449,9 +450,21 @@ function parseAssistantEnvironment() {
   );
 
   const apiKey =
-    provider === ASSISTANT_PROVIDERS.GEMINI
-      ? process.env.GEMINI_API_KEY?.trim() ?? ""
-      : "";
+    process.env.GEMINI_API_KEY?.trim() ?? "";
+  const nvidiaApiKey =
+    process.env.NVIDIA_API_KEY?.trim() ?? "";
+  const nvidiaModel =
+    process.env.NVIDIA_MODEL?.trim() ?? "";
+
+  if (
+    nvidiaApiKey !== "" &&
+    (nvidiaModel === "" ||
+      !NVIDIA_MODEL_PATTERN.test(nvidiaModel))
+  ) {
+    throw new Error(
+      "Environment variable NVIDIA_MODEL must be configured with a valid model name when NVIDIA_API_KEY is set."
+    );
+  }
 
   const dailyProviderCalls = parseBoundedInteger(
     process.env.AI_DAILY_PROVIDER_CALLS,
@@ -488,6 +501,12 @@ function parseAssistantEnvironment() {
     provider,
     model,
     apiKey: apiKey.length > 0 ? apiKey : null,
+    nvidia: Object.freeze({
+      enabled: nvidiaApiKey.length > 0,
+      apiKey:
+        nvidiaApiKey.length > 0 ? nvidiaApiKey : null,
+      model: nvidiaModel || null,
+    }),
     maxOutputTokens,
     timeoutMs,
     dailyProviderCalls,

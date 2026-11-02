@@ -1,15 +1,19 @@
 const ASSISTANT_PROVIDERS = Object.freeze({
   GEMINI: "gemini",
+  NVIDIA: "nvidia",
 });
 
-const ASSISTANT_PROVIDER_VALUES = Object.freeze(
-  Object.values(ASSISTANT_PROVIDERS)
-);
+const ASSISTANT_PROVIDER_VALUES = Object.freeze([
+  ASSISTANT_PROVIDERS.GEMINI,
+]);
 
 // gemini-2.5-flash ya no esta disponible para cuentas nuevas: la API
 // responde 404 NOT_FOUND. gemini-3.5-flash es el Flash vigente que
 // responde con esta clave. Se puede cambiar con AI_MODEL.
 const DEFAULT_ASSISTANT_MODEL = "gemini-3.5-flash";
+const NVIDIA_MODEL_PATTERN =
+  /^[A-Za-z0-9._/-]{1,120}$/;
+const DEFAULT_ASSISTANT_PROVIDER_COOLDOWN_MS = 60_000;
 const DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS = 1024;
 const MIN_ASSISTANT_MAX_OUTPUT_TOKENS = 128;
 const MAX_ASSISTANT_MAX_OUTPUT_TOKENS = 4096;
@@ -72,6 +76,8 @@ module.exports = {
   ASSISTANT_PROVIDERS,
   ASSISTANT_PROVIDER_VALUES,
   DEFAULT_ASSISTANT_MODEL,
+  NVIDIA_MODEL_PATTERN,
+  DEFAULT_ASSISTANT_PROVIDER_COOLDOWN_MS,
   DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS,
   MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
   MAX_ASSISTANT_MAX_OUTPUT_TOKENS,

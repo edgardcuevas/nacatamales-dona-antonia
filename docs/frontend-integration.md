@@ -3,7 +3,7 @@
 
 ## 19. Asistente de administración (Fases 1, 2A y 2B, con streaming opcional)
 
-Chat dentro del panel para `ADMIN` y `EDITOR`. Puede consultar información real y preparar cambios acotados que requieren confirmación explícita. El historial se persiste por usuario en MySQL. El proveedor por defecto es Gemini, detrás de un adaptador intercambiable.
+Chat dentro del panel para `ADMIN` y `EDITOR`. Puede consultar información real y preparar cambios acotados que requieren confirmación explícita. El historial se persiste por usuario en MySQL. Gemini es el proveedor principal; NVIDIA puede configurarse como respaldo ante rate limit/cuota o indisponibilidad temporal.
 
 ### 19.1 Autenticación
 
@@ -51,7 +51,9 @@ La tarjeta muestra el resumen, objetivo, cambio, advertencias y vencimiento, con
 - Confirmar/cancelar exige el mismo usuario autenticado que creó la propuesta y rol `ADMIN` o `EDITOR`. Se vuelven a validar rol, objetivo, argumentos y estado capturado; si el objetivo cambió, no se ejecuta y se responde conflicto.
 - La reclamación atómica garantiza una sola ejecución. Repetir una confirmación ejecutada devuelve el resultado previo; cancelar y las acciones terminales no se vuelven a ejecutar.
 - El asistente no confirma ni cancela por el usuario. Las lecturas y una propuesta de escritura ocurren en respuestas separadas del proveedor.
-- El límite local de Gemini admite hasta 12 declaraciones. Por turno se permiten hasta 2 ejecuciones de herramientas y 3 llamadas al proveedor; cada handler tiene un timeout fijo de 10 s.
+- Gemini recibe hasta 56 declaraciones. Por turno se permiten hasta 2 ejecuciones de herramientas y 3 llamadas reales en total entre proveedores, incluidos los intentos de respaldo; cada handler tiene un timeout fijo de 10 s.
+- Si Gemini responde con `429`, timeout o indisponibilidad temporal, el servidor conserva el contexto acumulado y cambia a NVIDIA, si está configurado. Errores de credenciales o solicitudes inválidas no activan failover. El stream se entrega al navegador al terminar para evitar fragmentos duplicados; la respuesta puede tardar más, pero no se muestra el cambio de proveedor.
+- El presupuesto de `AI_DAILY_PROVIDER_CALLS` es un tope propio de la aplicación que se comparte entre proveedores; el failover no lo omite. Al usar NVIDIA, el prompt y el historial/resultados necesarios se transmiten a NVIDIA.
 
 Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor; las herramientas tienen argumentos y cantidades de filas acotados. Cada handler tiene un timeout fijo de 10 s; si se agota, la petición responde `504 ASSISTANT_TIMEOUT`.
 

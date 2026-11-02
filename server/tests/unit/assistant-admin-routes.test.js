@@ -856,8 +856,7 @@ test("POST /messages/stream answers a plain question in a single provider call",
   assert.deepEqual(
     events.map(({ event, data }) => [event, data]),
     [
-      ["chunk", { text: "Respuesta " }],
-      ["chunk", { text: "final." }],
+      ["chunk", { text: "Respuesta final." }],
       [
         "complete",
         {
@@ -941,7 +940,7 @@ test("POST /messages/stream hides read-tool turns until the final answer", async
     events
       .filter(({ event }) => event === "chunk")
       .map(({ data }) => data.text),
-    ["El horario ", "es de 8 a 17."]
+    ["El horario es de 8 a 17."]
   );
   assert.equal(
     result.body.includes("No transmitir texto interno"),
