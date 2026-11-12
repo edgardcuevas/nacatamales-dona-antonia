@@ -369,10 +369,18 @@ function normalizeResponse(payload, configuredModel) {
     finishReason === "content_filter" ||
     (typeof message.refusal === "string" &&
       message.refusal !== "");
+  // En un modelo que razona, los tokens de reasoning_content salen del mismo
+  // max_tokens: si se agota el presupuesto antes de escribir texto, la
+  // respuesta llega vacia con finish_reason "length". Eso no es una respuesta
+  // invalida ni un problema de red, y reintentar con el mismo tope lo repite.
+  const truncated =
+    finishReason === "length" && toolCalls.length === 0;
 
   if (!blocked && text.trim() === "" && toolCalls.length === 0) {
     throw new AssistantProviderError(
-      ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
+      truncated
+        ? ASSISTANT_PROVIDER_ERROR_CODES.OUTPUT_TRUNCATED
+        : ASSISTANT_PROVIDER_ERROR_CODES.INVALID_RESPONSE
     );
   }
 
@@ -393,6 +401,7 @@ function normalizeResponse(payload, configuredModel) {
     },
     finishReason,
     blocked,
+    truncated,
     toolCalls,
   };
 }

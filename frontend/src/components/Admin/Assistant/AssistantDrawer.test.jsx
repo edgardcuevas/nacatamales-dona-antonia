@@ -29,6 +29,7 @@ const STATUS_ENABLED = {
   provider: 'gemini',
   model: 'gemini-test',
   capabilities: { supportsTools: true, supportsStreaming: true },
+  fallback: { enabled: true, provider: 'nvidia', model: 'meta/test-model' },
 }
 
 afterEach(() => {

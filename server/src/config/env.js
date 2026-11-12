@@ -6,6 +6,7 @@ const {
   DEFAULT_ASSISTANT_MAX_OUTPUT_TOKENS,
   MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
   MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
+  DEFAULT_NVIDIA_MAX_OUTPUT_TOKENS,
   DEFAULT_ASSISTANT_TIMEOUT_MS,
   MIN_ASSISTANT_TIMEOUT_MS,
   MAX_ASSISTANT_TIMEOUT_MS,
@@ -456,6 +457,12 @@ function parseAssistantEnvironment() {
   const nvidiaModel =
     process.env.NVIDIA_MODEL?.trim() ?? "";
 
+  if (nvidiaModel !== "" && nvidiaApiKey === "") {
+    throw new Error(
+      "Environment variable NVIDIA_API_KEY is required when NVIDIA_MODEL is set."
+    );
+  }
+
   if (
     nvidiaApiKey !== "" &&
     (nvidiaModel === "" ||
@@ -465,6 +472,41 @@ function parseAssistantEnvironment() {
       "Environment variable NVIDIA_MODEL must be configured with a valid model name when NVIDIA_API_KEY is set."
     );
   }
+
+  if (
+    provider === ASSISTANT_PROVIDERS.NVIDIA &&
+    nvidiaApiKey === ""
+  ) {
+    throw new Error(
+      "Environment variable NVIDIA_API_KEY is required when AI_PROVIDER is nvidia."
+    );
+  }
+
+  // NVIDIA razona, y los tokens de razonamiento salen del presupuesto de
+  // salida. Sin un tope propio, AI_MAX_OUTPUT_TOKENS=1024 puede dejar la
+  // respuesta vacia. El default no cambia nada hasta que se ajuste.
+  const nvidiaMaxOutputTokens = parseBoundedInteger(
+    process.env.NVIDIA_MAX_OUTPUT_TOKENS,
+    "NVIDIA_MAX_OUTPUT_TOKENS",
+    {
+      defaultValue: Math.max(
+        maxOutputTokens,
+        DEFAULT_NVIDIA_MAX_OUTPUT_TOKENS
+      ),
+      minimum: MIN_ASSISTANT_MAX_OUTPUT_TOKENS,
+      maximum: MAX_ASSISTANT_MAX_OUTPUT_TOKENS,
+    }
+  );
+
+  const nvidiaTimeoutMs = parseBoundedInteger(
+    process.env.NVIDIA_TIMEOUT_MS,
+    "NVIDIA_TIMEOUT_MS",
+    {
+      defaultValue: timeoutMs,
+      minimum: MIN_ASSISTANT_TIMEOUT_MS,
+      maximum: MAX_ASSISTANT_TIMEOUT_MS,
+    }
+  );
 
   const dailyProviderCalls = parseBoundedInteger(
     process.env.AI_DAILY_PROVIDER_CALLS,
@@ -496,16 +538,33 @@ function parseAssistantEnvironment() {
     }
   );
 
+  const isNvidiaPrimary =
+    provider === ASSISTANT_PROVIDERS.NVIDIA;
+  const primaryApiKey = isNvidiaPrimary
+    ? nvidiaApiKey
+    : apiKey;
+  const primaryModel = isNvidiaPrimary
+    ? nvidiaModel
+    : model;
+
   return Object.freeze({
-    enabled: apiKey.length > 0,
+    enabled: primaryApiKey.length > 0,
     provider,
-    model,
-    apiKey: apiKey.length > 0 ? apiKey : null,
+    model: primaryModel,
+    apiKey:
+      primaryApiKey.length > 0 ? primaryApiKey : null,
+    gemini: Object.freeze({
+      enabled: apiKey.length > 0,
+      apiKey: apiKey.length > 0 ? apiKey : null,
+      model,
+    }),
     nvidia: Object.freeze({
       enabled: nvidiaApiKey.length > 0,
       apiKey:
         nvidiaApiKey.length > 0 ? nvidiaApiKey : null,
       model: nvidiaModel || null,
+      maxOutputTokens: nvidiaMaxOutputTokens,
+      timeoutMs: nvidiaTimeoutMs,
     }),
     maxOutputTokens,
     timeoutMs,

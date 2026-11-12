@@ -29,6 +29,7 @@ const STATUS_ENABLED = {
   provider: 'gemini',
   model: 'gemini-test',
   capabilities: { supportsTools: true, supportsStreaming: true },
+  fallback: { enabled: true, provider: 'nvidia', model: 'meta/test-model' },
 }
 
 const EMPTY_CONVERSATIONS = { conversations: [] }
@@ -49,6 +50,25 @@ describe('AssistantChat', () => {
       await screen.findByText('Asistente desactivado'),
     ).toBeTruthy()
     expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('muestra Gemini como respaldo cuando NVIDIA es el proveedor principal', async () => {
+    get.mockResolvedValueOnce({
+      ...STATUS_ENABLED,
+      provider: 'nvidia',
+      model: 'meta/test-model',
+      fallback: {
+        enabled: true,
+        provider: 'gemini',
+        model: 'gemini-test',
+      },
+    })
+    get.mockResolvedValueOnce(EMPTY_CONVERSATIONS)
+
+    render(<AssistantChat />)
+
+    expect(await screen.findByText('Asistente')).toBeTruthy()
+    expect(screen.getByText('Respaldo: Gemini · gemini-test')).toBeTruthy()
   })
 
   it('envía un mensaje y muestra la respuesta', async () => {

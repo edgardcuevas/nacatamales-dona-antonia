@@ -948,3 +948,184 @@ test("provider tool-call errors are normalized without swallowing handler failur
     /database unavailable/
   );
 });
+
+function geminiFunctionCallReply(name = "lookup_schedule") {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      candidates: [
+        {
+          content: {
+            parts: [{ functionCall: { name, args: {} } }],
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 5,
+        candidatesTokenCount: 2,
+      },
+    }),
+  };
+}
+
+function nvidiaFunctionCallReply(name = "lookup_schedule") {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      model: "meta/test-model",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name, arguments: "{}" },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 6, completion_tokens: 3 },
+    }),
+  };
+}
+
+function nvidiaTextReply(text) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      model: "meta/test-model",
+      choices: [
+        {
+          message: { role: "assistant", content: text },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 6, completion_tokens: 3 },
+    }),
+  };
+}
+
+test("a tool turn that crosses Gemini's quota midway still finishes on NVIDIA", async () => {
+  let handlerCalls = 0;
+  const registry = createAssistantToolRegistry([
+    createTool({
+      handler: async () => {
+        handlerCalls += 1;
+        return { schedule: "8:00-17:00" };
+      },
+    }),
+  ]);
+  let geminiCalls = 0;
+  const nvidiaBodies = [];
+  const provider = createAssistantProvider({
+    provider: "gemini",
+    apiKey: "test-gemini-key",
+    model: "gemini-test",
+    maxOutputTokens: 1024,
+    timeoutMs: 30_000,
+    nvidia: {
+      apiKey: "test-nvidia-key",
+      model: "meta/test-model",
+    },
+    fetchImpl: async (url, options) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        // Ronda 1: herramienta. Ronda 2: la cuota de Gemini se agota.
+        return geminiCalls === 1
+          ? geminiFunctionCallReply()
+          : { ok: false, status: 429 };
+      }
+
+      nvidiaBodies.push(JSON.parse(options.body));
+
+      // Ronda 2: NVIDIA pide la misma herramienta con el contexto acumulado.
+      // Ronda 3: NVIDIA cierra la respuesta.
+      return nvidiaBodies.length === 1
+        ? nvidiaFunctionCallReply()
+        : nvidiaTextReply("El horario es de 8:00 a 17:00.");
+    },
+  });
+
+  const result = await runAssistantToolTurn({
+    provider,
+    toolRegistry: registry,
+    role: "EDITOR",
+    systemInstruction: "Solo lectura.",
+    messages: [{ role: "user", content: "¿Horario?" }],
+  });
+
+  // Tres rondas de razonamiento, cuatro intentos reales: el failover de la
+  // ronda 2 no debe consumir la ronda que cierra la respuesta.
+  assert.equal(result.text, "El horario es de 8:00 a 17:00.");
+  assert.equal(result.providerCalls, 4);
+  assert.deepEqual(result.providers, ["gemini", "nvidia"]);
+  assert.equal(handlerCalls, 2);
+  assert.equal(geminiCalls, 2);
+  assert.equal(nvidiaBodies.length, 2);
+  assert.deepEqual(
+    nvidiaBodies[1].messages.map((message) => message.role),
+    ["system", "user", "assistant", "tool", "assistant", "tool"]
+  );
+});
+
+test("a message never exceeds four real provider attempts", async () => {
+  let handlerCalls = 0;
+  const registry = createAssistantToolRegistry([
+    createTool({
+      handler: async () => {
+        handlerCalls += 1;
+        return { value: true };
+      },
+    }),
+  ]);
+  let geminiCalls = 0;
+  let nvidiaCalls = 0;
+  const provider = createAssistantProvider({
+    provider: "gemini",
+    apiKey: "test-gemini-key",
+    model: "gemini-test",
+    maxOutputTokens: 1024,
+    timeoutMs: 30_000,
+    nvidia: {
+      apiKey: "test-nvidia-key",
+      model: "meta/test-model",
+    },
+    fetchImpl: async (url) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        return { ok: false, status: 429 };
+      }
+
+      nvidiaCalls += 1;
+      return nvidiaFunctionCallReply();
+    },
+  });
+
+  await assert.rejects(
+    runAssistantToolTurn({
+      provider,
+      toolRegistry: registry,
+      role: "ADMIN",
+      systemInstruction: "Solo lectura.",
+      messages: [{ role: "user", content: "Consulta" }],
+    }),
+    (error) =>
+      error instanceof AssistantProviderError &&
+      error.code === "TOOL_MISUSE"
+  );
+
+  // 1 de Gemini + 3 de NVIDIA: el tope es de intentos reales, no de rondas.
+  assert.equal(geminiCalls, 1);
+  assert.equal(nvidiaCalls, 3);
+  assert.equal(geminiCalls + nvidiaCalls, 4);
+  assert.equal(handlerCalls, 2);
+});

@@ -5,6 +5,9 @@ const ASSISTANT_PROVIDER_ERROR_CODES = Object.freeze({
   TIMEOUT: "TIMEOUT",
   UNAVAILABLE: "UNAVAILABLE",
   INVALID_RESPONSE: "INVALID_RESPONSE",
+  // El proveedor se quedo sin presupuesto de salida antes de escribir texto
+  // (en NVIDIA tambien lo consume el razonamiento). No es reintentable.
+  OUTPUT_TRUNCATED: "OUTPUT_TRUNCATED",
   TOOL_MISUSE: "TOOL_MISUSE",
 });
 

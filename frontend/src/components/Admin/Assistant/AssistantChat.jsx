@@ -42,7 +42,9 @@ const ERROR_MESSAGES = {
   ASSISTANT_QUOTA_EXCEEDED:
     'Se alcanzó el límite diario del asistente. Probá mañana.',
   ASSISTANT_RATE_LIMITED:
-    'Google está limitando las consultas del asistente. Probá de nuevo en un minuto.',
+    'El asistente está saturado en este momento. Probá de nuevo en un minuto.',
+  ASSISTANT_RESPONSE_TRUNCATED:
+    'La respuesta quedó cortada. Probá pidiéndola más corta.',
   ASSISTANT_STREAM_INTERRUPTED:
     'La respuesta se interrumpió. Intentá de nuevo.',
   RATE_LIMIT_EXCEEDED:
@@ -563,6 +565,13 @@ export default function AssistantChat({
             o agotados y muestra u oculta avisos, videos y categorías. Los
             cambios solo se aplican cuando los confirmás.
           </p>
+          {status?.enabled && (
+            <p className="assistant-chat__fallback">
+              {status.fallback?.enabled
+                ? `Respaldo: ${status.fallback.provider === 'gemini' ? 'Gemini' : 'NVIDIA'} · ${status.fallback.model}`
+                : 'Respaldo: no configurado'}
+            </p>
+          )}
         </div>
         <button
           type="button"

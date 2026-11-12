@@ -101,7 +101,59 @@ function parseRetryAfterMs(value) {
     : Math.min(Math.max(date - Date.now(), 0), 86_400_000);
 }
 
-function mapHttpStatus(status, retryAfterHeader) {
+function parseRetryDelayMs(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const match = /^(\d+(?:\.\d+)?)s$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds)
+    ? Math.min(seconds * 1000, 86_400_000)
+    : null;
+}
+
+async function readRetryDelayMs(response) {
+  if (typeof response.json !== "function") {
+    return null;
+  }
+
+  let payload;
+
+  try {
+    payload = await response.json();
+  } catch {
+    return null;
+  }
+
+  const details = payload?.error?.details;
+  if (!Array.isArray(details)) {
+    return null;
+  }
+
+  for (const detail of details) {
+    if (detail && typeof detail === "object") {
+      const retryDelayMs = parseRetryDelayMs(
+        detail.retryDelay
+      );
+      if (retryDelayMs !== null) {
+        return retryDelayMs;
+      }
+    }
+  }
+
+  return null;
+}
+
+function mapHttpStatus(
+  status,
+  retryAfterHeader,
+  retryDelayMs
+) {
   if (!Number.isSafeInteger(status)) {
     return invalidResponse();
   }
@@ -126,7 +178,9 @@ function mapHttpStatus(status, retryAfterHeader) {
       {
         retryable: true,
         upstreamStatus: status,
-        retryAfterMs: parseRetryAfterMs(retryAfterHeader),
+        retryAfterMs:
+          parseRetryAfterMs(retryAfterHeader) ??
+          retryDelayMs,
       }
     );
   }
@@ -699,9 +753,14 @@ function createGeminiProvider({
     }
 
     if (!response.ok) {
+      const retryDelayMs =
+        response.status === 429
+          ? await readRetryDelayMs(response)
+          : null;
       throw mapHttpStatus(
         response.status,
-        response.headers?.get?.("retry-after")
+        response.headers?.get?.("retry-after"),
+        retryDelayMs
       );
     }
 

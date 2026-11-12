@@ -70,6 +70,18 @@ function createProviderError() {
   );
 }
 
+// El proveedor se quedo sin tokens de salida antes de escribir la respuesta
+// (en un modelo que razona, el razonamiento consume el mismo presupuesto).
+// Es distinguible de un fallo generico para que el cliente pueda pedir algo
+// mas corto en vez de reintentar a ciegas.
+function createResponseTruncatedError() {
+  return new AppError(
+    502,
+    "ASSISTANT_RESPONSE_TRUNCATED",
+    "The assistant answer was truncated before it could finish"
+  );
+}
+
 function createToolMisuseError() {
   return new AppError(
     502,
@@ -377,6 +389,10 @@ function mapProviderError(error) {
       return createToolMisuseError();
     }
 
+    if (error.code === "OUTPUT_TRUNCATED") {
+      return createResponseTruncatedError();
+    }
+
     if (error.code === "RATE_LIMITED") {
       return createRateLimitedError();
     }
@@ -470,12 +486,26 @@ function getStatus() {
   }
 
   const provider = getProvider();
+  const fallback = provider.fallback ?? {
+    enabled: false,
+    model: null,
+  };
+  const fallbackEnabled = fallback.enabled === true;
 
   return {
     enabled: true,
     provider: provider.id,
     model: provider.model,
     capabilities: provider.capabilities,
+    fallback: {
+      enabled: fallbackEnabled,
+      provider: fallbackEnabled
+        ? fallback.provider ?? null
+        : null,
+      model: fallbackEnabled
+        ? fallback.model ?? null
+        : null,
+    },
     quota: assistantQuota.current(),
   };
 }
@@ -695,6 +725,14 @@ async function sendMessage({
     inputTokens: result.usage?.inputTokens ?? null,
     outputTokens: result.usage?.outputTokens ?? null,
   };
+  // La bandera solo viaja cuando aplica: el resto del contrato de `reply` no
+  // cambia y el mensaje persistido conserva sus columnas.
+  const reply =
+    result.truncated === true
+      ? { ...assistantMessage, truncated: true }
+      : assistantMessage;
+  const usageErrorCode =
+    result.truncated === true ? "OUTPUT_TRUNCATED" : null;
 
   if (conversation !== null) {
     const appended =
@@ -717,7 +755,7 @@ async function sendMessage({
       provider: resultProvider,
       model: assistantMessage.model,
       status: "SUCCESS",
-      errorCode: null,
+      errorCode: usageErrorCode,
       providerCalls: result.providerCalls ?? null,
       inputTokens: assistantMessage.inputTokens,
       outputTokens: assistantMessage.outputTokens,
@@ -733,7 +771,7 @@ async function sendMessage({
         role: userMessage.role,
         content: userMessage.content,
       },
-      reply: assistantMessage,
+      reply,
       prunedConversationId: null,
     };
   }
@@ -758,7 +796,7 @@ async function sendMessage({
       provider: resultProvider,
       model: assistantMessage.model,
       status: "SUCCESS",
-      errorCode: null,
+      errorCode: usageErrorCode,
       providerCalls: result.providerCalls ?? null,
       inputTokens: assistantMessage.inputTokens,
       outputTokens: assistantMessage.outputTokens,
@@ -774,7 +812,7 @@ async function sendMessage({
     provider: resultProvider,
     model: assistantMessage.model,
     status: "SUCCESS",
-    errorCode: null,
+    errorCode: usageErrorCode,
     providerCalls: result.providerCalls ?? null,
     inputTokens: assistantMessage.inputTokens,
     outputTokens: assistantMessage.outputTokens,
@@ -790,7 +828,7 @@ async function sendMessage({
       role: userMessage.role,
       content: userMessage.content,
     },
-    reply: assistantMessage,
+    reply,
     prunedConversationId:
       created.prunedConversationIds[0] ?? null,
   };

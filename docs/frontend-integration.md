@@ -3,7 +3,7 @@
 
 ## 19. Asistente de administración (Fases 1, 2A y 2B, con streaming opcional)
 
-Chat dentro del panel para `ADMIN` y `EDITOR`. Puede consultar información real y preparar cambios acotados que requieren confirmación explícita. El historial se persiste por usuario en MySQL. Gemini es el proveedor principal; NVIDIA puede configurarse como respaldo ante rate limit/cuota o indisponibilidad temporal.
+Chat dentro del panel para `ADMIN` y `EDITOR`. Puede consultar información real y preparar cambios acotados que requieren confirmación explícita. El historial se persiste por usuario en MySQL. `AI_PROVIDER` selecciona Gemini o NVIDIA como proveedor principal; el otro queda como respaldo cuando sus credenciales están configuradas.
 
 ### 19.1 Autenticación
 
@@ -51,11 +51,11 @@ La tarjeta muestra el resumen, objetivo, cambio, advertencias y vencimiento, con
 - Confirmar/cancelar exige el mismo usuario autenticado que creó la propuesta y rol `ADMIN` o `EDITOR`. Se vuelven a validar rol, objetivo, argumentos y estado capturado; si el objetivo cambió, no se ejecuta y se responde conflicto.
 - La reclamación atómica garantiza una sola ejecución. Repetir una confirmación ejecutada devuelve el resultado previo; cancelar y las acciones terminales no se vuelven a ejecutar.
 - El asistente no confirma ni cancela por el usuario. Las lecturas y una propuesta de escritura ocurren en respuestas separadas del proveedor.
-- Gemini recibe hasta 56 declaraciones. Por turno se permiten hasta 2 ejecuciones de herramientas y 3 llamadas reales en total entre proveedores, incluidos los intentos de respaldo; cada handler tiene un timeout fijo de 10 s.
-- Si Gemini responde con `429`, timeout o indisponibilidad temporal, el servidor conserva el contexto acumulado y cambia a NVIDIA, si está configurado. Errores de credenciales o solicitudes inválidas no activan failover. El stream se entrega al navegador al terminar para evitar fragmentos duplicados; la respuesta puede tardar más, pero no se muestra el cambio de proveedor.
+- Gemini recibe hasta 56 declaraciones. Por turno se permiten hasta 2 ejecuciones de herramientas, 3 rondas de razonamiento y 4 intentos reales de proveedor en total (un failover consume dos intentos, así que el respaldo no se come una ronda); cada handler tiene un timeout fijo de 10 s.
+- Si el proveedor principal responde con `429`, timeout o indisponibilidad temporal, el servidor conserva el contexto acumulado y cambia al otro proveedor, si está configurado. Errores de credenciales o solicitudes inválidas no activan failover. El stream se entrega al navegador al terminar para evitar fragmentos duplicados; la respuesta puede tardar más, pero no se muestra el cambio de proveedor.
 - El presupuesto de `AI_DAILY_PROVIDER_CALLS` es un tope propio de la aplicación que se comparte entre proveedores; el failover no lo omite. Al usar NVIDIA, el prompt y el historial/resultados necesarios se transmiten a NVIDIA.
 
-Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor; las herramientas tienen argumentos y cantidades de filas acotados. Cada handler tiene un timeout fijo de 10 s; si se agota, la petición responde `504 ASSISTANT_TIMEOUT`.
+Cada resultado enviado al proveedor está limitado globalmente a `MAX_TOOL_RESULT_CHARS = 6000` caracteres serializados. Si el límite se supera, el resultado incluye `truncated: true` y una nota explícita. Por turno se permiten como máximo 2 ejecuciones secuenciales de herramientas, 3 rondas de razonamiento y 4 intentos reales de proveedor; las herramientas tienen argumentos y cantidades de filas acotados. Cada handler tiene un timeout fijo de 10 s; si se agota, la petición responde `504 ASSISTANT_TIMEOUT`.
 
 El cliente solo envía `{ conversationId?, message }`; no envía resultados de herramientas ni historial. La ruta `DELETE /conversations/:id` elimina únicamente una conversación propia del historial del asistente y no es una herramienta disponible para el modelo.
 
@@ -63,7 +63,7 @@ El cliente solo envía `{ conversationId?, message }`; no envía resultados de h
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/admin/assistant/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities }`. Si está desactivado: `{ enabled: false }`. |
+| GET | `/admin/assistant/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, fallback: { enabled, provider, model } }`. Si está desactivado: `{ enabled: false }`. |
 | GET | `/admin/assistant/conversations?limit=20` | ADMIN, EDITOR | Conversaciones propias, ordenadas por actividad reciente. |
 | GET | `/admin/assistant/conversations/:id/messages?limit=50` | ADMIN, EDITOR | Historial propio. Una conversación ajena responde `404`. |
 | POST | `/admin/assistant/messages` | ADMIN, EDITOR | `{ conversationId?, message }`. Crea la conversación si falta `conversationId`. |
@@ -100,7 +100,7 @@ El cliente solo envía `{ conversationId?, message }`; no envía resultados de h
 }
 ```
 
-`pendingAction` es opcional; se devuelve solo para una propuesta creada. `prunedConversationId` aparece cuando la creación de la conversación 21 eliminó la más antigua.
+`pendingAction` es opcional; se devuelve solo para una propuesta creada. `prunedConversationId` aparece cuando la creación de la conversación 21 eliminó la más antigua. `reply.truncated: true` es opcional y aparece solo si el proveedor cortó la respuesta por falta de tokens de salida pero alcanzó a devolver texto; el campo no se persiste en el historial.
 
 Confirmar o cancelar requiere enviar `{}`; no acepta argumentos de acción desde el cliente:
 
@@ -150,6 +150,7 @@ data: {"success":true,"message":"Assistant message answered successfully","data"
 | `ASSISTANT_CONVERSATION_FULL` | 409 | La conversación ya tiene 100 mensajes. |
 | `RATE_LIMIT_EXCEEDED` | 429 | Más de 10 consultas por minuto o 100 por día para ese usuario. |
 | `ASSISTANT_TIMEOUT` | 504 | El proveedor no respondió a tiempo o una herramienta superó su límite de 10 s. |
+| `ASSISTANT_RESPONSE_TRUNCATED` | 502 | El proveedor agotó sus tokens de salida antes de escribir texto. Pedir algo más corto suele funcionar; reintentar lo mismo no. |
 | `ASSISTANT_PROVIDER_ERROR` | 502 | Error, bloqueo o cuota del proveedor. |
 | `ASSISTANT_ACTION_NOT_FOUND` | 404 | Token inválido, inexistente o perteneciente a otra persona. |
 | `ASSISTANT_ACTION_EXPIRED` | 410 | La propuesta venció. |

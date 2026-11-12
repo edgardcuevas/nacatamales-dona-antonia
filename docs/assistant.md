@@ -1,7 +1,7 @@
 # Asistente Inteligente de Administración
 
 Plan vivo del asistente. Estado: **Fase 1 completada; Fase 2A completada y aceptada; Fase 2B completada y aceptada; streaming de respuestas completado; Tareas 1 a 9 de Fase 2B completadas**.
-Última actualización: 2026-11-02.
+Última actualización: 2026-11-11.
 
 El estado y la aceptación de las fases posteriores están en
 [`assistant-roadmap.md`](./assistant-roadmap.md). F.1 y F.2 tienen implementación y
@@ -105,7 +105,7 @@ Todos bajo `/api/admin/assistant`, con la cadena de autenticación del panel.
 
 | Método | Ruta | Rol | Uso |
 |---|---|---|---|
-| GET | `/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, quota }`; apagado = `200 { enabled:false }` |
+| GET | `/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, fallback: { enabled, provider, model }, quota }`; apagado = `200 { enabled:false }` |
 | GET | `/conversations?limit=20` | ADMIN, EDITOR | Conversaciones propias |
 | GET | `/conversations/:id/messages?limit=50` | ADMIN, EDITOR | Historial propio; ajeno = 404 |
 | POST | `/messages` | ADMIN, EDITOR | `{ conversationId?, message }`; crea conversación si falta |
@@ -122,17 +122,19 @@ Contrato interno en `assistant.provider.js`:
 
 ```js
 chat({ systemInstruction, messages, maxOutputTokens, timeoutMs })
-// -> { text, model, usage: { inputTokens, outputTokens }, finishReason, blocked }
+// -> { text, model, usage: { inputTokens, outputTokens }, finishReason, blocked, truncated }
 // messages: [{ role: "user" | "assistant", content: string }]
 ```
 
-`providers/gemini.provider.js` usa `fetch`, `x-goog-api-key` y `AbortSignal.timeout`. `providers/nvidia.provider.js` usa la API compatible con chat completions de NVIDIA. Si Gemini responde con rate limit/cuota (`429`), timeout o indisponibilidad (`5xx/red`), el adaptador intenta NVIDIA con el mismo prompt, historial, declaraciones y resultados de herramientas. No reintenta errores de autenticación ni solicitudes inválidas. El proveedor limitado entra en cooldown respetando `Retry-After` cuando existe; si no, usa 60 segundos. No se registra el cuerpo crudo ni las claves.
+`providers/gemini.provider.js` usa `fetch`, `x-goog-api-key` y `AbortSignal.timeout`. `providers/nvidia.provider.js` usa la API compatible con chat completions de NVIDIA. `AI_PROVIDER` selecciona Gemini o NVIDIA como principal; el otro se configura como respaldo con su clave. Si el principal responde con rate limit/cuota (`429`), timeout o indisponibilidad (`5xx/red`), el adaptador intenta el respaldo con el mismo prompt, historial, declaraciones y resultados de herramientas. No reintenta errores de autenticación ni solicitudes inválidas. El proveedor que falla entra en cooldown respetando `Retry-After` cuando existe; si no, el cooldown depende del código: `RATE_LIMITED` 60 s (sondear un cupo agotado solo gasta cuota) y `TIMEOUT`/`UNAVAILABLE` 15 s. Cuando todos están en cooldown, una petición puede sondear al que vence antes, como máximo una vez cada 5 s (`PROVIDER_PROBE_WINDOW_MS`), para descubrir una recuperación sin esperar el cooldown completo. No se registra el cuerpo crudo ni las claves.
 
 El stream se retiene hasta completar el turno: el cliente recibe la respuesta final de una vez. Así un fallo después de producir texto parcial no muestra fragmentos duplicados al cambiar de proveedor. El cambio puede agregar latencia, aunque no se expone el proveedor al usuario. Si se usa NVIDIA, el prompt y el contexto necesario de esa conversación se envían a NVIDIA.
 
+`nvidia/nemotron-3.5-lightning-30b-a3b` razona antes de responder y esos tokens salen del mismo `max_tokens` que el texto. Por eso el respaldo tiene su propio presupuesto: `NVIDIA_MAX_OUTPUT_TOKENS` (default `max(AI_MAX_OUTPUT_TOKENS, 2048)`) y `NVIDIA_TIMEOUT_MS` (default `AI_TIMEOUT_MS`). Si el presupuesto se agota con `finish_reason: "length"` y sin texto, el adaptador lanza `OUTPUT_TRUNCATED` (no reintentable) en vez de `INVALID_RESPONSE`; si hay texto parcial, lo devuelve con `truncated: true` y el evento de uso queda con `error_code = "OUTPUT_TRUNCATED"`. `reasoning_content` nunca se usa como texto de respuesta.
+
 `thinkingConfig.thinkingBudget = 0` es deliberado: los Gemini 3 razonan antes de responder y esos tokens salen del presupuesto de salida, así que con `maxOutputTokens: 1024` una respuesta corta se cortaba con `MAX_TOKENS`. Medido contra la API real, desactivarlo bajó la latencia de ~3,1 s a ~1,4 s sin perder calidad en preguntas de catálogo.
 
-Variables opcionales (sin `GEMINI_API_KEY` el asistente queda apagado; NVIDIA es respaldo opcional):
+Variables opcionales. `AI_PROVIDER=gemini` es el default; cambia a `nvidia` para invertir principal y respaldo. El asistente queda apagado si falta la clave del proveedor principal.
 
 ```bash
 AI_PROVIDER=gemini
@@ -140,6 +142,9 @@ AI_MODEL=gemini-3.5-flash
 GEMINI_API_KEY=
 NVIDIA_API_KEY=
 NVIDIA_MODEL=
+# Presupuesto propio de NVIDIA, sea principal o respaldo: su razonamiento consume max_tokens.
+NVIDIA_MAX_OUTPUT_TOKENS=2048
+NVIDIA_TIMEOUT_MS=30000
 AI_MAX_OUTPUT_TOKENS=1024
 AI_TIMEOUT_MS=30000
 # Presupuesto gratis: 0 = sin tope (plan pago)
@@ -169,6 +174,7 @@ Errores públicos estables:
 | Tope diario de llamadas al proveedor | 429 | `ASSISTANT_QUOTA_EXCEEDED` |
 | El proveedor está limitando | 429 | `ASSISTANT_RATE_LIMITED` |
 | Timeout | 504 | `ASSISTANT_TIMEOUT` |
+| Respuesta cortada por falta de tokens de salida | 502 | `ASSISTANT_RESPONSE_TRUNCATED` |
 | Error del proveedor (resto) | 502 | `ASSISTANT_PROVIDER_ERROR` |
 | Operación no permitida pedida por el modelo | 502 | `ASSISTANT_TOOL_MISUSE` |
 
@@ -176,7 +182,7 @@ Errores públicos estables:
 
 `ASSISTANT_TOOL_MISUSE` solo aparece si el modelo insiste con una herramienta inexistente, sin permiso, con argumentos inválidos o mezclando lectura y escritura **después** de que se le explicó el error una vez. Un primer intento inválido ya no rompe el turno: se le devuelve el motivo como resultado de herramienta y responde en español.
 
-NVIDIA es un respaldo opcional de Gemini; se configura con `NVIDIA_API_KEY` y un `NVIDIA_MODEL` que admita function calling. `AI_PROVIDER` permanece en `gemini`. Agregar otro proveedor requiere un adaptador en `providers/` y registrarlo en la cadena de failover.
+NVIDIA se configura con `NVIDIA_API_KEY` y un `NVIDIA_MODEL` que admita function calling. Con `AI_PROVIDER=gemini`, NVIDIA es respaldo; con `AI_PROVIDER=nvidia`, Gemini queda como respaldo si `GEMINI_API_KEY` está configurada. El presupuesto de salida y el timeout de NVIDIA se configuran por separado (`NVIDIA_MAX_OUTPUT_TOKENS`, `NVIDIA_TIMEOUT_MS`) porque su modelo razona; si no se definen, heredan los valores generales con el piso de 2048 tokens.
 
 ## Métricas
 
@@ -412,7 +418,7 @@ Los DTOs incluirán únicamente campos necesarios para responder. En especial no
 
 - El rol se relee desde `request.currentUser.role` después de `requireActiveUser`. ADMIN y EDITOR quedan autorizados únicamente para las herramientas que explícitamente los incluyan.
 - El proveedor puede solicitar una herramienta, pero no ejecutarla. El servicio del asistente valida cada solicitud y llama al handler del registro; el handler solo invoca el servicio de dominio aprobado.
-- El ciclo queda acotado a un máximo de 2 ejecuciones secuenciales de herramientas y 3 llamadas al proveedor por mensaje. No hay reintentos de herramientas ni bucles abiertos.
+- El ciclo queda acotado a un máximo de 2 ejecuciones secuenciales de herramientas y 3 rondas de razonamiento por mensaje, con hasta 4 intentos reales de proveedor: un failover consume dos intentos, así que el respaldo no se come una ronda. No hay reintentos de herramientas ni bucles abiertos.
 - Se conserva el rate limit de 10 solicitudes por minuto y 100 por día por usuario (aplica a todas las rutas del asistente, incluidas las de lectura). Cada handler tiene un timeout fijo de 10 s (`MAX_TOOL_HANDLER_TIMEOUT_MS`) y límites de filas fijos; agotarlo responde `504 ASSISTANT_TIMEOUT`.
 - Los errores enviados al modelo son mensajes genéricos y acotados; no contienen SQL, stack traces ni datos internos. Métricas futuras registran nombre, resultado, latencia y error, nunca argumentos o resultados completos.
 - Los resultados se normalizan y limitan en un punto común del ejecutor, después de producir el DTO y antes de enviarlo al proveedor. Ningún handler puede omitir esa etapa.
@@ -467,7 +473,7 @@ Una tarea por vez. Cada tarea se valida y documenta antes de iniciar la siguient
 
 **Archivos:** `assistant.tools.js`, `assistant.tool-registry.js`, `assistant.tool-orchestrator.js`, `assistant.service.js`, `assistant.prompt.js`, tests del registro/orquestador.
 
-**Done:** el servicio delega cada turno al orquestador; ciclo acotado de hasta 2 ejecuciones secuenciales y 3 llamadas al proveedor; revalidación de rol, nombre, modo y argumentos antes de ejecutar. Al cerrar esta tarea no había herramientas de dominio registradas; se incorporan por separado y en orden en las tareas siguientes. Errores de solicitudes de herramienta inválidas se normalizan como error del proveedor; fallos de servicios no se silencian. Se agregan tokens de todas las llamadas del turno. El prompt indica solo lectura y no afirma acceso cuando no recibe una herramienta adecuada.
+**Done:** el servicio delega cada turno al orquestador; ciclo acotado de hasta 2 ejecuciones secuenciales, 3 rondas de razonamiento y 4 intentos reales de proveedor; revalidación de rol, nombre, modo y argumentos antes de ejecutar. Al cerrar esta tarea no había herramientas de dominio registradas; se incorporan por separado y en orden en las tareas siguientes. Errores de solicitudes de herramienta inválidas se normalizan como error del proveedor; fallos de servicios no se silencian. Se agregan tokens de todas las llamadas del turno. El prompt indica solo lectura y no afirma acceso cuando no recibe una herramienta adecuada.
 
 **Validación:** tests del orquestador y regresión HTTP; `cd server && npm test` (689/689 antes de añadir las herramientas de dominio). Pruebas cubren autorización, herramienta desconocida, argumentos, límites, ejecución secuencial, agregación de tokens y propagación de errores. En la validación real del flujo con Gemini, el proveedor devolvió `INVALID_ARGUMENT`; se corrigió la conservación del `id` y `thoughtSignature` de Gemini 3, pero la repetición quedó bloqueada por cuota del proveedor (`RESOURCE_EXHAUSTED`).
 
@@ -893,7 +899,7 @@ Estado: **completado y validado el 2026-10-28**. El alcance inicial de Fase 1 lo
 ### Implementación
 
 - `gemini.provider.js` añade `chatStream` contra `streamGenerateContent?alt=sse`, con parser SSE incremental que tolera frames partidos, ignora `thought` y rechaza eventos malformados o vacíos.
-- `assistant.provider.js` conserva en memoria los fragmentos de cada intento y solo los publica cuando ese proveedor termina correctamente; `assistant.tool-orchestrator.js` entrega la respuesta final una vez. Mantiene el techo de 3 llamadas reales entre proveedores y 2 ejecuciones de herramientas por mensaje.
+- `assistant.provider.js` conserva en memoria los fragmentos de cada intento y solo los publica cuando ese proveedor termina correctamente; `assistant.tool-orchestrator.js` entrega la respuesta final una vez. Mantiene el techo de 3 rondas de razonamiento, 4 intentos reales entre proveedores y 2 ejecuciones de herramientas por mensaje. Cada failover emite una línea saneada `Assistant provider failover: from=... to=... code=...` (sin cuerpos, headers ni claves) y el estado expone `fallback: { enabled, provider, model }` sin la clave, que el panel muestra con el proveedor de respaldo seleccionado.
 - `assistant.controller.js` responde `text/event-stream` con `chunk` y `complete`. `error.middleware.js` convierte un fallo posterior a las cabeceras en un `event: error` saneado en vez de intentar una respuesta JSON.
 - `frontend/src/api/client.js` añade `api.streamPost`, que reutiliza el refresco de token de una sola vez y rechaza flujos incompletos con `ASSISTANT_STREAM_INTERRUPTED`.
 - `AssistantChat.jsx` muestra el texto final al recibir el `chunk` y lo reemplaza por el mensaje persistido al recibir `complete`; ante un error no queda texto parcial.
@@ -909,7 +915,7 @@ Para transmitir solo la respuesta final, un turno sin herramientas puede gastar 
 - Un segundo par de turnos en la misma conversación comprobó la rama `conversationId`: mismo id, historial de cuatro mensajes en orden y el contenido de cada respuesta igual al transmitido. También se limpió.
 - Navegador real (Chrome headless contra Vite y la API, rol `EDITOR`; validación histórica previa al buffering): login por el formulario, apertura de Asistente, envío y render incremental. La petición fue a `/api/admin/assistant/messages/stream` con `200`; llegaron 5 eventos SSE (4 `chunk`, 328 caracteres) y se observaron 5 muestras parciales del DOM antes de `complete`. El texto final del DOM coincidió con el persistido, no apareció tarjeta de confirmación y el turno guardó dos mensajes. Los datos temporales se eliminaron. El buffering actual aún requiere aceptación visual real.
 - El caso de error posterior a las cabeceras está cubierto por la prueba de ruta con proveedor simulado (`event: error` saneado, sin detalles internos).
-- El failover Gemini→NVIDIA y la entrega de texto sin fragmentos parciales se verifican con proveedores simulados; falta aceptación real con una clave NVIDIA configurada.
+- El failover Gemini→NVIDIA se validó en vivo el 2026-11-02 con la clave real: un `429` de Gemini produjo la respuesta de NVIDIA (`providers: ["gemini","nvidia"]`), la consulta siguiente fue directo a NVIDIA sin gastar un intento y a los 65 s se reintentó Gemini primero. El 2026-11-11 se verificó la selección de ambos proveedores y el failover en ambos sentidos con una llamada primaria real y el 429 del primario simulado; ambos recorridos ejecutaron `count_products` en MySQL y finalizaron con respuesta. El streaming del failover entregó un único `chunk` cuya concatenación coincidió con el texto final. El benchmark y la bitácora están en `docs/assistant-failover-plan.md`.
 ---
 
 ## Fase 3 — Interfaz del chat (completada 2026-10-30)

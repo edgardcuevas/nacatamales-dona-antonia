@@ -110,6 +110,7 @@ const state = {
   },
   providerResponses: null,
   providerInputs: [],
+  usageEvents: [],
   streamingInputs: [],
   streamingChunks: ["Respuesta ", "del asistente"],
   streamingResponse: null,
@@ -150,6 +151,10 @@ const fakeProvider = {
   capabilities: Object.freeze({
     supportsTools: true,
     supportsStreaming: true,
+  }),
+  fallback: Object.freeze({
+    enabled: false,
+    model: null,
   }),
   chat: async (input) => {
     state.providerInputs.push(input);
@@ -310,6 +315,7 @@ afterEach(() => {
   };
   state.providerResponses = null;
   state.providerInputs = [];
+  state.usageEvents = [];
   state.streamingInputs = [];
   state.streamingChunks = ["Respuesta ", "del asistente"];
   state.streamingResponse = null;
@@ -370,7 +376,10 @@ afterEach(() => {
   mock.method(
     assistantRepository,
     "insertUsageEvent",
-    async () => 1
+    async (payload) => {
+      state.usageEvents.push(payload);
+      return 1;
+    }
   );
 });
 
@@ -469,6 +478,11 @@ test("GET /status reports the provider and capabilities", async () => {
     supportsTools: true,
     supportsStreaming: true,
   });
+  assert.deepEqual(result.body.data.fallback, {
+    enabled: false,
+    provider: null,
+    model: null,
+  });
   assert.equal(result.body.data.quota.limit, 120);
   assert.equal(result.body.data.quota.used, 0);
   assert.equal(result.body.data.quota.exhausted, false);
@@ -539,6 +553,35 @@ test("POST /messages creates a conversation and returns 201", async () => {
   assert.equal(
     result.body.data.prunedConversationId,
     null
+  );
+});
+
+test("POST /messages keeps a truncated answer and records its usage code", async () => {
+  state.providerResponse = {
+    text: "Puedo ayudarte a gestionar",
+    model: "nvidia/test-model",
+    usage: { inputTokens: 30, outputTokens: 2048 },
+    finishReason: "length",
+    blocked: false,
+    truncated: true,
+    toolCalls: [],
+  };
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(
+    result.body.data.reply.content,
+    "Puedo ayudarte a gestionar"
+  );
+  assert.equal(result.body.data.reply.truncated, true);
+  assert.equal(
+    state.usageEvents.at(-1).errorCode,
+    "OUTPUT_TRUNCATED"
   );
 });
 
@@ -1240,6 +1283,25 @@ test("POST /messages maps other provider errors to 502", async () => {
   assert.equal(
     result.body.error.code,
     "ASSISTANT_PROVIDER_ERROR"
+  );
+});
+
+test("POST /messages maps a truncated provider answer to its own code", async () => {
+  state.providerError = new AssistantProviderError(
+    "OUTPUT_TRUNCATED",
+    {}
+  );
+
+  const result = await request("/api/admin/assistant/messages", {
+    method: "POST",
+    accessToken: token("ADMIN"),
+    body: { message: "Hola" },
+  });
+
+  assert.equal(result.status, 502);
+  assert.equal(
+    result.body.error.code,
+    "ASSISTANT_RESPONSE_TRUNCATED"
   );
 });
 

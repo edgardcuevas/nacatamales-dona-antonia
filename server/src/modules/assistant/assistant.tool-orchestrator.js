@@ -1,5 +1,6 @@
 const {
-  MAX_PROVIDER_CALLS_PER_MESSAGE,
+  MAX_REASONING_ROUNDS,
+  MAX_PROVIDER_ATTEMPTS_PER_MESSAGE,
   MAX_TOOL_EXECUTIONS_PER_MESSAGE,
   MAX_TOOL_MISUSE_CORRECTIONS,
 } = require("./assistant.constants");
@@ -132,7 +133,8 @@ async function runAssistantToolTurn({
   const toolDeclarations = [...tools, ...actionTools];
   const providerMessages = [...messages];
   const providerResults = [];
-  let providerCalls = 0;
+  let providerAttempts = 0;
+  let reasoningRounds = 0;
   let toolExecutions = 0;
   let misuseCorrections = 0;
 
@@ -199,8 +201,11 @@ async function runAssistantToolTurn({
       tools: toolDeclarations,
       maxOutputTokens,
       timeoutMs,
+      // El adaptador recibe los intentos reales que quedan, no las rondas: un
+      // failover necesita dos intentos y debe poder completar la ronda.
       providerCallLimit:
-        MAX_PROVIDER_CALLS_PER_MESSAGE - providerCalls,
+        MAX_PROVIDER_ATTEMPTS_PER_MESSAGE -
+        providerAttempts,
     };
 
     if (!streamFinal) {
@@ -244,7 +249,7 @@ async function runAssistantToolTurn({
     };
   }
 
-  while (providerCalls < MAX_PROVIDER_CALLS_PER_MESSAGE) {
+  while (reasoningRounds < MAX_REASONING_ROUNDS) {
     let result;
     try {
       result = await requestRound();
@@ -284,7 +289,8 @@ async function runAssistantToolTurn({
     }
 
     providerResults.push(result);
-    providerCalls += result.providerCalls ?? 1;
+    providerAttempts += result.providerCalls ?? 1;
+    reasoningRounds += 1;
 
     if (result.blocked) {
       return finalize(result);
@@ -312,7 +318,8 @@ async function runAssistantToolTurn({
     );
     const canCorrect =
       misuseCorrections < MAX_TOOL_MISUSE_CORRECTIONS &&
-      providerCalls < MAX_PROVIDER_CALLS_PER_MESSAGE;
+      providerAttempts <
+        MAX_PROVIDER_ATTEMPTS_PER_MESSAGE;
 
     const feedBack = ({ notices }) => {
       if (!canCorrect) {
@@ -430,7 +437,8 @@ async function runAssistantToolTurn({
     }
 
     if (
-      providerCalls >= MAX_PROVIDER_CALLS_PER_MESSAGE ||
+      providerAttempts >=
+        MAX_PROVIDER_ATTEMPTS_PER_MESSAGE ||
       toolExecutions + toolCalls.length >
         MAX_TOOL_EXECUTIONS_PER_MESSAGE
     ) {

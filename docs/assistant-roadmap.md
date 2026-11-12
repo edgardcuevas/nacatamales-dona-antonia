@@ -79,7 +79,7 @@ código. Si el comentario ocupa más, se recorta antes de cerrar la tarea.
 |---|---|---|---|
 | `MAX_TOOL_DECLARATIONS` | 12 | 56 | 51 declaraciones reales para ADMIN, con margen |
 | `MAX_TOOL_EXECUTIONS_PER_MESSAGE` | 2 | 2 | Sin cambios: las masivas quitan la necesidad |
-| `MAX_PROVIDER_CALLS_PER_MESSAGE` | 3 | 3 | Sin cambios: cada llamada extra es cupo |
+| `MAX_REASONING_ROUNDS` / `MAX_PROVIDER_ATTEMPTS_PER_MESSAGE` | — | 3 / 4 | Reemplaza `MAX_PROVIDER_CALLS_PER_MESSAGE = 3`: el failover consume intentos, no rondas |
 | Límite diario por usuario | 100 | 50 | Un admin no debe consumir el RPD del proyecto |
 | `AI_DAILY_PROVIDER_CALLS` | — | 120 (0 = sin límite) | Corta antes del 429 del proveedor |
 | `AI_PRICE_INPUT_PER_M` | — | 0 (desactivado) | Estimador de costo en `/usage` |
