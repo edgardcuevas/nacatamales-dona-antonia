@@ -14,6 +14,7 @@ const {
   createNvidiaProvider,
 } = require("./providers/nvidia.provider");
 const {
+  ASSISTANT_PROVIDER_STATES,
   DEFAULT_ASSISTANT_PROVIDER_COOLDOWN_MS,
   PROVIDER_COOLDOWN_BY_CODE,
   PROVIDER_PROBE_WINDOW_MS,
@@ -110,6 +111,10 @@ function createFailoverProvider({
 
   const cooldowns = new Map();
   const lastErrors = new Map();
+  // Pruebas de recuperacion en curso. El estado es por instancia del servidor y
+  // por proveedor: solo la peticion que reclama la prueba intenta al proveedor
+  // limitado; las concurrentes usan el respaldo. Nunca se comparte la respuesta.
+  const recoveryChecks = new Set();
   const primary = providers[0];
   let lastProbeAt = null;
 
@@ -136,6 +141,20 @@ function createFailoverProvider({
         ASSISTANT_PROVIDER_ERROR_CODES.TIMEOUT,
         ASSISTANT_PROVIDER_ERROR_CODES.UNAVAILABLE,
       ].includes(error.code)
+    );
+  }
+
+  // Un proveedor limitado por cuota vuelve a ser elegible cuando vence su
+  // cooldown, pero esa vuelta es una prueba, no una reapertura general: solo una
+  // peticion la ejecuta y las demas esperan su resultado en el respaldo.
+  function isRecoveryDue(provider, nowMs) {
+    const lastError = lastErrors.get(provider.id);
+
+    return (
+      lastError instanceof AssistantProviderError &&
+      lastError.code ===
+        ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED &&
+      (cooldowns.get(provider.id) ?? 0) <= nowMs
     );
   }
 
@@ -309,20 +328,45 @@ function createFailoverProvider({
       input.providerCallLimit > 0
         ? input.providerCallLimit
         : providers.length;
-    const candidates = providers
-      .filter(
-        (provider) =>
-          (cooldowns.get(provider.id) ?? 0) <= nowMs
-      )
-      .slice(0, attemptLimit);
+    const candidates = [];
+    const claimedChecks = [];
+
+    // El reclamo ocurre en el tramo sincrono previo al primer await, asi que dos
+    // peticiones concurrentes no pueden reclamar la misma prueba.
+    for (const provider of providers) {
+      if (candidates.length >= attemptLimit) {
+        break;
+      }
+
+      if ((cooldowns.get(provider.id) ?? 0) > nowMs) {
+        continue;
+      }
+
+      if (isRecoveryDue(provider, nowMs)) {
+        if (recoveryChecks.has(provider.id)) {
+          continue;
+        }
+
+        recoveryChecks.add(provider.id);
+        claimedChecks.push(provider.id);
+      }
+
+      candidates.push(provider);
+    }
 
     if (candidates.length > 0) {
-      return attemptCandidates(
-        candidates,
-        method,
-        input,
-        onTextChunk
-      );
+      try {
+        return await attemptCandidates(
+          candidates,
+          method,
+          input,
+          onTextChunk
+        );
+      } finally {
+        for (const providerId of claimedChecks) {
+          recoveryChecks.delete(providerId);
+        }
+      }
     }
 
     const probe = selectProbeProvider(nowMs);
@@ -341,6 +385,35 @@ function createFailoverProvider({
     );
   }
 
+  // Instantanea de solo lectura calculada en el momento de consultar. El estado
+  // nunca declara "sano": tras un cooldown solo una respuesta real confirma la
+  // recuperacion, por eso existe RECOVERY_DUE / RECOVERY_CHECK.
+  function getProviderStates() {
+    const nowMs = now();
+
+    return providers.map((provider, index) =>
+      Object.freeze({
+        provider: provider.id,
+        role: index === 0 ? "primary" : "fallback",
+        state: recoveryChecks.has(provider.id)
+          ? ASSISTANT_PROVIDER_STATES.RECOVERY_CHECK
+          : (cooldowns.get(provider.id) ?? 0) > nowMs
+            ? ASSISTANT_PROVIDER_STATES.COOLDOWN
+            : isRecoveryDue(provider, nowMs)
+              ? ASSISTANT_PROVIDER_STATES.RECOVERY_DUE
+              : ASSISTANT_PROVIDER_STATES.ELIGIBLE,
+        cooldownUntil:
+          (cooldowns.get(provider.id) ?? 0) > nowMs
+            ? new Date(
+                cooldowns.get(provider.id)
+              ).toISOString()
+            : null,
+        lastErrorCode:
+          lastErrors.get(provider.id)?.code ?? null,
+      })
+    );
+  }
+
   return Object.freeze({
     id: primary.id,
     model: primary.model,
@@ -352,6 +425,7 @@ function createFailoverProvider({
       provider: providers[1]?.id ?? null,
       model: providers[1]?.model ?? null,
     }),
+    getProviderStates,
     chat: (input) => request("chat", input),
     chatStream: (input, onTextChunk) => {
       if (typeof onTextChunk !== "function") {

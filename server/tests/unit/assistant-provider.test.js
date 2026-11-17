@@ -2127,3 +2127,297 @@ test("a failover logs one sanitized line and never the api key", async () => {
     false
   );
 });
+
+function nvidiaAnswer(text = "ok") {
+  return jsonResponse({
+    choices: [
+      {
+        message: { role: "assistant", content: text },
+        finish_reason: "stop",
+      },
+    ],
+  });
+}
+
+test("only one concurrent request probes a rate-limited primary after its cooldown", async () => {
+  let now = 1_000;
+  let geminiCalls = 0;
+  let nvidiaCalls = 0;
+  let resolveGeminiProbe;
+  const geminiProbe = new Promise((resolve) => {
+    resolveGeminiProbe = resolve;
+  });
+  const provider = createProviderWithNvidia(
+    async (url) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+
+        if (geminiCalls === 1) {
+          return {
+            ok: false,
+            status: 429,
+            headers: { get: () => "60" },
+          };
+        }
+
+        return geminiProbe;
+      }
+
+      nvidiaCalls += 1;
+      return nvidiaAnswer();
+    },
+    { now: () => now }
+  );
+  const input = {
+    systemInstruction: "Sistema.",
+    messages: [{ role: "user", content: "Hola" }],
+  };
+
+  const first = await provider.chat(input);
+  assert.deepEqual(first.providers, ["gemini", "nvidia"]);
+  assert.equal(geminiCalls, 1);
+  assert.equal(nvidiaCalls, 1);
+
+  now += 60_001;
+
+  const probeRequest = provider.chat(input);
+  const fallbackRequest = provider.chat(input);
+
+  // La segunda peticion ya respondio con NVIDIA mientras la prueba sigue viva.
+  const fallbackResult = await fallbackRequest;
+  assert.equal(fallbackResult.provider, "nvidia");
+  assert.deepEqual(fallbackResult.providers, ["nvidia"]);
+  assert.equal(geminiCalls, 2);
+  assert.equal(nvidiaCalls, 2);
+
+  const checking = provider.getProviderStates();
+  assert.equal(checking[0].state, "RECOVERY_CHECK");
+  assert.equal(
+    checking[0].lastErrorCode,
+    ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED
+  );
+  assert.equal(checking[1].state, "ELIGIBLE");
+
+  resolveGeminiProbe(
+    jsonResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "ok" }] },
+          finishReason: "STOP",
+        },
+      ],
+    })
+  );
+
+  const probeResult = await probeRequest;
+  assert.equal(probeResult.provider, "gemini");
+  assert.deepEqual(probeResult.providers, ["gemini"]);
+  assert.equal(geminiCalls, 2);
+
+  const recovered = provider.getProviderStates();
+  assert.deepEqual(
+    recovered.map(
+      ({ provider: id, state, cooldownUntil, lastErrorCode }) => ({
+        id,
+        state,
+        cooldownUntil,
+        lastErrorCode,
+      })
+    ),
+    [
+      {
+        id: "gemini",
+        state: "ELIGIBLE",
+        cooldownUntil: null,
+        lastErrorCode: null,
+      },
+      {
+        id: "nvidia",
+        state: "ELIGIBLE",
+        cooldownUntil: null,
+        lastErrorCode: null,
+      },
+    ]
+  );
+
+  const next = await provider.chat(input);
+  assert.equal(next.provider, "gemini");
+  assert.equal(geminiCalls, 3);
+});
+
+test("a recovery probe that hits another 429 renews the cooldown and keeps the failover", async () => {
+  let now = 1_000;
+  let geminiCalls = 0;
+  let nvidiaCalls = 0;
+  const provider = createProviderWithNvidia(
+    async (url) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        geminiCalls += 1;
+        return { ok: false, status: 429 };
+      }
+
+      nvidiaCalls += 1;
+      return nvidiaAnswer();
+    },
+    { now: () => now }
+  );
+  const input = {
+    systemInstruction: "Sistema.",
+    messages: [{ role: "user", content: "Hola" }],
+  };
+
+  await provider.chat(input);
+  assert.equal(geminiCalls, 1);
+  now += 60_001;
+
+  const recovery = await provider.chat(input);
+  assert.equal(recovery.provider, "nvidia");
+  assert.deepEqual(recovery.providers, ["gemini", "nvidia"]);
+  assert.equal(geminiCalls, 2);
+  assert.equal(nvidiaCalls, 2);
+
+  assert.deepEqual(provider.getProviderStates()[0], {
+    provider: "gemini",
+    role: "primary",
+    state: "COOLDOWN",
+    cooldownUntil: new Date(now + 60_000).toISOString(),
+    lastErrorCode: "RATE_LIMITED",
+  });
+
+  const immediate = await provider.chat(input);
+  assert.deepEqual(immediate.providers, ["nvidia"]);
+  assert.equal(geminiCalls, 2);
+});
+
+test("getProviderStates reports cooldown, recovery due and confirmed recovery", async () => {
+  let now = 1_000;
+  let geminiHealthy = false;
+  const provider = createProviderWithNvidia(
+    async (url) => {
+      if (url.includes("generativelanguage.googleapis.com")) {
+        if (!geminiHealthy) {
+          return { ok: false, status: 429 };
+        }
+
+        return jsonResponse({
+          candidates: [
+            {
+              content: { parts: [{ text: "ok" }] },
+              finishReason: "STOP",
+            },
+          ],
+        });
+      }
+
+      return nvidiaAnswer();
+    },
+    { now: () => now }
+  );
+  const input = {
+    systemInstruction: "Sistema.",
+    messages: [{ role: "user", content: "Hola" }],
+  };
+
+  assert.deepEqual(provider.getProviderStates(), [
+    {
+      provider: "gemini",
+      role: "primary",
+      state: "ELIGIBLE",
+      cooldownUntil: null,
+      lastErrorCode: null,
+    },
+    {
+      provider: "nvidia",
+      role: "fallback",
+      state: "ELIGIBLE",
+      cooldownUntil: null,
+      lastErrorCode: null,
+    },
+  ]);
+
+  await provider.chat(input);
+
+  assert.deepEqual(provider.getProviderStates()[0], {
+    provider: "gemini",
+    role: "primary",
+    state: "COOLDOWN",
+    cooldownUntil: new Date(61_000).toISOString(),
+    lastErrorCode: "RATE_LIMITED",
+  });
+
+  now += 60_001;
+  assert.equal(
+    provider.getProviderStates()[0].state,
+    "RECOVERY_DUE"
+  );
+  assert.equal(
+    provider.getProviderStates()[0].cooldownUntil,
+    null
+  );
+
+  geminiHealthy = true;
+  await provider.chat(input);
+  assert.deepEqual(provider.getProviderStates()[0], {
+    provider: "gemini",
+    role: "primary",
+    state: "ELIGIBLE",
+    cooldownUntil: null,
+    lastErrorCode: null,
+  });
+});
+
+test("without an eligible fallback a concurrent request keeps the existing error", async () => {
+  let now = 1_000;
+  let geminiCalls = 0;
+  let resolveProbe;
+  const probeResponse = new Promise((resolve) => {
+    resolveProbe = resolve;
+  });
+  const provider = createProvider(
+    async () => {
+      geminiCalls += 1;
+
+      if (geminiCalls === 1) {
+        return { ok: false, status: 429 };
+      }
+
+      return probeResponse;
+    },
+    { now: () => now }
+  );
+  const input = {
+    systemInstruction: "Sistema.",
+    messages: [{ role: "user", content: "Hola" }],
+  };
+
+  await expectProviderError(
+    provider.chat(input),
+    ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED,
+    { providerCalls: 1, providers: ["gemini"] }
+  );
+
+  now += 60_001;
+  const probeRequest = provider.chat(input);
+
+  await expectProviderError(
+    provider.chat(input),
+    ASSISTANT_PROVIDER_ERROR_CODES.RATE_LIMITED,
+    { providerCalls: 0, providers: [] }
+  );
+  assert.equal(geminiCalls, 2);
+
+  resolveProbe(
+    jsonResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "ok" }] },
+          finishReason: "STOP",
+        },
+      ],
+    })
+  );
+
+  const recovered = await probeRequest;
+  assert.equal(recovered.provider, "gemini");
+  assert.equal(geminiCalls, 2);
+});

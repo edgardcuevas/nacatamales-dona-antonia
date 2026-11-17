@@ -110,6 +110,7 @@ const state = {
   },
   providerResponses: null,
   providerInputs: [],
+  providerStates: null,
   usageEvents: [],
   streamingInputs: [],
   streamingChunks: ["Respuesta ", "del asistente"],
@@ -156,6 +157,16 @@ const fakeProvider = {
     enabled: false,
     model: null,
   }),
+  getProviderStates: () =>
+    state.providerStates ?? [
+      {
+        provider: "gemini",
+        role: "primary",
+        state: "ELIGIBLE",
+        cooldownUntil: null,
+        lastErrorCode: null,
+      },
+    ],
   chat: async (input) => {
     state.providerInputs.push(input);
 
@@ -315,6 +326,7 @@ afterEach(() => {
   };
   state.providerResponses = null;
   state.providerInputs = [];
+  state.providerStates = null;
   state.usageEvents = [];
   state.streamingInputs = [];
   state.streamingChunks = ["Respuesta ", "del asistente"];
@@ -486,6 +498,53 @@ test("GET /status reports the provider and capabilities", async () => {
   assert.equal(result.body.data.quota.limit, 120);
   assert.equal(result.body.data.quota.used, 0);
   assert.equal(result.body.data.quota.exhausted, false);
+});
+
+test("GET /status adds per-provider state without breaking the current contract", async () => {
+  state.providerStates = [
+    {
+      provider: "gemini",
+      role: "primary",
+      state: "COOLDOWN",
+      cooldownUntil: "2026-11-12T10:00:00.000Z",
+      lastErrorCode: "RATE_LIMITED",
+    },
+    {
+      provider: "nvidia",
+      role: "fallback",
+      state: "RECOVERY_CHECK",
+      cooldownUntil: null,
+      lastErrorCode: "RATE_LIMITED",
+    },
+  ];
+
+  const result = await request(
+    "/api/admin/assistant/status",
+    { accessToken: token("EDITOR") }
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.enabled, true);
+  assert.equal(result.body.data.provider, "gemini");
+  assert.equal(result.body.data.model, "gemini-test");
+  assert.deepEqual(result.body.data.capabilities, {
+    supportsTools: true,
+    supportsStreaming: true,
+  });
+  assert.deepEqual(result.body.data.fallback, {
+    enabled: false,
+    provider: null,
+    model: null,
+  });
+  assert.equal(result.body.data.quota.limit, 120);
+  assert.deepEqual(
+    result.body.data.providers,
+    state.providerStates
+  );
+  assert.equal(
+    JSON.stringify(result.body).includes("test-gemini-key"),
+    false
+  );
 });
 
 test("GET /conversations lists the user's conversations", async () => {

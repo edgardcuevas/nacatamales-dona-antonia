@@ -8,6 +8,16 @@ const ASSISTANT_PROVIDER_VALUES = Object.freeze([
   ASSISTANT_PROVIDERS.NVIDIA,
 ]);
 
+// Estado de solo lectura que publica /status por proveedor. ELIGIBLE significa
+// que puede intentarse, no que el servicio remoto este sano: solo una respuesta
+// real exitosa confirma la recuperacion.
+const ASSISTANT_PROVIDER_STATES = Object.freeze({
+  ELIGIBLE: "ELIGIBLE",
+  COOLDOWN: "COOLDOWN",
+  RECOVERY_DUE: "RECOVERY_DUE",
+  RECOVERY_CHECK: "RECOVERY_CHECK",
+});
+
 // gemini-2.5-flash ya no esta disponible para cuentas nuevas: la API
 // responde 404 NOT_FOUND. gemini-3.5-flash es el Flash vigente que
 // responde con esta clave. Se puede cambiar con AI_MODEL.
@@ -98,6 +108,7 @@ const MAX_USAGE_DAYS = 365;
 module.exports = {
   ASSISTANT_PROVIDERS,
   ASSISTANT_PROVIDER_VALUES,
+  ASSISTANT_PROVIDER_STATES,
   DEFAULT_ASSISTANT_MODEL,
   NVIDIA_MODEL_PATTERN,
   DEFAULT_ASSISTANT_PROVIDER_COOLDOWN_MS,

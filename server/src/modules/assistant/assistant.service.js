@@ -491,6 +491,12 @@ function getStatus() {
     model: null,
   };
   const fallbackEnabled = fallback.enabled === true;
+  // Campo aditivo: los clientes que solo leen provider/model/fallback/
+  // capabilities/quota siguen funcionando aunque el proveedor no lo implemente.
+  const providerStates =
+    typeof provider.getProviderStates === "function"
+      ? provider.getProviderStates()
+      : null;
 
   return {
     enabled: true,
@@ -506,6 +512,9 @@ function getStatus() {
         ? fallback.model ?? null
         : null,
     },
+    ...(Array.isArray(providerStates)
+      ? { providers: providerStates }
+      : {}),
     quota: assistantQuota.current(),
   };
 }

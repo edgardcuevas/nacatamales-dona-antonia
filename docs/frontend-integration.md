@@ -63,7 +63,7 @@ El cliente solo envía `{ conversationId?, message }`; no envía resultados de h
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| GET | `/admin/assistant/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, fallback: { enabled, provider, model } }`. Si está desactivado: `{ enabled: false }`. |
+| GET | `/admin/assistant/status` | ADMIN, EDITOR | `{ enabled, provider, model, capabilities, fallback: { enabled, provider, model }, providers: [{ provider, role, state, cooldownUntil, lastErrorCode }], quota }`. `state` es `ELIGIBLE`, `COOLDOWN`, `RECOVERY_DUE` o `RECOVERY_CHECK`. Si está desactivado: `{ enabled: false }`. |
 | GET | `/admin/assistant/conversations?limit=20` | ADMIN, EDITOR | Conversaciones propias, ordenadas por actividad reciente. |
 | GET | `/admin/assistant/conversations/:id/messages?limit=50` | ADMIN, EDITOR | Historial propio. Una conversación ajena responde `404`. |
 | POST | `/admin/assistant/messages` | ADMIN, EDITOR | `{ conversationId?, message }`. Crea la conversación si falta `conversationId`. |

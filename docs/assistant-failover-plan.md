@@ -5,6 +5,12 @@ Plan de trabajo derivado de una validación en vivo del respaldo del asistente
 `docs/assistant-roadmap.md` el orden general del asistente; este archivo cubre
 solo el failover y se puede cerrar por completo.
 
+La coordinación de la recuperación posterior a un `429` vive en
+`docs/assistant-provider-recovery-roadmap.md` (prueba *single-flight* y estado
+consultable en `/status`). El cooldown **no** dispara sondeos en segundo plano
+ni llamadas sintéticas: solo una petición real que llega después del vencimiento
+puede confirmar la recuperación con una respuesta exitosa.
+
 ## Veredicto de la validación
 
 El failover **funciona**: al agotarse el cupo por minuto de Gemini la respuesta
