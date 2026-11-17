@@ -12,7 +12,7 @@ import UserManager from '../components/Admin/UserManager/UserManager'
 import AssistantChat from '../components/Admin/Assistant/AssistantChat'
 import AssistantDrawer from '../components/Admin/Assistant/AssistantDrawer'
 import '../styles/Administracion.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 const SECTIONS = [
   { key: 'categories', label: 'Categorías', description: 'Organiza el menú por secciones.', available: true },
@@ -65,7 +65,9 @@ const SECTION_COMPONENTS = {
 }
 
 export default function Administracion() {
-  usePageTitle('Administración')
+  // El panel no se indexa: es una herramienta de la dueña, no una página del
+  // negocio. Nginx refuerza lo mismo con X-Robots-Tag (etapa 5).
+  usePageMeta({ title: 'Administración', noindex: true })
   const { isAuthenticated, isLoading, user, logout } = useAuth()
   const [activeSection, setActiveSection] = useState(null)
     const headingRef = useRef(null)

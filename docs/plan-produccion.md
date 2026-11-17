@@ -6,7 +6,7 @@
 > **Leyenda:** `[ ]` pendiente · `[x]` hecho · `[~]` bloqueado / no aplica
 >
 > **Línea base medida el 16/11/2026:** backend **908 tests / 0 fallos**
-> (`cd server && npm test`, 13,5 s) · frontend **204 tests / 27 archivos / 0 fallos**
+> (`cd server && npm test`, 25,6 s) · frontend **229 tests / 31 archivos / 0 fallos**
 > (`cd frontend && npm test`) · **22 migraciones** · Node **v24.21.0**
 > (`requestTimeout=300000`, `headersTimeout=60000`, `keepAliveTimeout=5000`).
 >
@@ -42,7 +42,7 @@
 | A | Cookie refresh `SameSite=None` en producción | Confirmado | `server/src/modules/auth/auth.controller.js:24-31` (línea 28) |
 | B | Sin detección de reutilización | Confirmado | `server/src/modules/auth/auth-session.service.js:80-170` (rama 103-110) |
 | C | Frontend sin CSP/HSTS | Confirmado con matiz | `helmet()` solo cubre `/api` (`app.js:109`); helmet 8 ya emite HSTS en respuestas de `/api`, pero el **documento HTML** no tiene cabeceras |
-| D | `og:image` relativa, sin robots/sitemap/canonical/JSON-LD | Confirmado | `frontend/index.html:29-48`; no hay `public/robots.txt` ni `public/sitemap.xml`; `usePageTitle.js:6-13` solo cambia el título |
+| D | `og:image` relativa, sin robots/sitemap/canonical/JSON-LD | Confirmado | `frontend/index.html:29-48`; no había `public/robots.txt` ni `public/sitemap.xml`; `usePageTitle.js:6-13` solo cambiaba el título. **Etapa 2 ejecutada:** `vite.siteUrlPlugin.js` + `usePageMeta` + `StructuredData` |
 | E | Secretos y archivos de desarrollo | **Parcialmente incorrecto** | **Sí existe `.gitignore` raíz** (48 líneas) y ya cubre `.env`, `.env.*`, `verify-*.js/txt`, `client_secret_*.json`. `git log --all` nunca añadió un `.env`. **Etapa 1 ejecutada (16/11/2026):** `server/.gitignore` creado, `frontend/.env.example` creado, `docs/deploy-exclude.txt` escrito y tabla de rotación registrada |
 | F | Rate limiter en memoria | Confirmado | `rate-limit.middleware.js:3-6,21-27,119-137` |
 | G | Cambio de logo | Confirmado con corrección | `hero.png`, `icons.svg`, `react.svg`, `vite.svg` **sin referencias**; el logo visible es `symbol id="icon-badge"` + texto (`Header.jsx:36-42`) |
@@ -161,31 +161,38 @@ logs/
 
 **Objetivo:** vista previa correcta en WhatsApp y 5 páginas públicas con metadatos para Google, sin duplicar datos del negocio.
 
-- [ ] Plugin local en `frontend/vite.config.js` (`transformIndexHtml`) que sustituya `__SITE_URL__` en `og:image`, `og:url` y `<link rel="canonical">`. **No usar `%VITE_SITE_URL%`** (Vite deja el token literal si falta y publica una URL rota sin error).
-- [ ] **Aviso suave por defecto**: si falta `VITE_SITE_URL`, el build local **no rompe** (deja URLs relativas) y emite `console.warn`.
-- [ ] **Bandera de despliegue**: con `REQUIRE_SITE_URL=1`, el plugin **lanza error** y el build falla si falta `VITE_SITE_URL`. Comando de despliegue:
-  ```powershell
-  $env:REQUIRE_SITE_URL='1'; $env:VITE_SITE_URL='https://DOMINIO'; npm run build
-  ```
-- [ ] `frontend/src/utils/siteUrl.js`: `SITE_URL = (import.meta.env.VITE_SITE_URL || window.location.origin).replace(/\/+$/,'')` (runtime; tolera el olvido de la variable).
-- [ ] Convertir `usePageTitle.js` (6-13) en `usePageMeta({ title, description, noindex })` que actualice `meta[name=description]`, `og:title`, `og:description`, `og:url`, `link[rel=canonical]` y limpie al desmontar. Actualizar llamadas: `Home.jsx:29`, `Menu.jsx:22`, `DiaADia.jsx:14`, `Nosotros.jsx:10`, `Contacto.jsx:26`, `Administracion.jsx:68`, `NotFound.jsx:6`.
-- [ ] **Generar** `robots.txt` y `sitemap.xml` en `dist/` desde el plugin (no en `public/`: `<loc>` debe ser absoluto). 5 URLs públicas, `Disallow: /administracion`, línea `Sitemap:`. Si falta `VITE_SITE_URL`, **no se emiten** y avisa.
-- [ ] **`/administracion` con `noindex`** por dos vías: `usePageMeta({ noindex: true })` en `Administracion.jsx:68` y `X-Robots-Tag` en Nginx (Etapa 5).
-- [ ] `frontend/src/components/StructuredData/StructuredData.jsx` montado en `Layout.jsx:11`: un único `<script type="application/ld+json" id="site-jsonld">` con `Restaurant`, `name`, `url`, `image`, `telephone`, `address`, `geo`, `sameAs`, `hasMenu` — **solo** los campos presentes en settings. **Sin `openingHoursSpecification`**: `scheduleText` es texto libre; inventarlo es peor que omitirlo.
+- [x] Plugin `transformIndexHtml` que sustituye `__SITE_URL__` en `og:image`, `og:url` y `<link rel="canonical">`. **No se usó `%VITE_SITE_URL%`**. Vive en `frontend/vite.siteUrlPlugin.js` (no dentro de `vite.config.js`) para poder probarlo: el config solo lo instancia con `siteUrlPlugin(env.VITE_SITE_URL, { requireSiteUrl })`, y `VITE_SITE_URL` se lee con `loadEnv(mode, process.cwd(), 'VITE_')`.
+- [x] **Aviso suave por defecto**: sin `VITE_SITE_URL` el build **no rompe**, deja URLs relativas y `console.warn` en `configResolved` (solo en `command === 'build'`, para no ensuciar `npm run dev`).
+- [x] **Bandera de despliegue**: `REQUIRE_SITE_URL=1` hace que el plugin **lance error al instanciarse** y el build termine con código 1. No lleva prefijo `VITE_` a propósito: es una bandera del comando, no un dato del bundle.
+- [x] `frontend/src/utils/siteUrl.js`: exporta `SITE_URL` (normalizado, con `window.location.origin` como respaldo) y `absoluteUrl(path)`. La normalización vive en `src/utils/normalizeSiteUrl.js` porque el plugin la importa desde Node, donde `import.meta.env` no existe.
+- [x] `usePageTitle.js` **eliminado** → `usePageMeta({ title, description, noindex })`: escribe `title`, `meta[name=description]`, `og:title`, `og:description`, `og:url`, `link[rel=canonical]` y, si toca, `meta[name=robots]=noindex,follow`. Toma una foto del estado previo y **lo restaura al desmontar**. Usa `window.location.pathname`, no `useLocation`, para que `/menu?category=x` y `/menu` compartan canonical. Las 7 páginas actualizadas con su descripción propia.
+- [x] `robots.txt` y `sitemap.xml` **generados en `dist/`** desde `generateBundle` (nunca en `public/`): 5 URLs públicas, `Disallow: /administracion`, línea `Sitemap:`. Sin `VITE_SITE_URL` no se emiten y el aviso lo dice.
+- [x] **`/administracion` con `noindex`** vía `usePageMeta({ noindex: true })`. El `X-Robots-Tag` de Nginx queda para la Etapa 5.
+- [x] `StructuredData` montado en `Layout.jsx` (después del `Footer`): un único `<script type="application/ld+json" id="site-jsonld">` con `Restaurant` y solo los campos presentes en settings. **Sin `openingHoursSpecification`**. El `<` se escapa a `\u003c` para que un nombre con `</script>` no cierre la etiqueta.
+
+**Desvíos y decisiones de esta etapa**
+
+1. **Builder en `components/StructuredData/jsonld.js`**, no dentro del componente: exportar una función junto al componente dispara `react-refresh/only-export-components`. El componente quedó en 15 líneas.
+2. **`NotFound` también lleva `noindex`** (no estaba en el plan). Un 404 de SPA se sirve con **200** desde Nginx; sin `noindex`, Google puede indexar la página de error como contenido.
+3. **`eslint.config.js`**: bloque nuevo con `globals.node` para `vite.config.js` y `vite.siteUrlPlugin.js`, que ahora usan `process`. Sin eso, `npm run lint` fallaba por `no-undef`.
+4. Las claves sin dato del JSON-LD **se eliminan del objeto** (no quedan como `undefined`), así el objeto probado es exactamente el que se publica.
 
 **Nota honesta:** WhatsApp y Facebook **no ejecutan JS**. El único OG que verán es el estático de `index.html`. Lo dinámico es para Google.
 
 **Terminado cuando:** el build de despliegue falla sin `VITE_SITE_URL`, con la variable genera OG/canonical absolutos y `sitemap.xml`/`robots.txt`, y el panel expone `noindex`.
 
-**Verificación**
-```powershell
-cd frontend
-npm run build                                  # sin variable: aviso, no rompe
-$env:REQUIRE_SITE_URL='1'; npm run build       # debe FALLAR
-$env:VITE_SITE_URL='https://ejemplo.test'; npm run build
-Select-String dist/index.html -Pattern 'og:image|og:url|canonical'
-Get-Content dist/robots.txt; Get-Content dist/sitemap.xml
-npm test                                       # 204 + nuevos
+**Verificación ejecutada (16/11/2026)**
+
+```text
+npm run build (sin VITE_SITE_URL)   -> aviso "[site-url] VITE_SITE_URL sin definir..." y build OK
+                                       dist/index.html: canonical "/", og:url "/", og:image "/og-image.png"
+                                       dist/ SIN robots.txt ni sitemap.xml
+REQUIRE_SITE_URL=1 npm run build    -> "error during build: VITE_SITE_URL no esta definida y
+                                       REQUIRE_SITE_URL=1", exit 1
+VITE_SITE_URL=https://ejemplo.test  -> canonical/og:url/og:image absolutos,
+                                       dist/robots.txt y dist/sitemap.xml con las 5 URLs
+npm test                            -> 229 tests / 31 archivos / 0 fallos (204 previos + 25 nuevos)
+npm run lint                        -> los mismos 10 errores preexistentes, 0 nuevos
 ```
 Tras desplegar (Etapa 5/9), el fallo silencioso se caza así:
 ```bash
@@ -194,7 +201,7 @@ curl -sI https://DOMINIO/robots.txt  | grep -i content-type   # text/plain
 ```
 Si el fallback de la SPA devuelve `text/html` con 200, el sitemap no se generó.
 
-**Tests:** `usePageMeta.test.jsx` (título, description, canonical, noindex, limpieza) y `StructuredData.test.jsx` (un solo script, JSON esperado, ausencia de `openingHoursSpecification`).
+**Tests (4 archivos nuevos, 25 casos):** `hooks/usePageMeta.test.jsx` (título con y sin nombre de página, description, og:url, canonical, `noindex` y su retiro, restauración del estado previo, cambio de nombre del negocio sin duplicar etiquetas) · `components/StructuredData/StructuredData.test.jsx` (campos presentes y ausentes, cero `openingHoursSpecification`, un único script tras un cambio de ajustes, escapado de `<`) · `utils/siteUrl.test.js` (normalización y `absoluteUrl`) · `vite.siteUrlPlugin.test.js` (sustitución del marcador, aviso en build, fallo con la bandera, emisión de los dos archivos y sus rutas absolutas).
 
 ---
 

@@ -14,7 +14,7 @@ import { formatPrice } from '../utils/price'
 import { storyExcerpt } from '../utils/brand'
 import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import './../styles/Home.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 function whatsappHref(whatsappNumber, message) {
   if (!whatsappNumber) {
@@ -26,7 +26,10 @@ function whatsappHref(whatsappNumber, message) {
 
 export default function Home() {
   const { settings } = useSettings()
-  usePageTitle(null)
+  usePageMeta({
+    description:
+      'Nacatamales y fritanga tradicional de Doña Antonia. Mira el menú del día, el horario y cómo visitarnos.',
+  })
   // El hero es el mejor sitio para el estado abierto/cerrado: es lo primero
   // que mira el que esta decidiendo si viene a comer.
   const estaAbierto = useOpenNow(settings.scheduleText)

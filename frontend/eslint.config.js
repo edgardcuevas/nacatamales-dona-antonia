@@ -18,4 +18,12 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // La configuracion de Vite se ejecuta en Node: process y console no son
+    // globales de navegador.
+    files: ['vite.config.js', 'vite.siteUrlPlugin.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

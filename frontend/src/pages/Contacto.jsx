@@ -5,7 +5,7 @@ import ScheduleBadge from '../components/ScheduleBadge/ScheduleBadge'
 import useOpenNow from '../hooks/useOpenNow'
 import { formatWhatsappNumber } from '../utils/phone'
 import '../styles/Contacto.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 function whatsappHref(whatsappNumber) {
   if (!whatsappNumber) {
@@ -23,7 +23,10 @@ function mapEmbedSrc(latitude, longitude) {
 
 export default function Contacto() {
     const { settings, loadFailed, refreshSettings } = useSettings()
-  usePageTitle('Contacto')
+  usePageMeta({
+    title: 'Contacto',
+    description: 'Dónde estamos y cuándo visitar Nacatamales de Doña Antonia: dirección, horario y cómo llegar.',
+  })
   const waHref = whatsappHref(settings.whatsappNumber)
   const mapSrc = mapEmbedSrc(settings.latitude, settings.longitude)
   // En la pagina de contacto el estado abierto/cerrado evita el viaje en

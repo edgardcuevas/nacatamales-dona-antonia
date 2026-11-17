@@ -7,7 +7,7 @@ import Reveal from '../components/Reveal/Reveal'
 import { formatPrice } from '../utils/price'
 import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import '../styles/Menu.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 function whatsappHref(whatsappNumber, productName) {
   if (!whatsappNumber) {
@@ -19,7 +19,10 @@ function whatsappHref(whatsappNumber, productName) {
 
 export default function Menu() {
   const { settings } = useSettings()
-  usePageTitle('Menú')
+  usePageMeta({
+    title: 'Menú',
+    description: 'El menú de Nacatamales de Doña Antonia: categorías, precios y disponibilidad al día.',
+  })
   const [searchParams, setSearchParams] = useSearchParams()
   const [categories, setCategories] = useState([])
   // Se guarda junto al slug al que pertenece: así "cargando" se deduce

@@ -7,11 +7,14 @@ import { mergeFeed } from '../utils/feed'
 import { withCacheBuster } from '../utils/cacheBuster'
 import { imageSrcSet, optimizeImage } from '../utils/imageUrl'
 import '../styles/DiaADia.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 export default function DiaADia() {
   const [items, setItems] = useState([])
-  usePageTitle('Día a día')
+  usePageMeta({
+    title: 'Día a día',
+    description: 'Fotos y videos de Nacatamales de Doña Antonia: cómo se preparan y se sirven los nacatamales.',
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState(null)
   const [playingId, setPlayingId] = useState(null)

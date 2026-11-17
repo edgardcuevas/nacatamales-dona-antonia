@@ -1,9 +1,15 @@
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/icons/Icons'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 export default function NotFound() {
-  usePageTitle('Página no encontrada')
+  // Un 404 de SPA se sirve con 200 desde Nginx: sin noindex Google podría
+  // indexar la página de error como si fuera contenido.
+  usePageMeta({
+    title: 'Página no encontrada',
+    description: 'La página que buscas no existe en Nacatamales de Doña Antonia.',
+    noindex: true,
+  })
 
   return (
     <div className="menu-page">

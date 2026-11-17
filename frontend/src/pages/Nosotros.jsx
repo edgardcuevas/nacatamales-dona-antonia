@@ -3,11 +3,14 @@ import { Link } from 'react-router-dom'
 import { Icon } from '../components/icons/Icons'
 import Reveal from '../components/Reveal/Reveal'
 import '../styles/Nosotros.css'
-import usePageTitle from '../hooks/usePageTitle'
+import usePageMeta from '../hooks/usePageMeta'
 
 export default function Nosotros() {
   const { settings } = useSettings()
-  usePageTitle('Nosotros')
+  usePageMeta({
+    title: 'Nosotros',
+    description: 'La historia de Nacatamales de Doña Antonia: cocina casera, hoja de plátano e ingredientes frescos.',
+  })
 
   return (
     <div className="nosotros-page">
