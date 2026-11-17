@@ -43,7 +43,7 @@
 | B | Sin detección de reutilización | Confirmado | `server/src/modules/auth/auth-session.service.js:80-170` (rama 103-110) |
 | C | Frontend sin CSP/HSTS | Confirmado con matiz | `helmet()` solo cubre `/api` (`app.js:109`); helmet 8 ya emite HSTS en respuestas de `/api`, pero el **documento HTML** no tiene cabeceras |
 | D | `og:image` relativa, sin robots/sitemap/canonical/JSON-LD | Confirmado | `frontend/index.html:29-48`; no hay `public/robots.txt` ni `public/sitemap.xml`; `usePageTitle.js:6-13` solo cambia el título |
-| E | Secretos y archivos de desarrollo | **Parcialmente incorrecto** | **Sí existe `.gitignore` raíz** (48 líneas) y ya cubre `.env`, `.env.*`, `verify-*.js/txt`, `client_secret_*.json`. `git log --all` nunca añadió un `.env`. Falta `server/.gitignore`, exclusión de despliegue y tabla de rotación |
+| E | Secretos y archivos de desarrollo | **Parcialmente incorrecto** | **Sí existe `.gitignore` raíz** (48 líneas) y ya cubre `.env`, `.env.*`, `verify-*.js/txt`, `client_secret_*.json`. `git log --all` nunca añadió un `.env`. **Etapa 1 ejecutada (16/11/2026):** `server/.gitignore` creado, `frontend/.env.example` creado, `docs/deploy-exclude.txt` escrito y tabla de rotación registrada |
 | F | Rate limiter en memoria | Confirmado | `rate-limit.middleware.js:3-6,21-27,119-137` |
 | G | Cambio de logo | Confirmado con corrección | `hero.png`, `icons.svg`, `react.svg`, `vite.svg` **sin referencias**; el logo visible es `symbol id="icon-badge"` + texto (`Header.jsx:36-42`) |
 | H | Despliegue en VPS | Confirmado | No existe ningún `*.service`, `ecosystem*`, `nginx*` ni `Dockerfile` |
@@ -86,10 +86,55 @@
 
 **Objetivo:** que nada de la máquina de desarrollo llegue al VPS ni al repositorio, y tener la rotación escrita antes de tocar producción.
 
-- [ ] Confirmar el estado: `git ls-files | Select-String '\.env'` → solo `server/.env.example`; `git check-ignore -v server/.env server/.env.test server/.env.verify`; `git log --all --diff-filter=A --name-only | Select-String '^server/\.env'` → vacío.
-- [ ] Crear `server/.gitignore` (espejo del bloque raíz: `.env`, `.env.*`, `!.env.example`, `verify-*.js`, `verify-*.txt`). **REQUIERE APROBACIÓN.**
-- [ ] Crear `frontend/.env.example` con `VITE_SITE_URL=` y `VITE_API_BASE_URL=` comentado (producción va **sin** `VITE_API_BASE_URL`: mismo origen).
-- [ ] Escribir la lista de exclusión de despliegue: `server/.env*` (salvo `.env.example`), `server/.env.test*`, `server/.env.verify`, `server/verify-*.js`, `server/verify-out.txt`, `frontend/.env.development`, `frontend/.env.production`, `node_modules/`, `dist/`, `.git/`, `.vscode/`.
+- [x] Confirmar el estado (16/11/2026): `git ls-files` → solo `server/.env.example`; `git check-ignore -v` cubre `server/.env`, `.env.test`, `.env.verify`, `frontend/.env.development` y `.env.production`; `git log --all --diff-filter=A` → solo `server/.env.example`, ningún `.env` real entró nunca al historial.
+- [x] Crear `server/.gitignore` (espejo del bloque raíz + dos correcciones: **re-incluye** `.env.test.example` e ignora `client_secret_*.json`). **REQUIERE APROBACIÓN** → aprobado al arrancar la etapa; no cambia comportamiento en tiempo de ejecución.
+- [x] Crear `frontend/.env.example` con `VITE_SITE_URL=` y `VITE_API_BASE_URL=` comentado (producción va **sin** `VITE_API_BASE_URL`: mismo origen).
+- [x] Lista de exclusión de despliegue escrita abajo, lista para `rsync -a --exclude-from`.
+
+**Hallazgos que salieron al ejecutar la etapa**
+
+1. **`server/.env.test.example` nunca estuvo trackeado.** La regla raíz `.env.*` lo ignoraba y `!.env.example` solo rescata el nombre exacto, así que la plantilla del entorno de pruebas no se podía commitear. Corregido con `!.env.test.example` en `server/.gitignore` (verificado: ahora sale `??` en vez de `!!`). Queda **pendiente de `git add`**.
+2. **`frontend/.env.production` (local, gitignored) apuntaba a `https://api.tu-dominio-aqui.com`.** Ese valor habría roto el sitio en el primer build de producción: origen cruzado, sin CORS en el servidor y el refresh cookie `SameSite=None; Secure`. Queda vacío con un comentario que explica por qué.
+3. **`img/` e `img-bugs/` están committeados** (10 archivos, 4,2 MB) y **ningún archivo del código los referencia**: son material de origen y capturas de bugs. No se borran del repositorio (decisión del cliente), pero quedan fuera del despliegue.
+
+**Exclusión de despliegue** (archivo real: `docs/deploy-exclude.txt`, se pasa a `rsync -a --exclude-from`):
+
+```gitignore
+# Secretos y entorno local: el .env de producción se crea en el VPS, nunca viaja
+server/.env
+server/.env.*
+!server/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Artefactos locales de verificación
+server/verify-*.js
+server/verify-*.txt
+server/vite.verify.config.js
+server/client_secret_*.json
+
+# Dependencias y builds: se regeneran con npm ci / npm run build
+node_modules/
+dist/
+build/
+
+# Metadatos y herramientas
+.git/
+.github/
+.vscode/
+.idea/
+
+# Material de origen, no forma parte del sitio (4,2 MB)
+img/
+img-bugs/
+
+# Sistema y basura
+.DS_Store
+Thumbs.db
+logs/
+*.log
+```
 
 **Tabla de rotación (orden y efecto)**
 
@@ -104,9 +149,11 @@
 | 7 | `WEB_PUSH_*` (VAPID) | **Invalida todas las suscripciones**; se limpian al recibir 404/410 | Antes de anunciar el sitio |
 | 8 | `INITIAL_ADMIN_*` / `RESET_ADMIN_*` | Solo scripts one-shot; borrar del entorno tras usarlas | Alta del admin |
 
-- [ ] Registrar la tabla en este documento (hecho) y revisarla en la Etapa 9.
+- [x] Registrar la tabla en este documento (hecho) y revisarla en la Etapa 9.
 
-**Terminado cuando:** `git status` limpio de artefactos, `git check-ignore` cubre los archivos locales, y las suites siguen en 908/204.
+**Terminado cuando:** `git status` limpio de artefactos, `git check-ignore` cubre los archivos locales, y las suites siguen verdes.
+
+**Verificación ejecutada:** `git status --short --ignored` → los cinco `.env` reales en `!!`; `git check-ignore -v server/.env.test.example` → `server/.gitignore:7:!.env.test.example`. Suites: ver línea base al inicio del documento.
 
 ---
 

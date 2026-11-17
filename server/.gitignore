@@ -1,0 +1,15 @@
+# Defensa en profundidad: la raiz ya ignora .env y .env.*, pero esta regla
+# queda pegada al proyecto que realmente usa los secretos y re-incluye las
+# plantillas (la raiz solo rescata el nombre exacto .env.example).
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Credenciales OAuth descargadas de Google Cloud Console.
+client_secret_*.json
+
+# Scripts y salidas de verificacion locales: nunca forman parte de la app.
+verify-*.js
+verify-*.txt
+vite.verify.config.js

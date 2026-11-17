@@ -1,0 +1,38 @@
+# Exclusión de despliegue para rsync -a --exclude-from
+# Uso desde la raíz del repo: rsync -a --exclude-from=docs/deploy-exclude.txt ./ usuario@vps:/srv/nacatamales/
+# El .env de producción se crea en el VPS y nunca viaja en el despliegue.
+
+# Secretos y entorno local
+server/.env
+server/.env.*
+!server/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Artefactos locales de verificación
+server/verify-*.js
+server/verify-*.txt
+server/vite.verify.config.js
+server/client_secret_*.json
+
+# Dependencias y builds: se regeneran con npm ci / npm run build
+node_modules/
+dist/
+build/
+
+# Metadatos y herramientas
+.git/
+.github/
+.vscode/
+.idea/
+
+# Material de origen, no forma parte del sitio
+img/
+img-bugs/
+
+# Sistema y basura
+.DS_Store
+Thumbs.db
+logs/
+*.log
